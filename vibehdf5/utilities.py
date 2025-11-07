@@ -43,10 +43,10 @@ def archive_to_hdf5(directory: str,
                         data = f.read()
                     fout.create_dataset(path_for_file, data=data, dtype=h5py.string_dtype(encoding='utf-8'))
                 except Exception:
-                    # try to save as binary:
+                    # Save as binary: store as 1D uint8 array for compatibility
                     with open(name, 'rb') as f:
                         bdata = f.read()
-                    fout.create_dataset(path_for_file, data = np.array(bdata, dtype='S6'))
+                    fout.create_dataset(path_for_file, data=np.frombuffer(bdata, dtype='uint8'))
 
     fout.close()  
 

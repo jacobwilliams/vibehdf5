@@ -166,6 +166,12 @@ class HDF5Viewer(QMainWindow):
             pass
         right_layout.addWidget(self.preview_label)
         right_layout.addWidget(self.preview_edit)
+
+        # Image preview label (hidden by default)
+        self.preview_image = QLabel(self)
+        self.preview_image.setAlignment(Qt.AlignCenter)
+        self.preview_image.setVisible(False)
+        right_layout.addWidget(self.preview_image)
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 2)
@@ -340,13 +346,55 @@ class HDF5Viewer(QMainWindow):
         fpath = self.model.filepath
         if not fpath:
             self.preview_edit.setPlainText("No file loaded")
+            self.preview_edit.setVisible(True)
+            self.preview_image.setVisible(False)
             return
+        # If the dataset name ends with .png, try to display as image
+        if dspath.lower().endswith('.png'):
+            try:
+                import h5py
+                from PySide6.QtGui import QPixmap
+                with h5py.File(fpath, "r") as h5:
+                    obj = h5[dspath]
+                    if not isinstance(obj, h5py.Dataset):
+                        self.preview_edit.setPlainText("Selected path is not a dataset.")
+                        self.preview_edit.setVisible(True)
+                        self.preview_image.setVisible(False)
+                        return
+                    # Read raw bytes from dataset
+                    data = obj[()]
+                    if isinstance(data, bytes):
+                        img_bytes = data
+                    elif hasattr(data, 'tobytes'):
+                        img_bytes = data.tobytes()
+                    else:
+                        self.preview_edit.setPlainText("Dataset is not a valid PNG byte array.")
+                        self.preview_edit.setVisible(True)
+                        self.preview_image.setVisible(False)
+                        return
+                    pixmap = QPixmap()
+                    if pixmap.loadFromData(img_bytes, "PNG"):
+                        self.preview_image.setPixmap(pixmap)
+                        self.preview_image.setVisible(True)
+                        self.preview_edit.setVisible(False)
+                    else:
+                        self.preview_edit.setPlainText("Failed to load PNG image from dataset.")
+                        self.preview_edit.setVisible(True)
+                        self.preview_image.setVisible(False)
+            except Exception as exc:
+                self.preview_edit.setPlainText(f"Error reading PNG dataset:\n{exc}")
+                self.preview_edit.setVisible(True)
+                self.preview_image.setVisible(False)
+            return
+        # Otherwise, show text preview as before
         try:
             import h5py
             with h5py.File(fpath, "r") as h5:
                 obj = h5[dspath]
                 if not isinstance(obj, h5py.Dataset):
                     self.preview_edit.setPlainText("Selected path is not a dataset.")
+                    self.preview_edit.setVisible(True)
+                    self.preview_image.setVisible(False)
                     return
                 ds = obj
                 text, note = _dataset_to_text(ds, limit_bytes=1_000_000)
@@ -354,8 +402,12 @@ class HDF5Viewer(QMainWindow):
                 if note:
                     header += f"\n{note}"
                 self.preview_edit.setPlainText(header + "\n\n" + text)
+                self.preview_edit.setVisible(True)
+                self.preview_image.setVisible(False)
         except Exception as exc:
             self.preview_edit.setPlainText(f"Error reading dataset:\n{exc}")
+            self.preview_edit.setVisible(True)
+            self.preview_image.setVisible(False)
 
     def preview_attribute(self, grouppath: str, key: str) -> None:
         self.preview_label.setText(f"Attribute: {grouppath}@{key}")
