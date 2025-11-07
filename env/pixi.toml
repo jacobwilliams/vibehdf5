@@ -1,0 +1,16 @@
+[project]
+authors = ["Jacob Williams <jacobwilliams@users.noreply.github.com>"]
+channels = ["conda-forge"]
+name = "env"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+viewer = "python hdf5_viewer.py"
+
+
+[dependencies]
+python = ">=3.14.0,<3.15"
+h5py = ">=3.15.1,<4"
+pyside6 = ">=6.9.3,<7"
+numpy = ">=2.3.4,<3"
