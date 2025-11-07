@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import h5py
-from PySide6.QtCore import Qt
+import tempfile
+import os
+from pathlib import Path
+from PySide6.QtCore import Qt, QUrl, QMimeData
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QStyle, QApplication
 
@@ -50,6 +53,100 @@ class HDF5TreeModel(QStandardItemModel):
     @property
     def filepath(self) -> str | None:
         return self._filepath
+
+    def supportedDragActions(self):
+        """Enable copy action for drag-and-drop."""
+        return Qt.CopyAction
+
+    def mimeTypes(self):
+        """Specify that we provide file URLs for drag-and-drop."""
+        return ["text/uri-list"]
+
+    def mimeData(self, indexes):
+        """Create mime data containing a temporary file with the dataset content."""
+        if not indexes:
+            return None
+
+        # Get the first index (should be column 0)
+        index = indexes[0]
+        if index.column() != self.COL_NAME:
+            # Find the corresponding column 0 index
+            index = self.index(index.row(), self.COL_NAME, index.parent())
+
+        item = self.itemFromIndex(index)
+        if item is None:
+            return None
+
+        kind = item.data(self.ROLE_KIND)
+        path = item.data(self.ROLE_PATH)
+
+        # Only allow dragging datasets (not groups or attributes)
+        if kind != "dataset":
+            return None
+
+        if not self._filepath:
+            return None
+
+        try:
+            # Extract dataset content to a temporary file
+            import h5py
+            import numpy as np
+
+            with h5py.File(self._filepath, "r") as h5:
+                ds = h5[path]
+                if not isinstance(ds, h5py.Dataset):
+                    return None
+
+                # Determine filename from the dataset path
+                dataset_name = os.path.basename(path)
+                if not dataset_name:
+                    dataset_name = "dataset"
+
+                # Create a temporary file
+                temp_dir = tempfile.gettempdir()
+                temp_path = os.path.join(temp_dir, dataset_name)
+
+                # Read dataset content
+                data = ds[()]
+
+                # Try to save based on data type
+                if isinstance(data, np.ndarray) and data.dtype == np.uint8:
+                    # Binary data (like images)
+                    with open(temp_path, 'wb') as f:
+                        f.write(data.tobytes())
+                elif isinstance(data, (bytes, bytearray)):
+                    # Raw bytes
+                    with open(temp_path, 'wb') as f:
+                        f.write(data)
+                elif isinstance(data, str):
+                    # String data
+                    with open(temp_path, 'w', encoding='utf-8') as f:
+                        f.write(data)
+                else:
+                    # Try string representation
+                    vld = h5py.check_string_dtype(ds.dtype)
+                    if vld is not None:
+                        # Variable-length string
+                        as_str = ds.asstr()[()]
+                        if isinstance(as_str, np.ndarray):
+                            text = '\n'.join(map(str, as_str.ravel().tolist()))
+                        else:
+                            text = str(as_str)
+                        with open(temp_path, 'w', encoding='utf-8') as f:
+                            f.write(text)
+                    else:
+                        # Fallback: convert to text
+                        with open(temp_path, 'w', encoding='utf-8') as f:
+                            f.write(str(data))
+
+                # Create mime data with file URL
+                mime = QMimeData()
+                url = QUrl.fromLocalFile(temp_path)
+                mime.setUrls([url])
+                return mime
+
+        except Exception:
+            return None
 
     # Internal helpers
     def _add_group(self, group: h5py.Group, parent_item: QStandardItem) -> None:

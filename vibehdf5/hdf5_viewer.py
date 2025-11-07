@@ -4,8 +4,8 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QFont, QFontDatabase
+from PySide6.QtCore import Qt, QUrl, QMimeData
+from PySide6.QtGui import QAction, QFont, QFontDatabase, QDrag
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -141,6 +141,10 @@ class HDF5Viewer(QMainWindow):
         self.tree.header().setDefaultSectionSize(350)
         self.tree.setSortingEnabled(True)
         self.tree.sortByColumn(0, Qt.AscendingOrder)
+
+        # Enable drag-and-drop
+        self.tree.setDragEnabled(True)
+        self.tree.setDragDropMode(QTreeView.DragOnly)
 
         # Context menu on tree
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
