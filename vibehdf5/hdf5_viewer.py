@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
 )
 
-from hdf5_tree_model import HDF5TreeModel
+from .hdf5_tree_model import HDF5TreeModel
 
 
 # Helpers (placed before main/class so they are defined at runtime)
@@ -246,7 +246,7 @@ class HDF5Viewer(QMainWindow):
             self.preview_edit.setPlainText("")
 
     def preview_dataset(self, dspath: str) -> None:
-        self.preview_label.setText(f"Dataset: {dspath}")
+        self.preview_label.setText(f"Dataset: {os.path.basename(dspath)}")
         fpath = self.model.filepath
         if not fpath:
             self.preview_edit.setPlainText("No file loaded")
