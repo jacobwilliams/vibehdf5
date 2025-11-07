@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QLabel,
     QPlainTextEdit,
+    QMenu,
 )
 
 from .hdf5_tree_model import HDF5TreeModel
@@ -141,6 +142,10 @@ class HDF5Viewer(QMainWindow):
         self.tree.setSortingEnabled(True)
         self.tree.sortByColumn(0, Qt.AscendingOrder)
 
+        # Context menu on tree
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.on_tree_context_menu)
+
         # Preview panel (right)
         right = QWidget(self)
         right_layout = QVBoxLayout(right)
@@ -244,6 +249,91 @@ class HDF5Viewer(QMainWindow):
         else:
             self.preview_label.setText(str(kind) if kind else "")
             self.preview_edit.setPlainText("")
+
+    # Context menu handling
+    def on_tree_context_menu(self, point) -> None:
+        index = self.tree.indexAt(point)
+        if not index.isValid():
+            return
+        # Always act on column 0 item for role data
+        index0 = index.siblingAtColumn(0)
+        item = self.model.itemFromIndex(index0)
+        if item is None:
+            return
+        kind = item.data(self.model.ROLE_KIND)
+        path = item.data(self.model.ROLE_PATH)
+        attr_key = item.data(self.model.ROLE_ATTR_KEY)
+
+        # Determine if deletable and label
+        deletable = False
+        label = None
+        if kind == "dataset":
+            deletable = True
+            label = f"Delete dataset '{item.text()}'"
+        elif kind == "group":
+            # Don't allow deleting the file root
+            if path and path != "/":
+                deletable = True
+                label = f"Delete group '{item.text()}'"
+        elif kind == "attr":
+            deletable = True
+            label = f"Delete attribute '{attr_key}'"
+
+        menu = QMenu(self)
+        if deletable and label:
+            act_delete = menu.addAction(label)
+        else:
+            # Nothing to act on
+            return
+
+        global_pos = self.tree.viewport().mapToGlobal(point)
+        chosen = menu.exec(global_pos)
+        if chosen == act_delete:
+            # Confirm destructive action
+            target_desc = label.replace("Delete ", "") if label else "item"
+            resp = QMessageBox.question(
+                self,
+                "Confirm delete",
+                f"Are you sure you want to delete {target_desc}?\n\nThis will modify the HDF5 file and cannot be undone.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if resp == QMessageBox.Yes:
+                self._perform_delete(kind, path, attr_key)
+
+    def _perform_delete(self, kind: str, path: str, attr_key: str | None) -> None:
+        fpath = self.model.filepath
+        if not fpath:
+            QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
+            return
+        try:
+            import h5py
+            with h5py.File(fpath, "r+") as h5:
+                if kind == "dataset":
+                    # Deleting a dataset link by absolute path
+                    del h5[path]
+                elif kind == "group":
+                    if path == "/":
+                        raise ValueError("Cannot delete the root group")
+                    del h5[path]
+                elif kind == "attr":
+                    if attr_key is None:
+                        raise ValueError("Missing attribute key")
+                    # For attributes, 'path' is the group/dataset owner path
+                    owner = h5[path]
+                    del owner.attrs[attr_key]
+                else:
+                    raise ValueError(f"Unsupported kind: {kind}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Delete failed", f"Could not delete: {exc}")
+            return
+
+        # Refresh model to reflect changes
+        try:
+            self.model.load_file(fpath)
+            self.tree.expandToDepth(1)
+        except Exception as exc:
+            QMessageBox.warning(self, "Refresh failed", f"Deleted, but failed to refresh view: {exc}")
 
     def preview_dataset(self, dspath: str) -> None:
         self.preview_label.setText(f"Dataset: {os.path.basename(dspath)}")
