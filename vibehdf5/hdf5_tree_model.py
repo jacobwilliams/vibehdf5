@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import h5py
+import numpy as np
 import tempfile
 import os
 from pathlib import Path
+import shutil
 from qtpy.QtCore import Qt, QUrl, QMimeData
 from qtpy.QtGui import QStandardItem, QStandardItemModel
 from qtpy.QtWidgets import QStyle, QApplication
@@ -92,7 +94,6 @@ class HDF5TreeModel(QStandardItemModel):
             return None
 
         try:
-            import h5py
 
             if kind == "dataset":
                 # Extract single dataset to a file
@@ -136,7 +137,6 @@ class HDF5TreeModel(QStandardItemModel):
 
                     # Remove existing folder if it exists
                     if os.path.exists(temp_folder):
-                        import shutil
                         shutil.rmtree(temp_folder)
 
                     # Create the folder and extract the group
@@ -154,8 +154,6 @@ class HDF5TreeModel(QStandardItemModel):
 
     def _save_dataset_to_file(self, ds, file_path):
         """Save a single dataset to a file."""
-        import h5py
-        import numpy as np
 
         # Read dataset content
         data = ds[()]
@@ -192,7 +190,6 @@ class HDF5TreeModel(QStandardItemModel):
 
     def _extract_group_to_folder(self, group, folder_path):
         """Recursively extract a group and its contents to a folder."""
-        import h5py
 
         # Iterate through all items in the group
         for name, obj in group.items():

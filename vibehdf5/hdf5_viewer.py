@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+import numpy as np
+import h5py
+import posixpath
+import binascii
 
 from qtpy.QtCore import Qt
 from qtpy.QtGui import QAction, QFont, QFontDatabase, QPixmap
@@ -35,8 +39,6 @@ def _dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]
     - If content exceeds limit_bytes, the output is truncated with a note.
     - Tries to decode bytes as UTF-8; falls back to hex preview for binary.
     """
-    import numpy as np
-    import h5py
 
     note = None
     # Best effort: read entire dataset (beware huge data)
@@ -101,7 +103,6 @@ def _bytes_to_text(b: bytes, limit_bytes: int = 1_000_000) -> tuple[str, str | N
         return b.decode('utf-8'), note
     except UnicodeDecodeError:
         # Provide a hex dump preview
-        import binascii
         hexstr = binascii.hexlify(b).decode('ascii')
         # Group hex bytes in pairs for readability
         grouped = ' '.join(hexstr[i:i+2] for i in range(0, len(hexstr), 2))
@@ -313,7 +314,6 @@ class HDF5Viewer(QMainWindow):
         if kind == "dataset":
             # parent group of dataset
             try:
-                import posixpath
                 return posixpath.dirname(path) or "/"
             except Exception:
                 return "/"
@@ -336,7 +336,6 @@ class HDF5Viewer(QMainWindow):
             return path
         if kind == "dataset":
             try:
-                import posixpath
                 return posixpath.dirname(path) or "/"
             except Exception:  # noqa: BLE001
                 return "/"
@@ -385,9 +384,6 @@ class HDF5Viewer(QMainWindow):
         errors: list[str] = []
         added = 0
         try:
-            import h5py
-            import numpy as np
-            import posixpath
             with h5py.File(fpath, "r+") as h5:
                 if target_group == "/":
                     base_grp = h5
@@ -460,7 +456,6 @@ class HDF5Viewer(QMainWindow):
 
         Raises FileExistsError if the path already exists.
         """
-        import h5py
         # Check existence
         f = grp.file
         if h5_path in f:
@@ -510,7 +505,6 @@ class HDF5Viewer(QMainWindow):
                 return
 
         try:
-            import h5py
             # Create a new empty HDF5 file
             with h5py.File(filepath, "w"):
                 # Create an empty file with a root group
@@ -632,7 +626,6 @@ class HDF5Viewer(QMainWindow):
             QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
             return
         try:
-            import h5py
             with h5py.File(fpath, "r+") as h5:
                 if kind == "dataset":
                     # Deleting a dataset link by absolute path
@@ -671,7 +664,6 @@ class HDF5Viewer(QMainWindow):
         # If the dataset name ends with .png, try to display as image
         if dspath.lower().endswith('.png'):
             try:
-                import h5py
                 with h5py.File(fpath, "r") as h5:
                     obj = h5[dspath]
                     if not isinstance(obj, h5py.Dataset):
@@ -707,7 +699,6 @@ class HDF5Viewer(QMainWindow):
             return
         # Otherwise, show text preview for non-PNG datasets
         try:
-            import h5py
             with h5py.File(fpath, "r") as h5:
                 obj = h5[dspath]
                 if not isinstance(obj, h5py.Dataset):
@@ -783,7 +774,6 @@ class HDF5Viewer(QMainWindow):
             self._set_preview_text("No file loaded")
             return
         try:
-            import h5py
             with h5py.File(fpath, "r") as h5:
                 g = h5[grouppath]
                 val = g.attrs[key]

@@ -8,6 +8,7 @@ the LANGUAGE_PATTERNS dictionary.
 from __future__ import annotations
 
 import os
+import re
 from qtpy.QtCore import QRegularExpression
 from qtpy.QtGui import QColor, QTextCharFormat, QFont, QSyntaxHighlighter
 
@@ -101,7 +102,6 @@ class SyntaxHighlighter(QSyntaxHighlighter):
         if "operators" in patterns:
             for operator in patterns["operators"]:
                 # Escape all special regex characters to match literally
-                import re
                 escaped = re.escape(operator)
                 pattern = QRegularExpression(escaped)
                 self.highlighting_rules.append((pattern, self.operator_format))
