@@ -12,10 +12,12 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 
 ### 📊 **Data Preview**
 - **Text Preview**: View dataset contents as text with automatic truncation for large data
+- **Syntax Highlighting**: Automatic color-coded syntax for Python, JavaScript, C/C++, Fortran, JSON, YAML, XML, HTML, CSS, Markdown, and more
 - **Image Display**: Automatic PNG image rendering for datasets with `.png` extension
 - **Smart Scaling**: Images scale automatically to fit the preview panel while maintaining aspect ratio
 - **Binary Data Handling**: Hex dump preview for non-text binary datasets
 - **Variable-Length Strings**: Proper handling of HDF5 variable-length string datasets
+- **Extensible Language Support**: Easy to add support for additional programming languages
 
 ### ✏️ **Content Management**
 - **Add Files**: Import individual files into the HDF5 archive via toolbar or drag-and-drop

@@ -25,6 +25,7 @@ from qtpy.QtWidgets import (
 
 from .hdf5_tree_model import HDF5TreeModel
 from .utilities import excluded_dirs, excluded_files
+from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
 
 
 # Helpers (placed before main/class so they are defined at runtime)
@@ -176,6 +177,7 @@ class HDF5Viewer(QMainWindow):
         self.setWindowTitle("HDF5 Viewer")
         self.resize(900, 600)
         self._original_pixmap = None
+        self._current_highlighter = None  # Track current syntax highlighter
 
         # Central widget: splitter with tree (left) and preview (right)
         central = QWidget(self)
@@ -549,7 +551,7 @@ class HDF5Viewer(QMainWindow):
         self.statusBar().showMessage(path)
         self.tree.expandToDepth(1)
         self.preview_label.setText("No selection")
-        self.preview_edit.setPlainText("")
+        self._set_preview_text("")
 
     # Selection handling
     def on_selection_changed(self, selected, _deselected) -> None:
@@ -568,10 +570,10 @@ class HDF5Viewer(QMainWindow):
             self.preview_attribute(path, key)
         elif kind == "group":
             self.preview_label.setText(f"Group: {path}")
-            self.preview_edit.setPlainText("(No content to display)")
+            self._set_preview_text("(No content to display)")
         else:
             self.preview_label.setText(str(kind) if kind else "")
-            self.preview_edit.setPlainText("")
+            self._set_preview_text("")
 
     # Context menu handling
     def on_tree_context_menu(self, point) -> None:
@@ -662,7 +664,7 @@ class HDF5Viewer(QMainWindow):
         self.preview_label.setText(f"Dataset: {os.path.basename(dspath)}")
         fpath = self.model.filepath
         if not fpath:
-            self.preview_edit.setPlainText("No file loaded")
+            self._set_preview_text("No file loaded")
             self.preview_edit.setVisible(True)
             self.preview_image.setVisible(False)
             return
@@ -673,7 +675,7 @@ class HDF5Viewer(QMainWindow):
                 with h5py.File(fpath, "r") as h5:
                     obj = h5[dspath]
                     if not isinstance(obj, h5py.Dataset):
-                        self.preview_edit.setPlainText("Selected path is not a dataset.")
+                        self._set_preview_text("Selected path is not a dataset.")
                         self.preview_edit.setVisible(True)
                         self.preview_image.setVisible(False)
                         return
@@ -684,7 +686,7 @@ class HDF5Viewer(QMainWindow):
                     elif hasattr(data, 'tobytes'):
                         img_bytes = data.tobytes()
                     else:
-                        self.preview_edit.setPlainText("Dataset is not a valid PNG byte array.")
+                        self._set_preview_text("Dataset is not a valid PNG byte array.")
                         self.preview_edit.setVisible(True)
                         self.preview_image.setVisible(False)
                         return
@@ -695,11 +697,11 @@ class HDF5Viewer(QMainWindow):
                         self.preview_image.setVisible(True)
                         self.preview_edit.setVisible(False)
                     else:
-                        self.preview_edit.setPlainText("Failed to load PNG image from dataset.")
+                        self._set_preview_text("Failed to load PNG image from dataset.")
                         self.preview_edit.setVisible(True)
                         self.preview_image.setVisible(False)
             except Exception as exc:
-                self.preview_edit.setPlainText(f"Error reading PNG dataset:\n{exc}")
+                self._set_preview_text(f"Error reading PNG dataset:\n{exc}")
                 self.preview_edit.setVisible(True)
                 self.preview_image.setVisible(False)
             return
@@ -709,7 +711,7 @@ class HDF5Viewer(QMainWindow):
             with h5py.File(fpath, "r") as h5:
                 obj = h5[dspath]
                 if not isinstance(obj, h5py.Dataset):
-                    self.preview_edit.setPlainText("Selected path is not a dataset.")
+                    self._set_preview_text("Selected path is not a dataset.")
                     self.preview_edit.setVisible(True)
                     self.preview_image.setVisible(False)
                     return
@@ -718,13 +720,43 @@ class HDF5Viewer(QMainWindow):
                 header = f"shape={ds.shape}, dtype={ds.dtype}"
                 if note:
                     header += f"\n{note}"
-                self.preview_edit.setPlainText(header + "\n\n" + text)
+                
+                # Apply syntax highlighting based on file extension
+                language = get_language_from_path(dspath)
+                self._set_preview_text(header + "\n\n" + text, language=language)
                 self.preview_edit.setVisible(True)
                 self.preview_image.setVisible(False)
         except Exception as exc:
-            self.preview_edit.setPlainText(f"Error reading dataset:\n{exc}")
+            self._set_preview_text(f"Error reading dataset:\n{exc}")
             self.preview_edit.setVisible(True)
             self.preview_image.setVisible(False)
+    
+    def _set_preview_text(self, text: str, language: str = "plain") -> None:
+        """Set preview text with optional syntax highlighting.
+        
+        Args:
+            text: The text content to display
+            language: Language identifier for syntax highlighting (default: "plain")
+        """
+        # Remove old highlighter if exists
+        if self._current_highlighter is not None:
+            self._current_highlighter.setDocument(None)
+            self._current_highlighter = None
+        
+        # Set the text
+        self.preview_edit.setPlainText(text)
+        
+        # Apply syntax highlighting if not plain text
+        if language != "plain":
+            try:
+                self._current_highlighter = SyntaxHighlighter(
+                    self.preview_edit.document(),
+                    language=language
+                )
+            except Exception:  # noqa: BLE001
+                # If highlighting fails, just show plain text
+                pass
+    
     def _show_scaled_image(self, pixmap=None):
         # Use the provided pixmap or the stored one
         if pixmap is not None:
@@ -748,16 +780,16 @@ class HDF5Viewer(QMainWindow):
         self.preview_label.setText(f"Attribute: {grouppath}@{key}")
         fpath = self.model.filepath
         if not fpath:
-            self.preview_edit.setPlainText("No file loaded")
+            self._set_preview_text("No file loaded")
             return
         try:
             import h5py
             with h5py.File(fpath, "r") as h5:
                 g = h5[grouppath]
                 val = g.attrs[key]
-                self.preview_edit.setPlainText(repr(val))
+                self._set_preview_text(repr(val))
         except Exception as exc:
-            self.preview_edit.setPlainText(f"Error reading attribute:\n{exc}")
+            self._set_preview_text(f"Error reading attribute:\n{exc}")
 
 
 def main(argv: list[str] | None = None) -> int:
