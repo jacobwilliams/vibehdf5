@@ -28,7 +28,6 @@ from qtpy.QtWidgets import (
     QMenu,
     QTableWidget,
     QTableWidgetItem,
-    QHeaderView,
 )
 
 from .hdf5_tree_model import HDF5TreeModel
@@ -262,6 +261,10 @@ class HDF5Viewer(QMainWindow):
         self.preview_table.setVisible(False)
         self.preview_table.setAlternatingRowColors(True)
         self.preview_table.horizontalHeader().setStretchLastSection(True)
+        # Enable selecting multiple columns for plotting
+        self.preview_table.setSelectionBehavior(QAbstractItemView.SelectColumns)
+        self.preview_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.preview_table.itemSelectionChanged.connect(self._update_plot_action_enabled)
         right_layout.addWidget(self.preview_table)
 
         # Image preview label (hidden by default)
@@ -279,6 +282,9 @@ class HDF5Viewer(QMainWindow):
         self._create_toolbar()
         self.setStatusBar(QStatusBar(self))
         self.tree.selectionModel().selectionChanged.connect(self.on_selection_changed)
+
+        # Track currently previewed CSV group (for plotting)
+        self._current_csv_group_path: str | None = None
 
     def _create_actions(self) -> None:
         self.act_new = QAction("New HDF5 File…", self)
@@ -308,6 +314,14 @@ class HDF5Viewer(QMainWindow):
         self.act_quit.setShortcut("Ctrl+Q")
         self.act_quit.triggered.connect(self.close)
 
+        # Plotting action for CSV tables
+        self.act_plot_selected = QAction("Plot Selected Columns", self)
+        self.act_plot_selected.setToolTip(
+            "Plot selected table columns (first selection is X, others are Y)"
+        )
+        self.act_plot_selected.triggered.connect(self.plot_selected_columns)
+        self.act_plot_selected.setEnabled(False)
+
     def _create_toolbar(self) -> None:
         tb = QToolBar("Main", self)
         self.addToolBar(tb)
@@ -318,6 +332,8 @@ class HDF5Viewer(QMainWindow):
         tb.addSeparator()
         tb.addAction(self.act_expand)
         tb.addAction(self.act_collapse)
+        tb.addSeparator()
+        tb.addAction(self.act_plot_selected)
         tb.addSeparator()
         tb.addAction(self.act_quit)
 
@@ -915,8 +931,12 @@ class HDF5Viewer(QMainWindow):
 
                 # Check if this is a CSV-derived group
                 if 'source_type' in grp.attrs and grp.attrs['source_type'] == 'csv':
+                    # Track current CSV group for plotting
+                    self._current_csv_group_path = grouppath
                     self._show_csv_table(grp)
+                    self._update_plot_action_enabled()
                 else:
+                    self._current_csv_group_path = None
                     self._set_preview_text("(No content to display)")
         except Exception as exc:
             self._set_preview_text(f"Error reading group:\n{exc}")
@@ -1003,11 +1023,195 @@ class HDF5Viewer(QMainWindow):
             self.preview_edit.setVisible(False)
             self.preview_image.setVisible(False)
 
+            # Enable/disable plotting action depending on visibility/selection
+            self._update_plot_action_enabled()
+
         except Exception as exc:
             self._set_preview_text(f"Error displaying CSV table:\n{exc}")
             self.preview_table.setVisible(False)
             self.preview_edit.setVisible(True)
             self.preview_image.setVisible(False)
+
+    def _get_selected_column_indices(self) -> list[int]:
+        try:
+            sel_model = self.preview_table.selectionModel()
+            if not sel_model:
+                return []
+            # Prefer selectedColumns if available
+            cols = []
+            try:
+                cols = [idx.column() for idx in sel_model.selectedColumns()]
+            except Exception:  # noqa: BLE001
+                # Fallback: derive from selectedIndexes
+                cols = list({idx.column() for idx in sel_model.selectedIndexes()})
+            # Unique and sorted for stable behavior
+            return sorted({c for c in cols if c >= 0})
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _update_plot_action_enabled(self) -> None:
+        # Enable plotting when a CSV group is active and >= 2 columns are selected
+        is_csv = self._current_csv_group_path is not None and self.preview_table.isVisible()
+        sel_cols = self._get_selected_column_indices() if is_csv else []
+        self.act_plot_selected.setEnabled(is_csv and len(sel_cols) >= 2)
+
+    def _read_csv_columns(self, group_path: str, column_names: list[str]) -> dict[str, np.ndarray]:
+        """Read one or more column arrays from a CSV-derived group by original column names.
+
+        Returns a dict mapping original column name -> numpy array (1-D). Strings remain strings.
+        """
+        result: dict[str, np.ndarray] = {}
+        fpath = self.model.filepath
+        if not fpath:
+            return result
+        try:
+            with h5py.File(fpath, "r") as h5:
+                grp = h5[group_path]
+                # Resolve mapping from original names to dataset keys if present
+                mapping: dict[str, str] = {}
+                if 'column_names' in grp.attrs:
+                    try:
+                        orig = [str(c) for c in list(grp.attrs['column_names'])]
+                    except Exception:  # noqa: BLE001
+                        orig = []
+                    ds_names: list[str] | None = None
+                    if 'column_dataset_names' in grp.attrs:
+                        try:
+                            ds_names = [str(c) for c in list(grp.attrs['column_dataset_names'])]
+                            if len(ds_names) != len(orig):
+                                ds_names = None
+                        except Exception:  # noqa: BLE001
+                            ds_names = None
+                    for i, name in enumerate(orig):
+                        key = None
+                        if ds_names is not None:
+                            key = ds_names[i]
+                        else:
+                            cand = _sanitize_hdf5_name(name)
+                            key = cand if cand in grp else (name if name in grp else None)
+                        if key is not None:
+                            mapping[name] = key
+                # Read requested columns
+                for name in column_names:
+                    ds_key = mapping.get(name)
+                    if ds_key is None:
+                        # Fallback to direct/sanitized key lookup
+                        cand = _sanitize_hdf5_name(name)
+                        if cand in grp:
+                            ds_key = cand
+                        elif name in grp:
+                            ds_key = name
+                    if ds_key is None or ds_key not in grp:
+                        continue
+                    ds = grp[ds_key]
+                    if not isinstance(ds, h5py.Dataset):
+                        continue
+                    data = ds[()]
+                    if isinstance(data, np.ndarray):
+                        arr = data
+                    else:
+                        arr = np.array([data])
+                    result[name] = arr
+        except Exception:  # noqa: BLE001
+            return result
+        return result
+
+    def plot_selected_columns(self) -> None:
+        """Plot selected columns from the current CSV table using matplotlib.
+
+        - First selected (or current) column is X
+        - Subsequent selected columns are Y series
+        - Adds legend and shows a new window
+        """
+        if self._current_csv_group_path is None or not self.preview_table.isVisible():
+            QMessageBox.information(self, "Plot", "No CSV table is active to plot.")
+            return
+        # Import matplotlib lazily to keep it optional
+        try:
+            import matplotlib.pyplot as plt  # type: ignore
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(
+                self,
+                "Matplotlib not available",
+                f"Could not import matplotlib. Please install it first.\n\nError: {exc}",
+            )
+            return
+
+        # Determine selected columns and their order
+        sel_cols = self._get_selected_column_indices()
+        if len(sel_cols) < 2:
+            QMessageBox.information(
+                self,
+                "Plot",
+                "Select at least two columns (first is X, others are Y).",
+            )
+            return
+        # Use current column as X if part of selection; else use the leftmost selected
+        current_col = self.preview_table.currentColumn()
+        x_idx = current_col if current_col in sel_cols else min(sel_cols)
+        y_idxs = [c for c in sel_cols if c != x_idx]
+
+        # Column names from headers
+        headers = [
+            self.preview_table.horizontalHeaderItem(i).text()
+            if self.preview_table.horizontalHeaderItem(i) is not None else f"col_{i}"
+            for i in range(self.preview_table.columnCount())
+        ]
+        try:
+            x_name = headers[x_idx]
+            y_names = [headers[i] for i in y_idxs]
+        except Exception:
+            QMessageBox.warning(self, "Plot", "Failed to resolve column headers for plotting.")
+            return
+
+        # Read columns from the HDF5 group
+        col_data = self._read_csv_columns(self._current_csv_group_path, [x_name] + y_names)
+        if x_name not in col_data or not any(name in col_data for name in y_names):
+            QMessageBox.warning(self, "Plot", "Failed to read selected columns from HDF5.")
+            return
+
+        # Prepare numeric data, align lengths
+        try:
+            # Coerce X to numeric
+            import pandas as _pd  # local alias
+            x_arr = col_data[x_name]
+            # Ensure 1-D
+            x_arr = x_arr.ravel()
+            min_len = min(len(x_arr), *(len(col_data.get(n, [])) for n in y_names if n in col_data))
+            if min_len <= 0:
+                QMessageBox.warning(self, "Plot", "No data to plot.")
+                return
+            x_num = _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+
+            plt.figure()
+            any_plotted = False
+            for y_name in y_names:
+                if y_name not in col_data:
+                    continue
+                y_arr = col_data[y_name].ravel()[:min_len]
+                y_num = _pd.to_numeric(_pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
+                import numpy as _np
+                valid = _np.isfinite(x_num) & _np.isfinite(y_num)
+                if valid.any():
+                    plt.plot(x_num[valid], y_num[valid], label=y_name)
+                    any_plotted = True
+            if not any_plotted:
+                QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
+                plt.close()
+                return
+            plt.xlabel(x_name)
+            plt.ylabel(", ".join(y_names))
+            try:
+                # Use group base name as title
+                title = os.path.basename(self._current_csv_group_path.rstrip("/"))
+                plt.title(title)
+            except Exception:
+                pass
+            plt.legend()
+            plt.tight_layout()
+            plt.show()
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Plot error", f"Failed to plot data:\n{exc}")
 
 
 def main(argv: list[str] | None = None) -> int:
