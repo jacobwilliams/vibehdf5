@@ -1209,7 +1209,8 @@ class HDF5Viewer(QMainWindow):
                 pass
             plt.legend()
             plt.tight_layout()
-            plt.show()
+            # Use block=False to avoid conflicting with Qt's event loop
+            plt.show(block=False)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Plot error", f"Failed to plot data:\n{exc}")
 
