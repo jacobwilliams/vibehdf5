@@ -63,7 +63,7 @@ class HDF5TreeModel(QStandardItemModel):
         return ["text/uri-list"]
 
     def mimeData(self, indexes):
-        """Create mime data containing a temporary file with the dataset content."""
+        """Create mime data containing a temporary file/folder with the dataset/group content."""
         if not indexes:
             return None
 
@@ -80,73 +80,131 @@ class HDF5TreeModel(QStandardItemModel):
         kind = item.data(self.ROLE_KIND)
         path = item.data(self.ROLE_PATH)
 
-        # Only allow dragging datasets (not groups or attributes)
-        if kind != "dataset":
+        # Only allow dragging datasets and groups (not attributes or file root)
+        if kind not in ("dataset", "group"):
+            return None
+
+        # Don't allow dragging the root group
+        if kind == "group" and path == "/":
             return None
 
         if not self._filepath:
             return None
 
         try:
-            # Extract dataset content to a temporary file
             import h5py
-            import numpy as np
 
-            with h5py.File(self._filepath, "r") as h5:
-                ds = h5[path]
-                if not isinstance(ds, h5py.Dataset):
-                    return None
+            if kind == "dataset":
+                # Extract single dataset to a file
+                with h5py.File(self._filepath, "r") as h5:
+                    ds = h5[path]
+                    if not isinstance(ds, h5py.Dataset):
+                        return None
 
-                # Determine filename from the dataset path
-                dataset_name = os.path.basename(path)
-                if not dataset_name:
-                    dataset_name = "dataset"
+                    # Determine filename from the dataset path
+                    dataset_name = os.path.basename(path)
+                    if not dataset_name:
+                        dataset_name = "dataset"
 
-                # Create a temporary file
-                temp_dir = tempfile.gettempdir()
-                temp_path = os.path.join(temp_dir, dataset_name)
+                    # Create a temporary file
+                    temp_dir = tempfile.gettempdir()
+                    temp_path = os.path.join(temp_dir, dataset_name)
 
-                # Read dataset content
-                data = ds[()]
+                    self._save_dataset_to_file(ds, temp_path)
 
-                # Try to save based on data type
-                if isinstance(data, np.ndarray) and data.dtype == np.uint8:
-                    # Binary data (like images)
-                    with open(temp_path, 'wb') as f:
-                        f.write(data.tobytes())
-                elif isinstance(data, (bytes, bytearray)):
-                    # Raw bytes
-                    with open(temp_path, 'wb') as f:
-                        f.write(data)
-                elif isinstance(data, str):
-                    # String data
-                    with open(temp_path, 'w', encoding='utf-8') as f:
-                        f.write(data)
-                else:
-                    # Try string representation
-                    vld = h5py.check_string_dtype(ds.dtype)
-                    if vld is not None:
-                        # Variable-length string
-                        as_str = ds.asstr()[()]
-                        if isinstance(as_str, np.ndarray):
-                            text = '\n'.join(map(str, as_str.ravel().tolist()))
-                        else:
-                            text = str(as_str)
-                        with open(temp_path, 'w', encoding='utf-8') as f:
-                            f.write(text)
-                    else:
-                        # Fallback: convert to text
-                        with open(temp_path, 'w', encoding='utf-8') as f:
-                            f.write(str(data))
+                    # Create mime data with file URL
+                    mime = QMimeData()
+                    url = QUrl.fromLocalFile(temp_path)
+                    mime.setUrls([url])
+                    return mime
 
-                # Create mime data with file URL
-                mime = QMimeData()
-                url = QUrl.fromLocalFile(temp_path)
-                mime.setUrls([url])
-                return mime
+            elif kind == "group":
+                # Extract group as a folder hierarchy
+                with h5py.File(self._filepath, "r") as h5:
+                    group = h5[path]
+                    if not isinstance(group, h5py.Group):
+                        return None
+
+                    # Determine folder name from the group path
+                    group_name = os.path.basename(path)
+                    if not group_name:
+                        group_name = "group"
+
+                    # Create a temporary folder
+                    temp_dir = tempfile.gettempdir()
+                    temp_folder = os.path.join(temp_dir, group_name)
+
+                    # Remove existing folder if it exists
+                    if os.path.exists(temp_folder):
+                        import shutil
+                        shutil.rmtree(temp_folder)
+
+                    # Create the folder and extract the group
+                    os.makedirs(temp_folder, exist_ok=True)
+                    self._extract_group_to_folder(group, temp_folder)
+
+                    # Create mime data with folder URL
+                    mime = QMimeData()
+                    url = QUrl.fromLocalFile(temp_folder)
+                    mime.setUrls([url])
+                    return mime
 
         except Exception:
             return None
+
+    def _save_dataset_to_file(self, ds, file_path):
+        """Save a single dataset to a file."""
+        import h5py
+        import numpy as np
+
+        # Read dataset content
+        data = ds[()]
+
+        # Try to save based on data type
+        if isinstance(data, np.ndarray) and data.dtype == np.uint8:
+            # Binary data (like images)
+            with open(file_path, 'wb') as f:
+                f.write(data.tobytes())
+        elif isinstance(data, (bytes, bytearray)):
+            # Raw bytes
+            with open(file_path, 'wb') as f:
+                f.write(data)
+        elif isinstance(data, str):
+            # String data
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(data)
+        else:
+            # Try string representation
+            vld = h5py.check_string_dtype(ds.dtype)
+            if vld is not None:
+                # Variable-length string
+                as_str = ds.asstr()[()]
+                if isinstance(as_str, np.ndarray):
+                    text = '\n'.join(map(str, as_str.ravel().tolist()))
+                else:
+                    text = str(as_str)
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(text)
+            else:
+                # Fallback: convert to text
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(str(data))
+
+    def _extract_group_to_folder(self, group, folder_path):
+        """Recursively extract a group and its contents to a folder."""
+        import h5py
+
+        # Iterate through all items in the group
+        for name, obj in group.items():
+            if isinstance(obj, h5py.Dataset):
+                # Save dataset as a file
+                file_path = os.path.join(folder_path, name)
+                self._save_dataset_to_file(obj, file_path)
+            elif isinstance(obj, h5py.Group):
+                # Create subfolder and recurse
+                subfolder_path = os.path.join(folder_path, name)
+                os.makedirs(subfolder_path, exist_ok=True)
+                self._extract_group_to_folder(obj, subfolder_path)
 
     # Internal helpers
     def _add_group(self, group: h5py.Group, parent_item: QStandardItem) -> None:
