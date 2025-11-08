@@ -108,11 +108,22 @@ def _bytes_to_text(b: bytes, limit_bytes: int = 1_000_000) -> tuple[str, str | N
         return grouped, (note or "binary data shown as hex")
 
 
+class ScaledImageLabel(QLabel):
+    def __init__(self, parent=None, rescale_callback=None):
+        super().__init__(parent)
+        self._rescale_callback = rescale_callback
+
+    def resizeEvent(self, event):
+        if self._rescale_callback:
+            self._rescale_callback()
+        super().resizeEvent(event)
+
 class HDF5Viewer(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("HDF5 Viewer")
         self.resize(900, 600)
+        self._original_pixmap = None
 
         # Central widget: splitter with tree (left) and preview (right)
         central = QWidget(self)
@@ -172,9 +183,10 @@ class HDF5Viewer(QMainWindow):
         right_layout.addWidget(self.preview_edit)
 
         # Image preview label (hidden by default)
-        self.preview_image = QLabel(self)
+        self.preview_image = ScaledImageLabel(self, rescale_callback=self._show_scaled_image)
         self.preview_image.setAlignment(Qt.AlignCenter)
         self.preview_image.setVisible(False)
+        self.preview_image.setScaledContents(False)  # We'll scale manually for aspect ratio
         right_layout.addWidget(self.preview_image)
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
@@ -378,7 +390,8 @@ class HDF5Viewer(QMainWindow):
                         return
                     pixmap = QPixmap()
                     if pixmap.loadFromData(img_bytes, "PNG"):
-                        self.preview_image.setPixmap(pixmap)
+                        # Scale pixmap to fit preview area, maintaining aspect ratio
+                        self._show_scaled_image(pixmap)
                         self.preview_image.setVisible(True)
                         self.preview_edit.setVisible(False)
                     else:
@@ -390,7 +403,7 @@ class HDF5Viewer(QMainWindow):
                 self.preview_edit.setVisible(True)
                 self.preview_image.setVisible(False)
             return
-        # Otherwise, show text preview as before
+        # Otherwise, show text preview for non-PNG datasets
         try:
             import h5py
             with h5py.File(fpath, "r") as h5:
@@ -412,6 +425,24 @@ class HDF5Viewer(QMainWindow):
             self.preview_edit.setPlainText(f"Error reading dataset:\n{exc}")
             self.preview_edit.setVisible(True)
             self.preview_image.setVisible(False)
+    def _show_scaled_image(self, pixmap=None):
+        # Use the provided pixmap or the stored one
+        if pixmap is not None:
+            self._original_pixmap = pixmap
+        pixmap = self._original_pixmap
+        if pixmap is None:
+            return
+        label_size = self.preview_image.size()
+        if label_size.width() < 10 or label_size.height() < 10:
+            label_size = self.preview_image.parentWidget().size()
+        scaled = pixmap.scaled(label_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.preview_image.setPixmap(scaled)
+
+    def resizeEvent(self, event):
+        # If an image is visible, rescale it to fit the new size
+        if self.preview_image.isVisible():
+            self._show_scaled_image()
+        super().resizeEvent(event)
 
     def preview_attribute(self, grouppath: str, key: str) -> None:
         self.preview_label.setText(f"Attribute: {grouppath}@{key}")
