@@ -26,6 +26,9 @@ from qtpy.QtWidgets import (
     QLabel,
     QPlainTextEdit,
     QMenu,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
 )
 
 from .hdf5_tree_model import HDF5TreeModel
@@ -239,6 +242,13 @@ class HDF5Viewer(QMainWindow):
             pass
         right_layout.addWidget(self.preview_label)
         right_layout.addWidget(self.preview_edit)
+
+        # Table widget for CSV/tabular data (hidden by default)
+        self.preview_table = QTableWidget(self)
+        self.preview_table.setVisible(False)
+        self.preview_table.setAlternatingRowColors(True)
+        self.preview_table.horizontalHeader().setStretchLastSection(True)
+        right_layout.addWidget(self.preview_table)
 
         # Image preview label (hidden by default)
         self.preview_image = ScaledImageLabel(self, rescale_callback=self._show_scaled_image)
@@ -636,8 +646,7 @@ class HDF5Viewer(QMainWindow):
             key = item.data(self.model.ROLE_ATTR_KEY)
             self.preview_attribute(path, key)
         elif kind == "group":
-            self.preview_label.setText(f"Group: {path}")
-            self._set_preview_text("(No content to display)")
+            self.preview_group(path)
         else:
             self.preview_label.setText(str(kind) if kind else "")
             self._set_preview_text("")
@@ -821,6 +830,11 @@ class HDF5Viewer(QMainWindow):
                 # If highlighting fails, just show plain text
                 pass
 
+        # Show text view, hide table and image
+        self.preview_edit.setVisible(True)
+        self.preview_table.setVisible(False)
+        self.preview_image.setVisible(False)
+
     def _show_scaled_image(self, pixmap=None):
         # Use the provided pixmap or the stored one
         if pixmap is not None:
@@ -853,6 +867,95 @@ class HDF5Viewer(QMainWindow):
                 self._set_preview_text(repr(val))
         except Exception as exc:
             self._set_preview_text(f"Error reading attribute:\n{exc}")
+
+    def preview_group(self, grouppath: str) -> None:
+        """Preview a group. If it's a CSV-derived group, show as table."""
+        self.preview_label.setText(f"Group: {grouppath}")
+        fpath = self.model.filepath
+        if not fpath:
+            self._set_preview_text("No file loaded")
+            return
+
+        try:
+            with h5py.File(fpath, "r") as h5:
+                grp = h5[grouppath]
+                if not isinstance(grp, h5py.Group):
+                    self._set_preview_text("(Not a group)")
+                    return
+
+                # Check if this is a CSV-derived group
+                if 'source_type' in grp.attrs and grp.attrs['source_type'] == 'csv':
+                    self._show_csv_table(grp)
+                else:
+                    self._set_preview_text("(No content to display)")
+        except Exception as exc:
+            self._set_preview_text(f"Error reading group:\n{exc}")
+
+    def _show_csv_table(self, grp: h5py.Group) -> None:
+        """Display CSV-derived group data in a table widget."""
+        try:
+            # Get column names from attributes or dataset keys
+            if 'column_names' in grp.attrs:
+                col_names = list(grp.attrs['column_names'])
+            else:
+                col_names = list(grp.keys())
+
+            # Read all datasets
+            data_dict = {}
+            max_rows = 0
+            for col_name in col_names:
+                # Find the dataset (handle stripped column names)
+                ds_name = col_name.strip()
+                if ds_name in grp:
+                    ds = grp[ds_name]
+                    if isinstance(ds, h5py.Dataset):
+                        # Read dataset data
+                        data = ds[()]
+                        if isinstance(data, np.ndarray):
+                            data_dict[col_name] = data
+                            max_rows = max(max_rows, len(data))
+                        else:
+                            # Scalar dataset
+                            data_dict[col_name] = [data]
+                            max_rows = max(max_rows, 1)
+
+            if not data_dict:
+                self._set_preview_text("(No datasets found in CSV group)")
+                return
+
+            # Setup table
+            self.preview_table.clear()
+            self.preview_table.setRowCount(max_rows)
+            self.preview_table.setColumnCount(len(col_names))
+            self.preview_table.setHorizontalHeaderLabels(col_names)
+
+            # Populate table
+            for col_idx, col_name in enumerate(col_names):
+                if col_name in data_dict:
+                    col_data = data_dict[col_name]
+                    for row_idx in range(min(len(col_data), max_rows)):
+                        value = col_data[row_idx]
+                        # Handle bytes/string types
+                        if isinstance(value, bytes):
+                            value_str = value.decode('utf-8', errors='replace')
+                        else:
+                            value_str = str(value)
+                        item = QTableWidgetItem(value_str)
+                        self.preview_table.setItem(row_idx, col_idx, item)
+
+            # Resize columns to content
+            self.preview_table.resizeColumnsToContents()
+
+            # Show table, hide others
+            self.preview_table.setVisible(True)
+            self.preview_edit.setVisible(False)
+            self.preview_image.setVisible(False)
+
+        except Exception as exc:
+            self._set_preview_text(f"Error displaying CSV table:\n{exc}")
+            self.preview_table.setVisible(False)
+            self.preview_edit.setVisible(True)
+            self.preview_image.setVisible(False)
 
 
 def main(argv: list[str] | None = None) -> int:
