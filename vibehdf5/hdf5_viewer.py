@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 import numpy as np
+import pandas as pd
 import h5py
 import posixpath
 import binascii
@@ -454,12 +455,21 @@ class HDF5Viewer(QMainWindow):
     def _create_dataset_from_file(self, grp, h5_path: str, disk_path: str, np) -> None:
         """Create a dataset at h5_path from a file on disk under the given group (or file root).
 
+        For CSV files, creates a group with individual datasets for each column.
+        For other files, stores as text or binary data.
+
         Raises FileExistsError if the path already exists.
         """
         # Check existence
         f = grp.file
         if h5_path in f:
             raise FileExistsError(h5_path)
+
+        # Special handling for CSV files
+        if disk_path.lower().endswith('.csv'):
+            self._create_datasets_from_csv(f, h5_path, disk_path)
+            return
+
         # Ensure parent groups exist
         parent = os.path.dirname(h5_path).replace("\\", "/")
         if parent and parent != "/":
@@ -475,6 +485,69 @@ class HDF5Viewer(QMainWindow):
         with open(disk_path, "rb") as fin:
             bdata = fin.read()
         f.create_dataset(h5_path, data=np.frombuffer(bdata, dtype="uint8"))
+
+    def _create_datasets_from_csv(self, f: h5py.File, h5_path: str, disk_path: str) -> None:
+        """Convert a CSV file to HDF5 datasets.
+
+        Creates a group at h5_path (without .csv extension) containing one dataset per column.
+        Each dataset contains the column data with appropriate dtype.
+        """
+        # Read CSV with pandas
+        try:
+            df = pd.read_csv(disk_path)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"Failed to read CSV file: {exc}") from exc
+
+        # Remove .csv extension from group name
+        group_path = h5_path
+        if group_path.lower().endswith('.csv'):
+            group_path = group_path[:-4]
+
+        # Ensure parent groups exist
+        parent = os.path.dirname(group_path).replace("\\", "/")
+        if parent and parent != "/":
+            f.require_group(parent)
+
+        # Create a group for the CSV data
+        grp = f.create_group(group_path)
+
+        # Add metadata about the source file
+        grp.attrs['source_file'] = os.path.basename(disk_path)
+        grp.attrs['source_type'] = 'csv'
+        grp.attrs['column_names'] = list(df.columns)
+
+        # Create a dataset for each column
+        for col in df.columns:
+            col_data = df[col]
+
+            # Clean column name for use as dataset name
+            ds_name = col.strip()
+            if not ds_name:
+                ds_name = 'unnamed_column'
+
+            # Convert pandas Series to numpy array with appropriate dtype
+            if col_data.dtype == 'object':
+                # For object dtype, convert to Python list then create dataset
+                # This avoids numpy unicode string issues
+                try:
+                    # Convert to Python strings
+                    str_list = [str(x) for x in col_data.values]
+                    grp.create_dataset(
+                        ds_name,
+                        data=str_list,
+                        dtype=h5py.string_dtype(encoding='utf-8')
+                    )
+                except Exception:  # noqa: BLE001
+                    # Fallback: convert to bytes
+                    str_list = [str(x) for x in col_data.values]
+                    grp.create_dataset(
+                        ds_name,
+                        data=str_list,
+                        dtype=h5py.string_dtype(encoding='utf-8')
+                    )
+            else:
+                # Numeric or other numpy-supported dtypes
+                grp.create_dataset(ds_name, data=col_data.values)
 
     def new_file_dialog(self) -> None:
         """Create a new HDF5 file."""
