@@ -720,7 +720,7 @@ class HDF5Viewer(QMainWindow):
                 header = f"shape={ds.shape}, dtype={ds.dtype}"
                 if note:
                     header += f"\n{note}"
-                
+
                 # Apply syntax highlighting based on file extension
                 language = get_language_from_path(dspath)
                 self._set_preview_text(header + "\n\n" + text, language=language)
@@ -730,10 +730,10 @@ class HDF5Viewer(QMainWindow):
             self._set_preview_text(f"Error reading dataset:\n{exc}")
             self.preview_edit.setVisible(True)
             self.preview_image.setVisible(False)
-    
+
     def _set_preview_text(self, text: str, language: str = "plain") -> None:
         """Set preview text with optional syntax highlighting.
-        
+
         Args:
             text: The text content to display
             language: Language identifier for syntax highlighting (default: "plain")
@@ -742,10 +742,10 @@ class HDF5Viewer(QMainWindow):
         if self._current_highlighter is not None:
             self._current_highlighter.setDocument(None)
             self._current_highlighter = None
-        
+
         # Set the text
         self.preview_edit.setPlainText(text)
-        
+
         # Apply syntax highlighting if not plain text
         if language != "plain":
             try:
@@ -756,7 +756,7 @@ class HDF5Viewer(QMainWindow):
             except Exception:  # noqa: BLE001
                 # If highlighting fails, just show plain text
                 pass
-    
+
     def _show_scaled_image(self, pixmap=None):
         # Use the provided pixmap or the stored one
         if pixmap is not None:

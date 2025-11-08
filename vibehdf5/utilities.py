@@ -48,7 +48,7 @@ def archive_to_hdf5(directory: str,
                         bdata = f.read()
                     fout.create_dataset(path_for_file, data=np.frombuffer(bdata, dtype='uint8'))
 
-    fout.close()  
+    fout.close()
 
 def print_file_structure_in_hdf5(hdf5_filename: str):
     """ print the file structure stored in an hdf5 file """

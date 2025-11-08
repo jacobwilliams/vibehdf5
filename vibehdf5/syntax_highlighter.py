@@ -7,6 +7,7 @@ the LANGUAGE_PATTERNS dictionary.
 
 from __future__ import annotations
 
+import os
 from qtpy.QtCore import QRegularExpression
 from qtpy.QtGui import QColor, QTextCharFormat, QFont, QSyntaxHighlighter
 
@@ -346,13 +347,6 @@ def get_language_from_path(path: str) -> str:
     if not path:
         return "plain"
 
-    # Get extension (lowercase)
-    ext = ""
-    for i in range(len(path) - 1, -1, -1):
-        if path[i] == '.':
-            ext = path[i:].lower()
-            break
-        if path[i] == '/':
-            break
+    ext = os.path.splitext(path)[-1].lower()
 
     return EXTENSION_TO_LANGUAGE.get(ext, "plain")
