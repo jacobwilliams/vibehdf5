@@ -23,6 +23,7 @@ from qtpy.QtWidgets import (
 )
 
 from .hdf5_tree_model import HDF5TreeModel
+from .utilities import excluded_dirs, excluded_files
 
 
 # Helpers (placed before main/class so they are defined at runtime)
@@ -203,6 +204,15 @@ class HDF5Viewer(QMainWindow):
         self.act_open.setShortcut("Ctrl+O")
         self.act_open.triggered.connect(self.open_file_dialog)
 
+        # Add files/folder actions
+        self.act_add_files = QAction("Add Files…", self)
+        self.act_add_files.setShortcut("Ctrl+Shift+F")
+        self.act_add_files.triggered.connect(self.add_files_dialog)
+
+        self.act_add_folder = QAction("Add Folder…", self)
+        self.act_add_folder.setShortcut("Ctrl+Shift+D")
+        self.act_add_folder.triggered.connect(self.add_folder_dialog)
+
         self.act_expand = QAction("Expand All", self)
         self.act_expand.triggered.connect(self.tree.expandAll)
 
@@ -217,11 +227,181 @@ class HDF5Viewer(QMainWindow):
         tb = QToolBar("Main", self)
         self.addToolBar(tb)
         tb.addAction(self.act_open)
+        tb.addAction(self.act_add_files)
+        tb.addAction(self.act_add_folder)
         tb.addSeparator()
         tb.addAction(self.act_expand)
         tb.addAction(self.act_collapse)
         tb.addSeparator()
         tb.addAction(self.act_quit)
+
+    # Determine where to add new content in the HDF5 file
+    def _get_target_group_path(self) -> str:
+        sel = self.tree.selectionModel().selectedIndexes()
+        if not sel:
+            return "/"
+        index = sel[0].sibling(sel[0].row(), 0)
+        item = self.model.itemFromIndex(index)
+        if item is None:
+            return "/"
+        kind = item.data(self.model.ROLE_KIND)
+        path = item.data(self.model.ROLE_PATH) or "/"
+        if kind == "group":
+            return path
+        if kind in ("attr", "attrs-folder"):
+            return path  # path points to the owner group/dataset for attrs-folder and attr
+        if kind == "dataset":
+            # parent group of dataset
+            try:
+                import posixpath
+                return posixpath.dirname(path) or "/"
+            except Exception:
+                return "/"
+        if kind == "file":
+            return "/"
+        return "/"
+
+    def add_files_dialog(self) -> None:
+        fpath = self.model.filepath
+        if not fpath:
+            QMessageBox.information(self, "No file", "Open an HDF5 file first.")
+            return
+        files, _ = QFileDialog.getOpenFileNames(self, "Select files to add")
+        if not files:
+            return
+        target_group = self._get_target_group_path()
+        errors: list[str] = []
+        added = 0
+        try:
+            import h5py
+            import numpy as np
+            import posixpath
+            with h5py.File(fpath, "r+") as h5:
+                grp = h5
+                if target_group != "/":
+                    grp = h5.require_group(target_group)
+                for path_on_disk in files:
+                    name = os.path.basename(path_on_disk)
+                    if name in excluded_files:
+                        continue
+                    h5_path = posixpath.join(target_group, name) if target_group != "/" else "/" + name
+                    try:
+                        self._create_dataset_from_file(grp, h5_path, path_on_disk, np)
+                        added += 1
+                    except FileExistsError:
+                        # Ask to overwrite
+                        resp = QMessageBox.question(
+                            self,
+                            "Overwrite?",
+                            f"'{h5_path}' exists. Overwrite?",
+                            QMessageBox.Yes | QMessageBox.No,
+                            QMessageBox.No,
+                        )
+                        if resp == QMessageBox.Yes:
+                            del h5[h5_path]
+                            self._create_dataset_from_file(grp, h5_path, path_on_disk, np)
+                            added += 1
+                    except Exception as exc:  # noqa: BLE001
+                        errors.append(f"{name}: {exc}")
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Add files failed", str(exc))
+            return
+        # Refresh
+        self.model.load_file(fpath)
+        self.tree.expandToDepth(1)
+        if errors:
+            QMessageBox.warning(self, "Completed with errors", "\n".join(errors))
+        elif added:
+            self.statusBar().showMessage(f"Added {added} file(s) to {target_group}", 5000)
+
+    def add_folder_dialog(self) -> None:
+        fpath = self.model.filepath
+        if not fpath:
+            QMessageBox.information(self, "No file", "Open an HDF5 file first.")
+            return
+        directory = QFileDialog.getExistingDirectory(self, "Select folder to add")
+        if not directory:
+            return
+        target_group = self._get_target_group_path()
+        errors: list[str] = []
+        added = 0
+        try:
+            import h5py
+            import numpy as np
+            import posixpath
+            with h5py.File(fpath, "r+") as h5:
+                base_name = os.path.basename(os.path.normpath(directory))
+                root_h5_group = target_group
+                if root_h5_group == "/":
+                    root_h5_group = "/" + base_name
+                else:
+                    root_h5_group = posixpath.join(root_h5_group, base_name)
+                # walk
+                for dirpath, dirnames, filenames in os.walk(directory):
+                    # prune excluded dirs
+                    dirnames[:] = [d for d in dirnames if d not in excluded_dirs]
+                    rel = os.path.relpath(dirpath, directory)
+                    rel = "." if rel == "." else rel.replace("\\", "/")
+                    current_group_path = root_h5_group if rel == "." else posixpath.join(root_h5_group, rel)
+                    grp = h5.require_group(current_group_path)
+                    for filename in filenames:
+                        if filename in excluded_files:
+                            continue
+                        file_on_disk = os.path.join(dirpath, filename)
+                        h5_path = posixpath.join(current_group_path, filename)
+                        try:
+                            self._create_dataset_from_file(grp, h5_path, file_on_disk, np)
+                            added += 1
+                        except FileExistsError:
+                            resp = QMessageBox.question(
+                                self,
+                                "Overwrite?",
+                                f"'{h5_path}' exists. Overwrite?",
+                                QMessageBox.Yes | QMessageBox.No,
+                                QMessageBox.No,
+                            )
+                            if resp == QMessageBox.Yes:
+                                del h5[h5_path]
+                                self._create_dataset_from_file(grp, h5_path, file_on_disk, np)
+                                added += 1
+                        except Exception as exc:  # noqa: BLE001
+                            errors.append(f"{h5_path}: {exc}")
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Add folder failed", str(exc))
+            return
+        # Refresh
+        self.model.load_file(fpath)
+        self.tree.expandToDepth(2)
+        if errors:
+            QMessageBox.warning(self, "Completed with errors", "\n".join(errors))
+        elif added:
+            self.statusBar().showMessage(f"Added {added} item(s) under {target_group}", 5000)
+
+    def _create_dataset_from_file(self, grp, h5_path: str, disk_path: str, np) -> None:
+        """Create a dataset at h5_path from a file on disk under the given group (or file root).
+
+        Raises FileExistsError if the path already exists.
+        """
+        import h5py
+        # Check existence
+        f = grp.file
+        if h5_path in f:
+            raise FileExistsError(h5_path)
+        # Ensure parent groups exist
+        parent = os.path.dirname(h5_path).replace("\\", "/")
+        if parent and parent != "/":
+            f.require_group(parent)
+        # Try text then binary
+        try:
+            with open(disk_path, "r", encoding="utf-8") as fin:
+                data = fin.read()
+            f.create_dataset(h5_path, data=data, dtype=h5py.string_dtype(encoding="utf-8"))
+            return
+        except Exception:  # noqa: BLE001
+            pass
+        with open(disk_path, "rb") as fin:
+            bdata = fin.read()
+        f.create_dataset(h5_path, data=np.frombuffer(bdata, dtype="uint8"))
 
     def open_file_dialog(self) -> None:
         last_dir = os.getcwd()
