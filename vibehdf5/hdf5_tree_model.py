@@ -154,7 +154,7 @@ class HDF5TreeModel(QStandardItemModel):
                     mime.setUrls([url])
                     return mime
 
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None
 
     def _save_dataset_to_file(self, ds, file_path):
@@ -208,6 +208,15 @@ class HDF5TreeModel(QStandardItemModel):
                 os.makedirs(subfolder_path, exist_ok=True)
                 self._extract_group_to_folder(obj, subfolder_path)
 
+    @staticmethod
+    def _sanitize_hdf5_name(name: str) -> str:
+        try:
+            s = (name or "").strip()
+            s = s.replace('/', '_')
+            return s or 'unnamed'
+        except Exception:  # noqa: BLE001
+            return 'unnamed'
+
     def _reconstruct_csv_tempfile(self, group: h5py.Group, group_path: str) -> str | None:
         """Rebuild a CSV file from a CSV-derived group and return the temp file path.
 
@@ -220,7 +229,7 @@ class HDF5TreeModel(QStandardItemModel):
             if isinstance(source_file, (bytes, bytearray)):
                 try:
                     source_file = source_file.decode('utf-8')
-                except Exception:
+                except Exception:  # noqa: BLE001
                     source_file = None
             if isinstance(source_file, str) and source_file.lower().endswith('.csv'):
                 fname = source_file
@@ -237,7 +246,7 @@ class HDF5TreeModel(QStandardItemModel):
                 # h5py may give numpy array; convert to list of str
                 try:
                     col_names = [str(c) for c in list(raw_cols)]
-                except Exception:
+                except Exception:  # noqa: BLE001
                     col_names = []
             else:
                 col_names = []
@@ -247,15 +256,32 @@ class HDF5TreeModel(QStandardItemModel):
                 col_names = [name for name in group.keys() if isinstance(group[name], h5py.Dataset)]
                 col_names.sort()
 
+            # If present, use explicit mapping of column -> dataset name
+            col_ds_names = None
+            raw_map = group.attrs.get('column_dataset_names')
+            if raw_map is not None:
+                try:
+                    col_ds_names = [str(c) for c in list(raw_map)]
+                    if len(col_ds_names) != len(col_names):
+                        col_ds_names = None
+                except Exception:  # noqa: BLE001
+                    col_ds_names = None
+
             # Read columns
             column_data: list[list[str]] = []
             max_len = 0
-            for col in col_names:
-                ds_name = col.strip()
-                if ds_name not in group:
+            for idx, col in enumerate(col_names):
+                if col_ds_names is not None:
+                    key = col_ds_names[idx]
+                else:
+                    # Try sanitized version of the column
+                    key = self._sanitize_hdf5_name(col)
+                    if key not in group and col in group:
+                        key = col
+                if key not in group:
                     column_data.append([])
                     continue
-                obj = group[ds_name]
+                obj = group[key]
                 if not isinstance(obj, h5py.Dataset):
                     column_data.append([])
                     continue
@@ -268,7 +294,7 @@ class HDF5TreeModel(QStandardItemModel):
                         if isinstance(v, bytes):
                             try:
                                 entries.append(v.decode('utf-8'))
-                            except Exception:
+                            except Exception:  # noqa: BLE001
                                 entries.append(v.decode('utf-8', 'replace'))
                         else:
                             entries.append(str(v))
@@ -291,7 +317,7 @@ class HDF5TreeModel(QStandardItemModel):
                     row = [column_data[c][row_idx] for c in range(len(col_names))]
                     writer.writerow(row)
             return temp_path
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None
 
     # Internal helpers

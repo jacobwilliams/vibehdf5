@@ -37,6 +37,20 @@ from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
 
 
 # Helpers (placed before main/class so they are defined at runtime)
+def _sanitize_hdf5_name(name: str) -> str:
+    """Sanitize a name for use as an HDF5 dataset/group member.
+
+    - replaces '/' with '_' (since '/' is the HDF5 path separator)
+    - strips leading/trailing whitespace
+    - returns 'unnamed' if the result is empty
+    """
+    try:
+        s = (name or "").strip()
+        s = s.replace("/", "_")
+        return s or "unnamed"
+    except Exception:  # noqa: BLE001
+        return "unnamed"
+
 def _dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]:
     """Read an h5py dataset and return a text representation and an optional note.
 
@@ -527,13 +541,22 @@ class HDF5Viewer(QMainWindow):
         grp.attrs['column_names'] = list(df.columns)
 
         # Create a dataset for each column
+        used_names: set[str] = set()
+        column_dataset_names: list[str] = []
         for col in df.columns:
             col_data = df[col]
 
             # Clean column name for use as dataset name
-            ds_name = col.strip()
-            if not ds_name:
-                ds_name = 'unnamed_column'
+            base = _sanitize_hdf5_name(str(col))
+            ds_name = base if base else 'unnamed_column'
+            # Ensure uniqueness within the group
+            if ds_name in used_names:
+                i = 2
+                while f"{ds_name}_{i}" in used_names or f"{ds_name}_{i}" in grp:
+                    i += 1
+                ds_name = f"{ds_name}_{i}"
+            used_names.add(ds_name)
+            column_dataset_names.append(ds_name)
 
             # Convert pandas Series to numpy array with appropriate dtype
             if col_data.dtype == 'object':
@@ -558,6 +581,13 @@ class HDF5Viewer(QMainWindow):
             else:
                 # Numeric or other numpy-supported dtypes
                 grp.create_dataset(ds_name, data=col_data.values)
+
+        # Persist the actual dataset names used for each column (same order as column_names)
+        try:
+            grp.attrs['column_dataset_names'] = np.array(column_dataset_names, dtype=object)
+        except Exception:  # noqa: BLE001
+            # Fallback to list assignment if dtype=object attr not permitted
+            grp.attrs['column_dataset_names'] = column_dataset_names
 
     def new_file_dialog(self) -> None:
         """Create a new HDF5 file."""
@@ -894,20 +924,42 @@ class HDF5Viewer(QMainWindow):
     def _show_csv_table(self, grp: h5py.Group) -> None:
         """Display CSV-derived group data in a table widget."""
         try:
-            # Get column names from attributes or dataset keys
+            # Get column names (for headers)
             if 'column_names' in grp.attrs:
-                col_names = list(grp.attrs['column_names'])
+                try:
+                    col_names = [str(c) for c in list(grp.attrs['column_names'])]
+                except Exception:  # noqa: BLE001
+                    col_names = list(grp.keys())
             else:
                 col_names = list(grp.keys())
+
+            # Optional mapping of columns to actual dataset names
+            col_ds_names: list[str] | None = None
+            if 'column_dataset_names' in grp.attrs:
+                try:
+                    col_ds_names = [str(c) for c in list(grp.attrs['column_dataset_names'])]
+                    if len(col_ds_names) != len(col_names):
+                        col_ds_names = None
+                except Exception:  # noqa: BLE001
+                    col_ds_names = None
 
             # Read all datasets
             data_dict = {}
             max_rows = 0
-            for col_name in col_names:
-                # Find the dataset (handle stripped column names)
-                ds_name = col_name.strip()
-                if ds_name in grp:
-                    ds = grp[ds_name]
+            for idx, col_name in enumerate(col_names):
+                # Resolve dataset key for this column
+                ds_key = None
+                if col_ds_names is not None:
+                    ds_key = col_ds_names[idx]
+                else:
+                    # Try sanitized version of the column name
+                    cand = _sanitize_hdf5_name(str(col_name))
+                    if cand in grp:
+                        ds_key = cand
+                    elif col_name in grp:
+                        ds_key = col_name
+                if ds_key and ds_key in grp:
+                    ds = grp[ds_key]
                     if isinstance(ds, h5py.Dataset):
                         # Read dataset data
                         data = ds[()]
