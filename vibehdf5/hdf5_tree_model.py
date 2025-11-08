@@ -4,9 +4,9 @@ import h5py
 import tempfile
 import os
 from pathlib import Path
-from PySide6.QtCore import Qt, QUrl, QMimeData
-from PySide6.QtGui import QStandardItem, QStandardItemModel
-from PySide6.QtWidgets import QStyle, QApplication
+from qtpy.QtCore import Qt, QUrl, QMimeData
+from qtpy.QtGui import QStandardItem, QStandardItemModel
+from qtpy.QtWidgets import QStyle, QApplication
 
 
 class HDF5TreeModel(QStandardItemModel):

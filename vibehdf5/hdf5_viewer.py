@@ -4,9 +4,9 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl, QMimeData
-from PySide6.QtGui import QAction, QFont, QFontDatabase, QDrag
-from PySide6.QtWidgets import (
+from qtpy.QtCore import Qt, QUrl, QMimeData
+from qtpy.QtGui import QAction, QFont, QFontDatabase, QDrag
+from qtpy.QtWidgets import (
     QApplication,
     QFileDialog,
     QMainWindow,
@@ -369,7 +369,7 @@ class HDF5Viewer(QMainWindow):
         if dspath.lower().endswith('.png'):
             try:
                 import h5py
-                from PySide6.QtGui import QPixmap
+                from qtpy.QtGui import QPixmap
                 with h5py.File(fpath, "r") as h5:
                     obj = h5[dspath]
                     if not isinstance(obj, h5py.Dataset):
