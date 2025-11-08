@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vibehdf5"
+version = "0.1.0"
+description = "A lightweight GUI to browse and interact with HDF5 file structures"
+authors = [
+    {name = "Jacob Williams" }
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Operating System :: OS Independent",
+]
+keywords = ["hdf5", "viewer", "gui", "browser", "archive"]
+
+dependencies = [
+    "h5py>=3.0.0",
+    "numpy>=1.20.0",
+    "qtpy>=2.4.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=22.0.0",
+    "mypy>=0.990",
+    "ruff>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/jacobwilliams/vibehdf5"
+Repository = "https://github.com/jacobwilliams/vibehdf5"
+Issues = "https://github.com/jacobwilliams/vibehdf5/issues"
+
+[project.scripts]
+vibehdf5 = "vibehdf5.hdf5_viewer:main"
+
+[tool.setuptools]
+packages = ["vibehdf5"]
+
+[tool.setuptools.package-data]
+vibehdf5 = ["*.h5"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312", "py313"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
