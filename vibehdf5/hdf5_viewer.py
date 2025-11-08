@@ -711,6 +711,20 @@ class HDF5Viewer(QMainWindow):
         path = item.data(self.model.ROLE_PATH)
         attr_key = item.data(self.model.ROLE_ATTR_KEY)
 
+        # Check if this is a CSV group
+        is_csv_group = False
+        csv_expanded = False
+        if kind == "group" and path and self.model.filepath:
+            try:
+                with h5py.File(self.model.filepath, "r") as h5:
+                    grp = h5[path]
+                    if isinstance(grp, h5py.Group):
+                        if 'source_type' in grp.attrs and grp.attrs['source_type'] == 'csv':
+                            is_csv_group = True
+                            csv_expanded = item.data(self.model.ROLE_CSV_EXPANDED) or False
+            except Exception:  # noqa: BLE001
+                pass
+
         # Determine if deletable and label
         deletable = False
         label = None
@@ -727,15 +741,30 @@ class HDF5Viewer(QMainWindow):
             label = f"Delete attribute '{attr_key}'"
 
         menu = QMenu(self)
+
+        # Add CSV group expand/collapse option
+        act_toggle_csv = None
+        if is_csv_group:
+            if csv_expanded:
+                act_toggle_csv = menu.addAction("Hide Internal Structure")
+            else:
+                act_toggle_csv = menu.addAction("Show Internal Structure")
+            menu.addSeparator()
+
+        act_delete = None
         if deletable and label:
             act_delete = menu.addAction(label)
-        else:
-            # Nothing to act on
+
+        # If no actions available, don't show menu
+        if not act_toggle_csv and not act_delete:
             return
 
         global_pos = self.tree.viewport().mapToGlobal(point)
         chosen = menu.exec(global_pos)
-        if chosen == act_delete:
+
+        if chosen == act_toggle_csv:
+            self.model.toggle_csv_group_expansion(item)
+        elif chosen == act_delete:
             # Confirm destructive action
             target_desc = label.replace("Delete ", "") if label else "item"
             resp = QMessageBox.question(

@@ -25,6 +25,7 @@ class HDF5TreeModel(QStandardItemModel):
     ROLE_PATH = Qt.UserRole + 1
     ROLE_KIND = Qt.UserRole + 2  # 'file', 'group', 'dataset', 'attr', 'attrs-folder'
     ROLE_ATTR_KEY = Qt.UserRole + 3
+    ROLE_CSV_EXPANDED = Qt.UserRole + 4  # True if CSV group's internal structure is shown
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -323,8 +324,26 @@ class HDF5TreeModel(QStandardItemModel):
     # Internal helpers
     def _add_group(self, group: h5py.Group, parent_item: QStandardItem) -> None:
         """Recursively add a group and its children to the model."""
-        # Attributes (if any)
-        if len(group.attrs):
+        # Check if this is a CSV-derived group
+        is_csv_group = False
+        try:
+            if 'source_type' in group.attrs and group.attrs['source_type'] == 'csv':
+                is_csv_group = True
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Attributes (if any) - only show if not CSV or if CSV is expanded
+        csv_expanded = parent_item.data(self.ROLE_CSV_EXPANDED) or False
+
+        # Set icon for CSV groups based on expansion state
+        if is_csv_group and self._style:
+            if csv_expanded:
+                # Show folder icon when expanded
+                parent_item.setIcon(self._style.standardIcon(QStyle.SP_DirIcon))
+            else:
+                # Show table/dialog icon for collapsed CSV (makes them stand out)
+                parent_item.setIcon(self._style.standardIcon(QStyle.SP_FileDialogDetailedView))
+        if len(group.attrs) and (not is_csv_group or csv_expanded):
             attrs_item = QStandardItem("Attributes")
             attrs_info = QStandardItem(f"{len(group.attrs)} item(s)")
             if self._style:
@@ -343,32 +362,65 @@ class HDF5TreeModel(QStandardItemModel):
                 name_item.setData("attr", self.ROLE_KIND)
                 name_item.setData(str(key), self.ROLE_ATTR_KEY)
 
-        # Child groups and datasets
-        for name, obj in group.items():
-            if isinstance(obj, h5py.Group):
-                g_item = QStandardItem(name)
-                g_info = QStandardItem("group")
-                if self._style:
-                    g_item.setIcon(self._style.standardIcon(QStyle.SP_DirIcon))
-                parent_item.appendRow([g_item, g_info])
-                g_item.setData(obj.name, self.ROLE_PATH)
-                g_item.setData("group", self.ROLE_KIND)
-                self._add_group(obj, g_item)
-            elif isinstance(obj, h5py.Dataset):
-                d_item = QStandardItem(name)
-                shape = obj.shape
-                dtype = obj.dtype
-                space = f"{shape}" if shape is not None else "(scalar)"
-                d_info = QStandardItem(f"dataset | shape={space} | dtype={dtype}")
-                if self._style:
-                    d_item.setIcon(self._style.standardIcon(QStyle.SP_FileIcon))
-                parent_item.appendRow([d_item, d_info])
-                d_item.setData(obj.name, self.ROLE_PATH)
-                d_item.setData("dataset", self.ROLE_KIND)
-            else:  # pragma: no cover - unknown kinds
-                unk_item = QStandardItem(name)
-                unk_info = QStandardItem(type(obj).__name__)
-                parent_item.appendRow([unk_item, unk_info])
+        # Child groups and datasets - only show if not CSV or if CSV is expanded
+        if not is_csv_group or csv_expanded:
+            for name, obj in group.items():
+                if isinstance(obj, h5py.Group):
+                    g_item = QStandardItem(name)
+                    g_info = QStandardItem("group")
+                    if self._style:
+                        g_item.setIcon(self._style.standardIcon(QStyle.SP_DirIcon))
+                    parent_item.appendRow([g_item, g_info])
+                    g_item.setData(obj.name, self.ROLE_PATH)
+                    g_item.setData("group", self.ROLE_KIND)
+                    self._add_group(obj, g_item)
+                elif isinstance(obj, h5py.Dataset):
+                    d_item = QStandardItem(name)
+                    shape = obj.shape
+                    dtype = obj.dtype
+                    space = f"{shape}" if shape is not None else "(scalar)"
+                    d_info = QStandardItem(f"dataset | shape={space} | dtype={dtype}")
+                    if self._style:
+                        d_item.setIcon(self._style.standardIcon(QStyle.SP_FileIcon))
+                    parent_item.appendRow([d_item, d_info])
+                    d_item.setData(obj.name, self.ROLE_PATH)
+                    d_item.setData("dataset", self.ROLE_KIND)
+                else:  # pragma: no cover - unknown kinds
+                    unk_item = QStandardItem(name)
+                    unk_info = QStandardItem(type(obj).__name__)
+                    parent_item.appendRow([unk_item, unk_info])
+
+    def toggle_csv_group_expansion(self, item: QStandardItem) -> None:
+        """Toggle the expansion of a CSV group's internal structure and reload."""
+        if item is None:
+            return
+
+        kind = item.data(self.ROLE_KIND)
+        path = item.data(self.ROLE_PATH)
+
+        if kind != "group" or not path or not self._filepath:
+            return
+
+        # Check if this is a CSV group
+        try:
+            with h5py.File(self._filepath, "r") as h5:
+                grp = h5[path]
+                if not isinstance(grp, h5py.Group):
+                    return
+                if 'source_type' not in grp.attrs or grp.attrs['source_type'] != 'csv':
+                    return
+
+                # Toggle expansion state
+                is_expanded = item.data(self.ROLE_CSV_EXPANDED) or False
+                item.setData(not is_expanded, self.ROLE_CSV_EXPANDED)
+
+                # Remove all children
+                item.removeRows(0, item.rowCount())
+
+                # Re-add group content with new expansion state
+                self._add_group(grp, item)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _value_preview(val, max_len: int = 80) -> str:
