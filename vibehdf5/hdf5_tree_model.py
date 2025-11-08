@@ -120,30 +120,35 @@ class HDF5TreeModel(QStandardItemModel):
                     return mime
 
             elif kind == "group":
-                # Extract group as a folder hierarchy
+                # If this group represents a CSV (has source_type=='csv'),
+                # reconstruct a CSV file instead of a folder tree.
                 with h5py.File(self._filepath, "r") as h5:
                     group = h5[path]
                     if not isinstance(group, h5py.Group):
                         return None
 
-                    # Determine folder name from the group path
-                    group_name = os.path.basename(path)
-                    if not group_name:
-                        group_name = "group"
+                    is_csv = (
+                        'source_type' in group.attrs
+                        and str(group.attrs['source_type']).lower() == 'csv'
+                    )
 
-                    # Create a temporary folder
+                    if is_csv:
+                        csv_path = self._reconstruct_csv_tempfile(group, path)
+                        if not csv_path:
+                            return None
+                        mime = QMimeData()
+                        url = QUrl.fromLocalFile(csv_path)
+                        mime.setUrls([url])
+                        return mime
+
+                    # Fallback: extract group as folder hierarchy
+                    group_name = os.path.basename(path) or "group"
                     temp_dir = tempfile.gettempdir()
                     temp_folder = os.path.join(temp_dir, group_name)
-
-                    # Remove existing folder if it exists
                     if os.path.exists(temp_folder):
                         shutil.rmtree(temp_folder)
-
-                    # Create the folder and extract the group
                     os.makedirs(temp_folder, exist_ok=True)
                     self._extract_group_to_folder(group, temp_folder)
-
-                    # Create mime data with folder URL
                     mime = QMimeData()
                     url = QUrl.fromLocalFile(temp_folder)
                     mime.setUrls([url])
@@ -202,6 +207,92 @@ class HDF5TreeModel(QStandardItemModel):
                 subfolder_path = os.path.join(folder_path, name)
                 os.makedirs(subfolder_path, exist_ok=True)
                 self._extract_group_to_folder(obj, subfolder_path)
+
+    def _reconstruct_csv_tempfile(self, group: h5py.Group, group_path: str) -> str | None:
+        """Rebuild a CSV file from a CSV-derived group and return the temp file path.
+
+        Uses 'column_names' attribute to determine column ordering if present.
+        Falls back to sorted dataset names. Each dataset is expected to be 1-D (same length).
+        """
+        try:
+            # Determine filename
+            source_file = group.attrs.get('source_file')
+            if isinstance(source_file, (bytes, bytearray)):
+                try:
+                    source_file = source_file.decode('utf-8')
+                except Exception:
+                    source_file = None
+            if isinstance(source_file, str) and source_file.lower().endswith('.csv'):
+                fname = source_file
+            else:
+                # Use group name + .csv
+                fname = (os.path.basename(group_path) or 'group') + '.csv'
+
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, fname)
+
+            # Column names
+            raw_cols = group.attrs.get('column_names')
+            if raw_cols is not None:
+                # h5py may give numpy array; convert to list of str
+                try:
+                    col_names = [str(c) for c in list(raw_cols)]
+                except Exception:
+                    col_names = []
+            else:
+                col_names = []
+
+            if not col_names:
+                # Fallback to dataset keys
+                col_names = [name for name in group.keys() if isinstance(group[name], h5py.Dataset)]
+                col_names.sort()
+
+            # Read columns
+            column_data: list[list[str]] = []
+            max_len = 0
+            for col in col_names:
+                ds_name = col.strip()
+                if ds_name not in group:
+                    column_data.append([])
+                    continue
+                obj = group[ds_name]
+                if not isinstance(obj, h5py.Dataset):
+                    column_data.append([])
+                    continue
+                data = obj[()]
+                # Normalize to list of strings
+                if isinstance(data, np.ndarray):
+                    # For byte strings or object, coerce each element
+                    entries = []
+                    for v in data.ravel().tolist():
+                        if isinstance(v, bytes):
+                            try:
+                                entries.append(v.decode('utf-8'))
+                            except Exception:
+                                entries.append(v.decode('utf-8', 'replace'))
+                        else:
+                            entries.append(str(v))
+                    column_data.append(entries)
+                else:
+                    column_data.append([str(data)])
+                max_len = max(max_len, len(column_data[-1]))
+
+            # Align columns (pad shorter columns with empty strings)
+            for col_list in column_data:
+                if len(col_list) < max_len:
+                    col_list.extend([''] * (max_len - len(col_list)))
+
+            # Write CSV
+            import csv
+            with open(temp_path, 'w', newline='', encoding='utf-8') as fout:
+                writer = csv.writer(fout)
+                writer.writerow(col_names)
+                for row_idx in range(max_len):
+                    row = [column_data[c][row_idx] for c in range(len(col_names))]
+                    writer.writerow(row)
+            return temp_path
+        except Exception:
+            return None
 
     # Internal helpers
     def _add_group(self, group: h5py.Group, parent_item: QStandardItem) -> None:
