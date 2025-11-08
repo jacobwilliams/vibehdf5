@@ -1,39 +1,288 @@
-# HDF5 Tree Viewer (PySide6)
+# vibehdf5 - HDF5 File Viewer & Manager
 
-A lightweight GUI to browse the structure of an HDF5 file using a tree view. It shows groups, datasets (with shape and dtype), and attributes.
+A powerful, lightweight GUI application for browsing, managing, and visualizing HDF5 file structures. Built with PySide6, it provides an intuitive tree-based interface for exploring groups, datasets, and attributes, with advanced features for content management and data preview.
 
-## How to run
+## Features
 
-On macOS with pixi (environment provided in `env/pixi.toml`):
+### 🔍 **Browse & Explore**
+- **Hierarchical Tree View**: Navigate HDF5 file structure with expandable groups and datasets
+- **Dataset Information**: View shape, dtype, and content previews for all datasets
+- **Attribute Display**: Browse attributes attached to groups and datasets
+- **Sorting & Search**: Sort tree columns and quickly locate items
+
+### 📊 **Data Preview**
+- **Text Preview**: View dataset contents as text with automatic truncation for large data
+- **Image Display**: Automatic PNG image rendering for datasets with `.png` extension
+- **Smart Scaling**: Images scale automatically to fit the preview panel while maintaining aspect ratio
+- **Binary Data Handling**: Hex dump preview for non-text binary datasets
+- **Variable-Length Strings**: Proper handling of HDF5 variable-length string datasets
+
+### ✏️ **Content Management**
+- **Add Files**: Import individual files into the HDF5 archive via toolbar or drag-and-drop
+- **Add Folders**: Import entire directory structures with hierarchy preservation
+- **Delete Items**: Remove datasets, groups, or attributes via right-click context menu
+- **Drag & Drop Import**: Drag files or folders from your file manager directly into the tree
+- **Smart Target Selection**: Automatically determines the correct group for imported content based on selection
+- **Overwrite Protection**: Confirmation prompts when importing would overwrite existing data
+- **Exclusion Filters**: Automatically skips system files (.DS_Store, .git, etc.)
+
+### 📤 **Export & Extract**
+- **Drag Out**: Drag datasets or groups from the tree to export to your filesystem
+- **Dataset Export**: Datasets saved as individual files
+- **Group Export**: Groups exported as folders with complete hierarchy
+- **Format Preservation**: Text datasets saved as UTF-8, binary data preserved exactly
+
+### 🎨 **User Interface**
+- **Split Panel Layout**: Adjustable splitter between tree view and preview panel
+- **Toolbar Actions**: Quick access to common operations
+- **Keyboard Shortcuts**: 
+  - `Ctrl+O`: Open HDF5 file
+  - `Ctrl+Shift+F`: Add files
+  - `Ctrl+Shift+D`: Add folder
+  - `Ctrl+Q`: Quit
+- **Status Bar**: Real-time feedback on operations
+- **Alternating Row Colors**: Enhanced readability
+
+## Installation
+
+### Using pip
 
 ```bash
-# Open a shell with the project environment
+pip install vibehdf5
+```
+
+### From Source
+
+```bash
+git clone https://github.com/jacobwilliams/vibehdf5.git
+cd vibehdf5
+pip install -e .
+```
+
+### Using pixi (for development)
+
+```bash
+cd vibehdf5/env
 pixi shell
-
-# From the project root, launch the viewer
-python hdf5_viewer.py test_files.h5
 ```
 
-Alternatively, run without an argument and you can choose a file from the dialog:
+## Usage
+
+### Launch the Application
+
+After installation, launch from the command line:
 
 ```bash
-python hdf5_viewer.py
+vibehdf5
 ```
 
-## Files
+Or open a specific file:
 
-- `hdf5_viewer.py` — GUI application entrypoint with `QTreeView` and toolbar actions.
-- `hdf5_tree_model.py` — Reusable Qt model (QStandardItemModel) that builds the HDF5 tree.
-- `hdf5_utilities.py` — Utilities to archive and inspect directory structures in HDF5 (existing).
-- `test_files.h5` — Sample HDF5 file in the repo root that will auto-load on startup if present.
+```bash
+vibehdf5 /path/to/your/file.h5
+```
 
-## Notes
+### From Python
 
-- Double-click or use the toolbar to expand/collapse the tree.
-- Attributes are grouped under an "Attributes" node for each group.
-- This viewer loads the entire tree on open (simple and effective for small/medium files). For very large files, consider lazy loading.
+```python
+from vibehdf5 import main
+main()
+```
+
+### Development Mode
+
+Run directly from source:
+
+```bash
+python -m vibehdf5.hdf5_viewer [file.h5]
+```
+
+## Working with Files
+
+### Opening Files
+1. Click **Open HDF5…** in the toolbar or press `Ctrl+O`
+2. Select an HDF5 file (.h5 or .hdf5)
+3. The tree will populate with the file structure
+
+### Adding Content
+
+**Add Individual Files:**
+1. Click **Add Files…** in the toolbar or press `Ctrl+Shift+F`
+2. Select one or more files
+3. Files are added to the currently selected group (or root if none selected)
+
+**Add Folders:**
+1. Click **Add Folder…** or press `Ctrl+Shift+D`
+2. Select a directory
+3. The entire folder structure is recursively imported
+
+**Drag & Drop:**
+- Drag files or folders from your file manager
+- Drop onto any group, dataset, or attribute in the tree
+- Content is automatically added to the appropriate location
+
+### Deleting Content
+1. Right-click on a dataset, group, or attribute
+2. Select the delete option from the context menu
+3. Confirm the deletion
+
+**Warning:** Deletions are permanent and modify the HDF5 file immediately.
+
+### Exporting Content
+- Drag any dataset or group from the tree to your file manager
+- Datasets are extracted as individual files
+- Groups are extracted as folders with full hierarchy
+
+### Viewing Data
+- Click any dataset to see a preview in the right panel
+- PNG images are automatically rendered
+- Text data displays with syntax highlighting
+- Binary data shows as hex dump
+
+## Project Structure
+
+```
+vibehdf5/
+├── vibehdf5/
+│   ├── __init__.py           # Package initialization with version
+│   ├── hdf5_viewer.py        # Main GUI application and window
+│   ├── hdf5_tree_model.py    # Qt model for HDF5 tree structure
+│   └── utilities.py          # Helper functions for archiving and inspection
+├── pyproject.toml            # Package metadata and dependencies
+├── README.md                 # This file
+├── LICENSE                   # License information
+└── env/
+    └── pixi.toml             # Pixi environment configuration
+```
+
+## Architecture
+
+### Components
+
+**HDF5Viewer** (`hdf5_viewer.py`)
+- Main window with QTreeView and split panel layout
+- Handles user interactions, toolbar actions, and preview rendering
+- Implements drag-and-drop for both import and export
+- Context menu for deletion operations
+
+**HDF5TreeModel** (`hdf5_tree_model.py`)
+- Qt QStandardItemModel that represents HDF5 structure
+- Recursively loads groups, datasets, and attributes
+- Provides drag data for export operations
+- Stores metadata in custom Qt roles (path, kind, attribute keys)
+
+**DropTreeView** (`hdf5_viewer.py`)
+- Custom QTreeView subclass
+- Accepts external file/folder drops from the OS
+- Determines target group based on drop location
+- Forwards drops to the viewer's batch import handler
+
+**Utilities** (`utilities.py`)
+- `archive_to_hdf5()`: Archive directory structures into HDF5
+- `print_file_structure_in_hdf5()`: Print HDF5 contents to console
+- Exclusion lists for system files and directories
+
+### Data Storage
+
+**Text Files:**
+- Stored as UTF-8 encoded string datasets using `h5py.string_dtype(encoding='utf-8')`
+
+**Binary Files:**
+- Stored as 1D uint8 arrays using `np.frombuffer(data, dtype='uint8')`
+- Ensures proper preservation of binary content (PNG images, etc.)
+
+**Directory Structure:**
+- Folders map to HDF5 groups
+- File hierarchy is preserved in group paths
+- Excluded items (.git, .DS_Store, etc.) are automatically skipped
+
+## Dependencies
+
+- **Python** ≥ 3.8
+- **PySide6** or **PyQt6** (via qtpy abstraction)
+- **h5py** - HDF5 interface
+- **numpy** - Array operations
+- **qtpy** - Qt abstraction layer for PySide6/PyQt6 compatibility
+
+## Tips & Best Practices
+
+### Performance
+- The viewer loads the entire tree structure on open
+- For very large files (thousands of items), initial load may take a few seconds
+- Preview panel limits displayed content to 1 MB by default
+
+### File Organization
+- Use descriptive group names to organize related datasets
+- Store metadata as attributes rather than separate datasets when appropriate
+- For binary files like images, use extensions in dataset names (.png, .jpg) to enable preview features
+
+### Workflow Integration
+- Use drag-and-drop to quickly archive project files
+- Export specific datasets for analysis in other tools
+- Delete temporary or obsolete data to keep archives clean
 
 ## Troubleshooting
 
-- If the app doesn't start and you're using a Mac with Apple Silicon, make sure you're inside the pixi environment so that the correct PySide6 build is used.
-- If you see import/type warnings in editors (about PySide6 stubs), they are harmless at runtime.
+**Application won't start:**
+- Ensure PySide6 is installed: `pip install PySide6`
+- On Apple Silicon Macs, use the pixi environment or install the native ARM64 build
+
+**Drag-and-drop not working:**
+- Ensure you're dropping onto the tree view itself
+- Check that the HDF5 file is opened in read-write mode (it should be by default)
+- Verify file permissions allow modification
+
+**Image preview not working:**
+- Check that the dataset name ends with `.png`
+- Verify the dataset contains valid PNG binary data (stored as uint8 array)
+- Use the utilities module to re-import images with proper encoding
+
+**Import errors about Qt modules:**
+- These are often harmless linter/type-checker warnings
+- The application uses qtpy for compatibility, which will use whatever Qt binding is available
+- At runtime, the code should work fine as long as PySide6 or PyQt6 is installed
+
+## Development
+
+### Running Tests
+```bash
+# From the project root
+pytest
+```
+
+### Code Style
+```bash
+# Format with ruff
+ruff format vibehdf5/
+
+# Lint
+ruff check vibehdf5/
+```
+
+### Building Package
+```bash
+python -m build
+```
+
+## Contributing
+
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes with tests
+4. Submit a pull request
+
+## License
+
+See LICENSE file for details.
+
+## Author
+
+Jacob Williams
+
+## Acknowledgments
+
+Built with:
+- [h5py](https://www.h5py.org/) - Pythonic interface to HDF5
+- [PySide6](https://wiki.qt.io/Qt_for_Python) - Python bindings for Qt
+- [NumPy](https://numpy.org/) - Numerical computing library
