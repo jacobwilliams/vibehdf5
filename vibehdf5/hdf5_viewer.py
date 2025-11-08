@@ -253,6 +253,10 @@ class HDF5Viewer(QMainWindow):
         self.tree.selectionModel().selectionChanged.connect(self.on_selection_changed)
 
     def _create_actions(self) -> None:
+        self.act_new = QAction("New HDF5 File…", self)
+        self.act_new.setShortcut("Ctrl+N")
+        self.act_new.triggered.connect(self.new_file_dialog)
+
         self.act_open = QAction("Open HDF5…", self)
         self.act_open.setShortcut("Ctrl+O")
         self.act_open.triggered.connect(self.open_file_dialog)
@@ -279,6 +283,7 @@ class HDF5Viewer(QMainWindow):
     def _create_toolbar(self) -> None:
         tb = QToolBar("Main", self)
         self.addToolBar(tb)
+        tb.addAction(self.act_new)
         tb.addAction(self.act_open)
         tb.addAction(self.act_add_files)
         tb.addAction(self.act_add_folder)
@@ -473,6 +478,51 @@ class HDF5Viewer(QMainWindow):
         with open(disk_path, "rb") as fin:
             bdata = fin.read()
         f.create_dataset(h5_path, data=np.frombuffer(bdata, dtype="uint8"))
+
+    def new_file_dialog(self) -> None:
+        """Create a new HDF5 file."""
+        last_dir = os.getcwd()
+        filepath, _ = QFileDialog.getSaveFileName(
+            self,
+            "Create New HDF5 File",
+            last_dir,
+            "HDF5 Files (*.h5 *.hdf5);;All Files (*)",
+        )
+        if not filepath:
+            return
+
+        # Add .h5 extension if no extension provided
+        if not filepath.endswith(('.h5', '.hdf5')):
+            filepath += '.h5'
+
+        # Check if file already exists
+        if os.path.exists(filepath):
+            resp = QMessageBox.question(
+                self,
+                "File exists",
+                f"File '{filepath}' already exists. Overwrite?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if resp != QMessageBox.Yes:
+                return
+
+        try:
+            import h5py
+            # Create a new empty HDF5 file
+            with h5py.File(filepath, "w"):
+                # Create an empty file with a root group
+                pass
+
+            # Load the newly created file
+            self.load_hdf5(filepath)
+            self.statusBar().showMessage(f"Created new HDF5 file: {filepath}", 5000)
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Failed to create file",
+                f"Could not create HDF5 file:\n{filepath}\n\n{exc}",
+            )
 
     def open_file_dialog(self) -> None:
         last_dir = os.getcwd()

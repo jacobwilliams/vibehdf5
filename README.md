@@ -35,7 +35,8 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 ### 🎨 **User Interface**
 - **Split Panel Layout**: Adjustable splitter between tree view and preview panel
 - **Toolbar Actions**: Quick access to common operations
-- **Keyboard Shortcuts**: 
+- **Keyboard Shortcuts**:
+  - `Ctrl+N`: Create new HDF5 file
   - `Ctrl+O`: Open HDF5 file
   - `Ctrl+Shift+F`: Add files
   - `Ctrl+Shift+D`: Add folder
@@ -98,6 +99,13 @@ python -m vibehdf5.hdf5_viewer [file.h5]
 ```
 
 ## Working with Files
+
+### Creating New Files
+1. Click **New HDF5 File…** in the toolbar or press `Ctrl+N`
+2. Choose a location and filename (`.h5` extension added automatically if not provided)
+3. If the file already exists, you'll be prompted to confirm overwrite
+4. The new empty HDF5 file is created and loaded in the viewer
+5. You can immediately start adding content via the methods below
 
 ### Opening Files
 1. Click **Open HDF5…** in the toolbar or press `Ctrl+O`
