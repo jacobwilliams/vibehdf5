@@ -4,13 +4,14 @@ import os
 import sys
 from pathlib import Path
 
-from qtpy.QtCore import Qt, QUrl, QMimeData
-from qtpy.QtGui import QAction, QFont, QFontDatabase, QDrag
+from qtpy.QtCore import Qt
+from qtpy.QtGui import QAction, QFont, QFontDatabase, QPixmap
 from qtpy.QtWidgets import (
     QApplication,
     QFileDialog,
     QMainWindow,
     QTreeView,
+    QAbstractItemView,
     QToolBar,
     QStatusBar,
     QMessageBox,
@@ -119,6 +120,56 @@ class ScaledImageLabel(QLabel):
             self._rescale_callback()
         super().resizeEvent(event)
 
+
+class DropTreeView(QTreeView):
+    """TreeView that accepts external file/folder drops and forwards to the viewer."""
+
+    def __init__(self, parent=None, viewer=None):
+        super().__init__(parent)
+        self.viewer = viewer
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event):
+        md = event.mimeData()
+        if md and md.hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        md = event.mimeData()
+        if md and md.hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        md = event.mimeData()
+        if not (self.viewer and md and md.hasUrls()):
+            return super().dropEvent(event)
+        urls = md.urls()
+        paths = [u.toLocalFile() for u in urls if u.isLocalFile()]
+        files = [p for p in paths if os.path.isfile(p)]
+        folders = [p for p in paths if os.path.isdir(p)]
+        try:
+            pos = event.position().toPoint()
+        except Exception:  # noqa: BLE001
+            pos = event.pos()
+        idx = self.indexAt(pos)
+        target_group = self.viewer._get_target_group_path_for_index(idx)
+        added, errors = self.viewer._add_items_batch(files, folders, target_group)
+        fpath = self.viewer.model.filepath
+        if fpath:
+            self.viewer.model.load_file(fpath)
+            self.viewer.tree.expandToDepth(2)
+        if errors:
+            QMessageBox.warning(self, "Completed with errors", "\n".join(errors))
+        elif added:
+            self.viewer.statusBar().showMessage(
+                f"Added {added} item(s) under {target_group}", 5000
+            )
+        event.acceptProposedAction()
+
 class HDF5Viewer(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -139,7 +190,7 @@ class HDF5Viewer(QMainWindow):
         left = QWidget(self)
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        self.tree = QTreeView(left)
+        self.tree = DropTreeView(left, viewer=self)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
         self.tree.setSelectionBehavior(QTreeView.SelectRows)
@@ -154,9 +205,11 @@ class HDF5Viewer(QMainWindow):
         self.tree.setSortingEnabled(True)
         self.tree.sortByColumn(0, Qt.AscendingOrder)
 
-        # Enable drag-and-drop
-        self.tree.setDragEnabled(True)
-        self.tree.setDragDropMode(QTreeView.DragOnly)
+        # Enable drag-and-drop (both export and external import)
+        self.tree.setDragEnabled(True)  # allow dragging out
+        self.tree.setAcceptDrops(True)  # allow external drops
+        self.tree.setDragDropMode(QAbstractItemView.DragDrop)
+        self.tree.setDefaultDropAction(Qt.CopyAction)
 
         # Context menu on tree
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -261,6 +314,29 @@ class HDF5Viewer(QMainWindow):
             return "/"
         return "/"
 
+    def _get_target_group_path_for_index(self, index) -> str:
+        if not index or not index.isValid():
+            return self._get_target_group_path()
+        index = index.sibling(index.row(), 0)
+        item = self.model.itemFromIndex(index)
+        if item is None:
+            return self._get_target_group_path()
+        kind = item.data(self.model.ROLE_KIND)
+        path = item.data(self.model.ROLE_PATH) or "/"
+        if kind == "group":
+            return path
+        if kind in ("attr", "attrs-folder"):
+            return path
+        if kind == "dataset":
+            try:
+                import posixpath
+                return posixpath.dirname(path) or "/"
+            except Exception:  # noqa: BLE001
+                return "/"
+        if kind == "file":
+            return "/"
+        return self._get_target_group_path()
+
     def add_files_dialog(self) -> None:
         fpath = self.model.filepath
         if not fpath:
@@ -270,43 +346,7 @@ class HDF5Viewer(QMainWindow):
         if not files:
             return
         target_group = self._get_target_group_path()
-        errors: list[str] = []
-        added = 0
-        try:
-            import h5py
-            import numpy as np
-            import posixpath
-            with h5py.File(fpath, "r+") as h5:
-                grp = h5
-                if target_group != "/":
-                    grp = h5.require_group(target_group)
-                for path_on_disk in files:
-                    name = os.path.basename(path_on_disk)
-                    if name in excluded_files:
-                        continue
-                    h5_path = posixpath.join(target_group, name) if target_group != "/" else "/" + name
-                    try:
-                        self._create_dataset_from_file(grp, h5_path, path_on_disk, np)
-                        added += 1
-                    except FileExistsError:
-                        # Ask to overwrite
-                        resp = QMessageBox.question(
-                            self,
-                            "Overwrite?",
-                            f"'{h5_path}' exists. Overwrite?",
-                            QMessageBox.Yes | QMessageBox.No,
-                            QMessageBox.No,
-                        )
-                        if resp == QMessageBox.Yes:
-                            del h5[h5_path]
-                            self._create_dataset_from_file(grp, h5_path, path_on_disk, np)
-                            added += 1
-                    except Exception as exc:  # noqa: BLE001
-                        errors.append(f"{name}: {exc}")
-        except Exception as exc:  # noqa: BLE001
-            QMessageBox.critical(self, "Add files failed", str(exc))
-            return
-        # Refresh
+        added, errors = self._add_items_batch(files, [], target_group)
         self.model.load_file(fpath)
         self.tree.expandToDepth(1)
         if errors:
@@ -323,6 +363,18 @@ class HDF5Viewer(QMainWindow):
         if not directory:
             return
         target_group = self._get_target_group_path()
+        added, errors = self._add_items_batch([], [directory], target_group)
+        self.model.load_file(fpath)
+        self.tree.expandToDepth(2)
+        if errors:
+            QMessageBox.warning(self, "Completed with errors", "\n".join(errors))
+        elif added:
+            self.statusBar().showMessage(f"Added {added} item(s) under {target_group}", 5000)
+
+    def _add_items_batch(self, files: list[str], folders: list[str], target_group: str) -> tuple[int, list[str]]:
+        fpath = self.model.filepath
+        if not fpath:
+            return 0, ["No HDF5 file loaded"]
         errors: list[str] = []
         added = 0
         try:
@@ -330,52 +382,71 @@ class HDF5Viewer(QMainWindow):
             import numpy as np
             import posixpath
             with h5py.File(fpath, "r+") as h5:
-                base_name = os.path.basename(os.path.normpath(directory))
-                root_h5_group = target_group
-                if root_h5_group == "/":
-                    root_h5_group = "/" + base_name
+                if target_group == "/":
+                    base_grp = h5
                 else:
-                    root_h5_group = posixpath.join(root_h5_group, base_name)
-                # walk
-                for dirpath, dirnames, filenames in os.walk(directory):
-                    # prune excluded dirs
-                    dirnames[:] = [d for d in dirnames if d not in excluded_dirs]
-                    rel = os.path.relpath(dirpath, directory)
-                    rel = "." if rel == "." else rel.replace("\\", "/")
-                    current_group_path = root_h5_group if rel == "." else posixpath.join(root_h5_group, rel)
-                    grp = h5.require_group(current_group_path)
-                    for filename in filenames:
-                        if filename in excluded_files:
-                            continue
-                        file_on_disk = os.path.join(dirpath, filename)
-                        h5_path = posixpath.join(current_group_path, filename)
-                        try:
-                            self._create_dataset_from_file(grp, h5_path, file_on_disk, np)
+                    base_grp = h5.require_group(target_group)
+                for path_on_disk in files:
+                    name = os.path.basename(path_on_disk)
+                    if name in excluded_files:
+                        continue
+                    h5_path = posixpath.join(target_group, name) if target_group != "/" else "/" + name
+                    try:
+                        self._create_dataset_from_file(base_grp, h5_path, path_on_disk, np)
+                        added += 1
+                    except FileExistsError:
+                        resp = QMessageBox.question(
+                            self,
+                            "Overwrite?",
+                            f"'{h5_path}' exists. Overwrite?",
+                            QMessageBox.Yes | QMessageBox.No,
+                            QMessageBox.No,
+                        )
+                        if resp == QMessageBox.Yes:
+                            del h5[h5_path]
+                            self._create_dataset_from_file(base_grp, h5_path, path_on_disk, np)
                             added += 1
-                        except FileExistsError:
-                            resp = QMessageBox.question(
-                                self,
-                                "Overwrite?",
-                                f"'{h5_path}' exists. Overwrite?",
-                                QMessageBox.Yes | QMessageBox.No,
-                                QMessageBox.No,
-                            )
-                            if resp == QMessageBox.Yes:
-                                del h5[h5_path]
+                    except Exception as exc:  # noqa: BLE001
+                        errors.append(f"{name}: {exc}")
+                for directory in folders:
+                    base_name = os.path.basename(os.path.normpath(directory))
+                    if target_group == "/":
+                        root_h5_group = "/" + base_name
+                    else:
+                        root_h5_group = posixpath.join(target_group, base_name)
+                    for dirpath, dirnames, filenames in os.walk(directory):
+                        dirnames[:] = [d for d in dirnames if d not in excluded_dirs]
+                        rel = os.path.relpath(dirpath, directory)
+                        rel = "." if rel == "." else rel.replace("\\", "/")
+                        current_group_path = (
+                            root_h5_group if rel == "." else posixpath.join(root_h5_group, rel)
+                        )
+                        grp = h5.require_group(current_group_path)
+                        for filename in filenames:
+                            if filename in excluded_files:
+                                continue
+                            file_on_disk = os.path.join(dirpath, filename)
+                            h5_path = posixpath.join(current_group_path, filename)
+                            try:
                                 self._create_dataset_from_file(grp, h5_path, file_on_disk, np)
                                 added += 1
-                        except Exception as exc:  # noqa: BLE001
-                            errors.append(f"{h5_path}: {exc}")
+                            except FileExistsError:
+                                resp = QMessageBox.question(
+                                    self,
+                                    "Overwrite?",
+                                    f"'{h5_path}' exists. Overwrite?",
+                                    QMessageBox.Yes | QMessageBox.No,
+                                    QMessageBox.No,
+                                )
+                                if resp == QMessageBox.Yes:
+                                    del h5[h5_path]
+                                    self._create_dataset_from_file(grp, h5_path, file_on_disk, np)
+                                    added += 1
+                            except Exception as exc:  # noqa: BLE001
+                                errors.append(f"{h5_path}: {exc}")
         except Exception as exc:  # noqa: BLE001
-            QMessageBox.critical(self, "Add folder failed", str(exc))
-            return
-        # Refresh
-        self.model.load_file(fpath)
-        self.tree.expandToDepth(2)
-        if errors:
-            QMessageBox.warning(self, "Completed with errors", "\n".join(errors))
-        elif added:
-            self.statusBar().showMessage(f"Added {added} item(s) under {target_group}", 5000)
+            return 0, [str(exc)]
+        return added, errors
 
     def _create_dataset_from_file(self, grp, h5_path: str, disk_path: str, np) -> None:
         """Create a dataset at h5_path from a file on disk under the given group (or file root).
@@ -549,7 +620,6 @@ class HDF5Viewer(QMainWindow):
         if dspath.lower().endswith('.png'):
             try:
                 import h5py
-                from qtpy.QtGui import QPixmap
                 with h5py.File(fpath, "r") as h5:
                     obj = h5[dspath]
                     if not isinstance(obj, h5py.Dataset):
