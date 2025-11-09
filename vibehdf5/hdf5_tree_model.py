@@ -92,6 +92,10 @@ class HDF5TreeModel(QStandardItemModel):
         if kind == "group" and path == "/":
             return None
 
+        # Store internal HDF5 path for internal moves
+        mime = QMimeData()
+        mime.setData("application/x-hdf5-path", path.encode('utf-8'))
+
         if not self._filepath:
             return None
 
@@ -115,8 +119,7 @@ class HDF5TreeModel(QStandardItemModel):
 
                     self._save_dataset_to_file(ds, temp_path)
 
-                    # Create mime data with file URL
-                    mime = QMimeData()
+                    # Add file URL to mime data
                     url = QUrl.fromLocalFile(temp_path)
                     mime.setUrls([url])
                     return mime
@@ -138,7 +141,6 @@ class HDF5TreeModel(QStandardItemModel):
                         csv_path = self._reconstruct_csv_tempfile(group, path)
                         if not csv_path:
                             return None
-                        mime = QMimeData()
                         url = QUrl.fromLocalFile(csv_path)
                         mime.setUrls([url])
                         return mime
@@ -151,7 +153,6 @@ class HDF5TreeModel(QStandardItemModel):
                         shutil.rmtree(temp_folder)
                     os.makedirs(temp_folder, exist_ok=True)
                     self._extract_group_to_folder(group, temp_folder)
-                    mime = QMimeData()
                     url = QUrl.fromLocalFile(temp_folder)
                     mime.setUrls([url])
                     return mime

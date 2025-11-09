@@ -186,30 +186,61 @@ class DropTreeView(QTreeView):
 
     def dropEvent(self, event):
         md = event.mimeData()
-        if not (self.viewer and md and md.hasUrls()):
+        if not (self.viewer and md):
             return super().dropEvent(event)
-        urls = md.urls()
-        paths = [u.toLocalFile() for u in urls if u.isLocalFile()]
-        files = [p for p in paths if os.path.isfile(p)]
-        folders = [p for p in paths if os.path.isdir(p)]
-        try:
-            pos = event.position().toPoint()
-        except Exception:  # noqa: BLE001
-            pos = event.pos()
-        idx = self.indexAt(pos)
-        target_group = self.viewer._get_target_group_path_for_index(idx)
-        added, errors = self.viewer._add_items_batch(files, folders, target_group)
-        fpath = self.viewer.model.filepath
-        if fpath:
-            self.viewer.model.load_file(fpath)
-            self.viewer.tree.expandToDepth(2)
-        if errors:
-            QMessageBox.warning(self, "Completed with errors", "\n".join(errors))
-        elif added:
-            self.viewer.statusBar().showMessage(
-                f"Added {added} item(s) under {target_group}", 5000
-            )
-        event.acceptProposedAction()
+
+        # Check if this is an internal HDF5 move
+        if md.hasFormat("application/x-hdf5-path"):
+            source_path = bytes(md.data("application/x-hdf5-path")).decode('utf-8')
+            try:
+                pos = event.position().toPoint()
+            except Exception:  # noqa: BLE001
+                pos = event.pos()
+            idx = self.indexAt(pos)
+            target_group = self.viewer._get_target_group_path_for_index(idx)
+
+            # Perform the move operation
+            success = self.viewer._move_hdf5_item(source_path, target_group)
+            if success:
+                fpath = self.viewer.model.filepath
+                if fpath:
+                    self.viewer.model.load_file(fpath)
+                    self.viewer.tree.expandToDepth(2)
+                self.viewer.statusBar().showMessage(
+                    f"Moved '{source_path}' to '{target_group}'", 5000
+                )
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+            return
+
+        # Handle external file drops
+        if md.hasUrls():
+            urls = md.urls()
+            paths = [u.toLocalFile() for u in urls if u.isLocalFile()]
+            files = [p for p in paths if os.path.isfile(p)]
+            folders = [p for p in paths if os.path.isdir(p)]
+            try:
+                pos = event.position().toPoint()
+            except Exception:  # noqa: BLE001
+                pos = event.pos()
+            idx = self.indexAt(pos)
+            target_group = self.viewer._get_target_group_path_for_index(idx)
+            added, errors = self.viewer._add_items_batch(files, folders, target_group)
+            fpath = self.viewer.model.filepath
+            if fpath:
+                self.viewer.model.load_file(fpath)
+                self.viewer.tree.expandToDepth(2)
+            if errors:
+                QMessageBox.warning(self, "Completed with errors", "\n".join(errors))
+            elif added:
+                self.viewer.statusBar().showMessage(
+                    f"Added {added} item(s) under {target_group}", 5000
+                )
+            event.acceptProposedAction()
+            return
+
+        super().dropEvent(event)
 
 class HDF5Viewer(QMainWindow):
     def __init__(self, parent=None):
@@ -251,7 +282,7 @@ class HDF5Viewer(QMainWindow):
         self.tree.setDragEnabled(True)  # allow dragging out
         self.tree.setAcceptDrops(True)  # allow external drops
         self.tree.setDragDropMode(QAbstractItemView.DragDrop)
-        self.tree.setDefaultDropAction(Qt.CopyAction)
+        self.tree.setDefaultDropAction(Qt.MoveAction)  # move for internal, copy for external
 
         # Context menu on tree
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -546,6 +577,82 @@ class HDF5Viewer(QMainWindow):
                 "Error",
                 f"Failed to create folder: {exc}"
             )
+
+    def _move_hdf5_item(self, source_path: str, target_group: str) -> bool:
+        """Move an HDF5 dataset or group from source_path to target_group.
+
+        Returns True if successful, False otherwise.
+        """
+        fpath = self.model.filepath
+        if not fpath:
+            QMessageBox.warning(self, "No file", "No HDF5 file loaded.")
+            return False
+
+        # Can't move to itself
+        if source_path == target_group:
+            QMessageBox.warning(self, "Invalid Move", "Cannot move item to itself.")
+            return False
+
+        # Can't move into its own child
+        if target_group.startswith(source_path + "/"):
+            QMessageBox.warning(self, "Invalid Move", "Cannot move item into its own child.")
+            return False
+
+        try:
+            with h5py.File(fpath, "r+") as h5:
+                # Check if source exists
+                if source_path not in h5:
+                    QMessageBox.warning(self, "Not Found", f"Source '{source_path}' not found.")
+                    return False
+
+                # Prevent moving into CSV groups
+                if target_group and target_group != "/" and isinstance(h5[target_group], h5py.Group):
+                    grp = h5[target_group]
+                    if 'source_type' in grp.attrs and grp.attrs['source_type'] == 'csv':
+                        QMessageBox.warning(
+                            self,
+                            "Invalid Target",
+                            "Cannot move items into CSV groups."
+                        )
+                        return False
+
+                # Construct new path
+                item_name = os.path.basename(source_path)
+                if target_group == "/":
+                    new_path = "/" + item_name
+                else:
+                    new_path = posixpath.join(target_group, item_name)
+
+                # If already at destination, treat as no-op
+                if source_path == new_path:
+                    return True
+
+                # Check if destination exists
+                if new_path in h5:
+                    resp = QMessageBox.question(
+                        self,
+                        "Overwrite?",
+                        f"'{new_path}' already exists. Overwrite?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No,
+                    )
+                    if resp != QMessageBox.Yes:
+                        return False
+                    del h5[new_path]
+
+                # Perform the move (copy + delete)
+                h5.copy(source_path, new_path)
+                del h5[source_path]
+
+                return True
+
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Move Failed",
+                f"Failed to move item: {exc}"
+            )
+            return False
 
     def _add_items_batch(self, files: list[str], folders: list[str], target_group: str) -> tuple[int, list[str]]:
         fpath = self.model.filepath
