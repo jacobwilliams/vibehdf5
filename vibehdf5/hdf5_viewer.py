@@ -29,6 +29,7 @@ from qtpy.QtWidgets import (
     QMenu,
     QTableWidget,
     QTableWidgetItem,
+    QProgressDialog,
 )
 
 from .hdf5_tree_model import HDF5TreeModel
@@ -613,10 +614,22 @@ class HDF5Viewer(QMainWindow):
         Creates a group at h5_path (without .csv extension) containing one dataset per column.
         Each dataset contains the column data with appropriate dtype.
         """
+        # Create progress dialog
+        progress = QProgressDialog("Reading CSV file...", "Cancel", 0, 100, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(500)  # Show after 500ms
+        progress.setValue(0)
+        QApplication.processEvents()
+
         # Read CSV with pandas
         try:
             df = pd.read_csv(disk_path)
+            progress.setValue(20)
+            QApplication.processEvents()
+            if progress.wasCanceled():
+                raise ValueError("CSV import cancelled by user")
         except Exception as exc:  # noqa: BLE001
+            progress.close()
             raise ValueError(f"Failed to read CSV file: {exc}") from exc
 
         # Remove .csv extension from group name
@@ -637,10 +650,30 @@ class HDF5Viewer(QMainWindow):
         grp.attrs['source_type'] = 'csv'
         grp.attrs['column_names'] = list(df.columns)
 
+        progress.setLabelText(f"Creating datasets for {len(df.columns)} columns...")
+        progress.setValue(30)
+        QApplication.processEvents()
+
         # Create a dataset for each column
         used_names: set[str] = set()
         column_dataset_names: list[str] = []
-        for col in df.columns:
+        total_cols = len(df.columns)
+        for idx, col in enumerate(df.columns):
+            if progress.wasCanceled():
+                # Clean up partial group
+                try:
+                    del f[group_path]
+                except Exception:  # noqa: BLE001
+                    pass
+                progress.close()
+                raise ValueError("CSV import cancelled by user")
+
+            # Update progress (30-90% range for column processing)
+            progress_val = 30 + int((idx / total_cols) * 60)
+            progress.setValue(progress_val)
+            progress.setLabelText(f"Creating dataset {idx + 1}/{total_cols}: {col}")
+            QApplication.processEvents()
+
             col_data = df[col]
 
             # Clean column name for use as dataset name
@@ -680,11 +713,18 @@ class HDF5Viewer(QMainWindow):
                 grp.create_dataset(ds_name, data=col_data.values)
 
         # Persist the actual dataset names used for each column (same order as column_names)
+        progress.setLabelText("Finalizing CSV import...")
+        progress.setValue(95)
+        QApplication.processEvents()
+
         try:
             grp.attrs['column_dataset_names'] = np.array(column_dataset_names, dtype=object)
         except Exception:  # noqa: BLE001
             # Fallback to list assignment if dtype=object attr not permitted
             grp.attrs['column_dataset_names'] = column_dataset_names
+
+        progress.setValue(100)
+        progress.close()
 
     def new_file_dialog(self) -> None:
         """Create a new HDF5 file."""
@@ -1053,6 +1093,7 @@ class HDF5Viewer(QMainWindow):
 
     def _show_csv_table(self, grp: h5py.Group) -> None:
         """Display CSV-derived group data in a table widget."""
+        progress = None
         try:
             # Get column names (for headers)
             if 'column_names' in grp.attrs:
@@ -1073,10 +1114,29 @@ class HDF5Viewer(QMainWindow):
                 except Exception:  # noqa: BLE001
                     col_ds_names = None
 
-            # Read all datasets
+            # Estimate total work for progress
+            total_cols = len(col_names)
+
+            # Create progress dialog
+            progress = QProgressDialog("Loading CSV data...", "Cancel", 0, 100, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(500)  # Show after 500ms
+            progress.setValue(0)
+            QApplication.processEvents()            # Read all datasets
             data_dict = {}
             max_rows = 0
             for idx, col_name in enumerate(col_names):
+                if progress.wasCanceled():
+                    progress.close()
+                    self._set_preview_text("(CSV display cancelled)")
+                    return
+
+                # Update progress (0-70% range for reading data)
+                progress_val = int((idx / total_cols) * 70)
+                progress.setValue(progress_val)
+                progress.setLabelText(f"Reading column {idx + 1}/{total_cols}: {col_name}")
+                QApplication.processEvents()
+
                 # Resolve dataset key for this column
                 ds_key = None
                 if col_ds_names is not None:
@@ -1102,17 +1162,37 @@ class HDF5Viewer(QMainWindow):
                             max_rows = max(max_rows, 1)
 
             if not data_dict:
+                progress.close()
                 self._set_preview_text("(No datasets found in CSV group)")
                 return
 
             # Setup table
+            progress.setLabelText("Setting up table...")
+            progress.setValue(75)
+            QApplication.processEvents()
+
             self.preview_table.clear()
             self.preview_table.setRowCount(max_rows)
             self.preview_table.setColumnCount(len(col_names))
             self.preview_table.setHorizontalHeaderLabels(col_names)
 
             # Populate table
+            progress.setLabelText(f"Populating table with {max_rows} rows...")
+            progress.setValue(80)
+            QApplication.processEvents()
+
             for col_idx, col_name in enumerate(col_names):
+                if progress.wasCanceled():
+                    progress.close()
+                    self._set_preview_text("(CSV display cancelled)")
+                    return
+
+                # Update progress (80-95% range for populating table)
+                if col_idx % 10 == 0:  # Update every 10 columns to avoid too many updates
+                    progress_val = 80 + int((col_idx / len(col_names)) * 15)
+                    progress.setValue(progress_val)
+                    QApplication.processEvents()
+
                 if col_name in data_dict:
                     col_data = data_dict[col_name]
                     for row_idx in range(min(len(col_data), max_rows)):
@@ -1126,9 +1206,14 @@ class HDF5Viewer(QMainWindow):
                         self.preview_table.setItem(row_idx, col_idx, item)
 
             # Resize columns to content
+            progress.setLabelText("Resizing columns...")
+            progress.setValue(95)
+            QApplication.processEvents()
+
             self.preview_table.resizeColumnsToContents()
 
             # Show table, hide others
+            progress.setValue(100)
             self.preview_table.setVisible(True)
             self.preview_edit.setVisible(False)
             self.preview_image.setVisible(False)
@@ -1136,7 +1221,11 @@ class HDF5Viewer(QMainWindow):
             # Enable/disable plotting action depending on visibility/selection
             self._update_plot_action_enabled()
 
+            progress.close()
+
         except Exception as exc:
+            if progress:
+                progress.close()
             self._set_preview_text(f"Error displaying CSV table:\n{exc}")
             self.preview_table.setVisible(False)
             self.preview_edit.setVisible(True)
