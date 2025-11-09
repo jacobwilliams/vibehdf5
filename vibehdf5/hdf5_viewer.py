@@ -8,6 +8,7 @@ import pandas as pd
 import h5py
 import posixpath
 import binascii
+import gzip
 
 from qtpy.QtCore import Qt
 from qtpy.QtGui import QAction, QFont, QFontDatabase, QPixmap
@@ -55,11 +56,31 @@ def _dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]
 
     - If content exceeds limit_bytes, the output is truncated with a note.
     - Tries to decode bytes as UTF-8; falls back to hex preview for binary.
+    - Automatically decompresses gzip-compressed text datasets.
     """
 
     note = None
     # Best effort: read entire dataset (beware huge data)
     data = ds[()]
+
+    # Check if this is a gzip-compressed text dataset
+    try:
+        if 'compressed' in ds.attrs and ds.attrs['compressed'] == 'gzip':
+            if isinstance(data, np.ndarray) and data.dtype == np.uint8:
+                compressed_bytes = data.tobytes()
+                decompressed = gzip.decompress(compressed_bytes)
+                encoding = ds.attrs.get('original_encoding', 'utf-8')
+                if isinstance(encoding, bytes):
+                    encoding = encoding.decode('utf-8')
+                text = decompressed.decode(encoding)
+                if len(text) > limit_bytes:
+                    text = text[:limit_bytes] + "\n… (truncated)"
+                    note = f"Preview limited to {limit_bytes} characters (decompressed)"
+                else:
+                    note = "(decompressed from gzip)"
+                return text, note
+    except Exception:  # noqa: BLE001
+        pass
 
     # Convert to bytes if it's an array of fixed-length ASCII (S) blocks
     if isinstance(data, np.ndarray) and data.dtype.kind == 'S':
@@ -573,7 +594,12 @@ class HDF5Viewer(QMainWindow):
         try:
             with open(disk_path, "r", encoding="utf-8") as fin:
                 data = fin.read()
-            f.create_dataset(h5_path, data=data, dtype=h5py.string_dtype(encoding="utf-8"))
+            # Compress text data with gzip (level 9 for maximum compression)
+            compressed = gzip.compress(data.encode('utf-8'), compresslevel=9)
+            ds = f.create_dataset(h5_path, data=np.frombuffer(compressed, dtype="uint8"))
+            # Mark as compressed text so we can decompress on read
+            ds.attrs['compressed'] = 'gzip'
+            ds.attrs['original_encoding'] = 'utf-8'
             return
         except Exception:  # noqa: BLE001
             pass

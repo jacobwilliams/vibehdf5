@@ -6,6 +6,7 @@ import tempfile
 import os
 from pathlib import Path
 import shutil
+import gzip
 from qtpy.QtCore import Qt, QUrl, QMimeData
 from qtpy.QtGui import QStandardItem, QStandardItemModel
 from qtpy.QtWidgets import QStyle, QApplication
@@ -159,10 +160,29 @@ class HDF5TreeModel(QStandardItemModel):
             return None
 
     def _save_dataset_to_file(self, ds, file_path):
-        """Save a single dataset to a file."""
+        """Save a single dataset to a file.
+
+        Automatically decompresses gzip-compressed text datasets.
+        """
 
         # Read dataset content
         data = ds[()]
+
+        # Check if this is a gzip-compressed text dataset
+        try:
+            if 'compressed' in ds.attrs and ds.attrs['compressed'] == 'gzip':
+                if isinstance(data, np.ndarray) and data.dtype == np.uint8:
+                    compressed_bytes = data.tobytes()
+                    decompressed = gzip.decompress(compressed_bytes)
+                    encoding = ds.attrs.get('original_encoding', 'utf-8')
+                    if isinstance(encoding, bytes):
+                        encoding = encoding.decode('utf-8')
+                    text = decompressed.decode(encoding)
+                    with open(file_path, 'w', encoding=encoding) as f:
+                        f.write(text)
+                    return
+        except Exception:  # noqa: BLE001
+            pass
 
         # Try to save based on data type
         if isinstance(data, np.ndarray) and data.dtype == np.uint8:
