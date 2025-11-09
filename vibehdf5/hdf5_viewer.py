@@ -1302,7 +1302,9 @@ class HDF5Viewer(QMainWindow):
             progress.setWindowModality(Qt.WindowModal)
             progress.setMinimumDuration(500)  # Show after 500ms
             progress.setValue(0)
-            QApplication.processEvents()            # Read all datasets
+            QApplication.processEvents()
+
+            # Read all datasets
             data_dict = {}
             max_rows = 0
             for idx, col_name in enumerate(col_names):
@@ -1346,24 +1348,33 @@ class HDF5Viewer(QMainWindow):
                 self._set_preview_text("(No datasets found in CSV group)")
                 return
 
-            # Setup table
+            # Limit display to avoid performance issues
+            MAX_DISPLAY_ROWS = 10000
+            # display_rows = min(max_rows, MAX_DISPLAY_ROWS)
+            display_rows = max_rows
+            is_truncated = max_rows > MAX_DISPLAY_ROWS
+
+            # Setup table - disable updates for performance
             progress.setLabelText("Setting up table...")
             progress.setValue(75)
             QApplication.processEvents()
 
+            self.preview_table.setUpdatesEnabled(False)
+            self.preview_table.setSortingEnabled(False)
             self.preview_table.clear()
-            self.preview_table.setRowCount(max_rows)
+            self.preview_table.setRowCount(display_rows)
             self.preview_table.setColumnCount(len(col_names))
             self.preview_table.setHorizontalHeaderLabels(col_names)
 
             # Populate table
-            progress.setLabelText(f"Populating table with {max_rows} rows...")
+            progress.setLabelText(f"Populating table with {display_rows} rows...")
             progress.setValue(80)
             QApplication.processEvents()
 
             for col_idx, col_name in enumerate(col_names):
                 if progress.wasCanceled():
                     progress.close()
+                    self.preview_table.setUpdatesEnabled(True)
                     self._set_preview_text("(CSV display cancelled)")
                     return
 
@@ -1375,13 +1386,21 @@ class HDF5Viewer(QMainWindow):
 
                 if col_name in data_dict:
                     col_data = data_dict[col_name]
-                    for row_idx in range(min(len(col_data), max_rows)):
-                        value = col_data[row_idx]
-                        # Handle bytes/string types
-                        if isinstance(value, bytes):
-                            value_str = value.decode('utf-8', errors='replace')
+                    # Convert entire column to strings at once (much faster)
+                    if isinstance(col_data, np.ndarray):
+                        # Use numpy's vectorized string conversion
+                        if col_data.dtype.kind == 'S' or col_data.dtype.kind == 'U':
+                            # Byte or unicode strings
+                            str_data = [str(v) if not isinstance(v, bytes) else v.decode('utf-8', errors='replace')
+                                       for v in col_data[:display_rows]]
                         else:
-                            value_str = str(value)
+                            # Numeric or other types - use numpy's string conversion
+                            str_data = np.char.mod('%s', col_data[:display_rows])
+                    else:
+                        str_data = [str(v) for v in col_data[:display_rows]]
+
+                    # Set items in batch
+                    for row_idx, value_str in enumerate(str_data):
                         item = QTableWidgetItem(value_str)
                         self.preview_table.setItem(row_idx, col_idx, item)
 
@@ -1392,11 +1411,21 @@ class HDF5Viewer(QMainWindow):
 
             self.preview_table.resizeColumnsToContents()
 
+            # Re-enable updates and sorting
+            self.preview_table.setUpdatesEnabled(True)
+            #self.preview_table.setSortingEnabled(True)  # don't want sorting since it interfers with selecting columns for plotting.
+
             # Show table, hide others
             progress.setValue(100)
             self.preview_table.setVisible(True)
             self.preview_edit.setVisible(False)
             self.preview_image.setVisible(False)
+
+            # Show message if data was truncated
+            if is_truncated:
+                self.statusBar().showMessage(
+                    f"Displaying first {display_rows:,} of {max_rows:,} rows", 8000
+                )
 
             # Enable/disable plotting action depending on visibility/selection
             self._update_plot_action_enabled()
