@@ -348,19 +348,40 @@ class HDF5Viewer(QMainWindow):
             return "/"
         kind = item.data(self.model.ROLE_KIND)
         path = item.data(self.model.ROLE_PATH) or "/"
+
+        candidate = "/"
         if kind == "group":
-            return path
-        if kind in ("attr", "attrs-folder"):
-            return path  # path points to the owner group/dataset for attrs-folder and attr
-        if kind == "dataset":
+            candidate = path
+        elif kind in ("attr", "attrs-folder"):
+            candidate = path  # path points to the owner group/dataset for attrs-folder and attr
+        elif kind == "dataset":
             # parent group of dataset
             try:
-                return posixpath.dirname(path) or "/"
+                candidate = posixpath.dirname(path) or "/"
             except Exception:
-                return "/"
-        if kind == "file":
-            return "/"
-        return "/"
+                candidate = "/"
+        elif kind == "file":
+            candidate = "/"
+
+        # Safety: if candidate is a CSV-derived group, drop into its parent instead
+        try:
+            fpath = self.model.filepath
+            if fpath and candidate and candidate != "/":
+                with h5py.File(fpath, "r") as h5:
+                    try:
+                        obj = h5[candidate]
+                    except Exception:  # noqa: BLE001
+                        obj = None
+                    if obj is not None and isinstance(obj, h5py.Group):
+                        try:
+                            is_csv = ('source_type' in obj.attrs and obj.attrs['source_type'] == 'csv')
+                        except Exception:  # noqa: BLE001
+                            is_csv = False
+                        if is_csv:
+                            return posixpath.dirname(candidate) or "/"
+        except Exception:  # noqa: BLE001
+            pass
+        return candidate
 
     def _get_target_group_path_for_index(self, index) -> str:
         if not index or not index.isValid():
@@ -371,18 +392,43 @@ class HDF5Viewer(QMainWindow):
             return self._get_target_group_path()
         kind = item.data(self.model.ROLE_KIND)
         path = item.data(self.model.ROLE_PATH) or "/"
+        # Compute the default candidate target path based on item kind
         if kind == "group":
-            return path
-        if kind in ("attr", "attrs-folder"):
-            return path
-        if kind == "dataset":
+            candidate = path
+        elif kind in ("attr", "attrs-folder"):
+            candidate = path  # owner group path
+        elif kind == "dataset":
             try:
-                return posixpath.dirname(path) or "/"
+                candidate = posixpath.dirname(path) or "/"
             except Exception:  # noqa: BLE001
-                return "/"
-        if kind == "file":
-            return "/"
-        return self._get_target_group_path()
+                candidate = "/"
+        elif kind == "file":
+            candidate = "/"
+        else:
+            candidate = self._get_target_group_path()
+
+        # If the candidate is a CSV-derived group, redirect the drop to its parent group
+        # to avoid placing files inside the CSV group (regardless of expansion state).
+        try:
+            fpath = self.model.filepath
+            if fpath and candidate and candidate != "/" and kind == "group":
+                with h5py.File(fpath, "r") as h5:
+                    try:
+                        obj = h5[candidate]
+                    except Exception:  # noqa: BLE001
+                        obj = None
+                    if obj is not None and isinstance(obj, h5py.Group):
+                        try:
+                            is_csv = ('source_type' in obj.attrs and obj.attrs['source_type'] == 'csv')
+                        except Exception:  # noqa: BLE001
+                            is_csv = False
+                        if is_csv:
+                            parent = posixpath.dirname(candidate) or "/"
+                            return parent
+        except Exception:  # noqa: BLE001
+            pass
+
+        return candidate
 
     def add_files_dialog(self) -> None:
         fpath = self.model.filepath
@@ -426,6 +472,15 @@ class HDF5Viewer(QMainWindow):
         added = 0
         try:
             with h5py.File(fpath, "r+") as h5:
+                # Final safety: never allow writing into a CSV-derived group
+                try:
+                    if target_group and target_group != "/" and isinstance(h5[target_group], h5py.Group):
+                        grp = h5[target_group]
+                        if 'source_type' in grp.attrs and grp.attrs['source_type'] == 'csv':
+                            target_group = posixpath.dirname(target_group) or "/"
+                except Exception:  # noqa: BLE001
+                    pass
+
                 if target_group == "/":
                     base_grp = h5
                 else:
