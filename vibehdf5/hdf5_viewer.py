@@ -292,6 +292,16 @@ class HDF5Viewer(QMainWindow):
         right = QWidget(self)
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(4, 4, 4, 4)
+
+        # Create a vertical splitter for content and attributes
+        right_splitter = QSplitter(Qt.Vertical, right)
+        right_layout.addWidget(right_splitter)
+
+        # Top section: main content preview
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+
         self.preview_label = QLabel("No selection")
         self.preview_edit = QPlainTextEdit(self)
         self.preview_edit.setReadOnly(True)
@@ -306,8 +316,8 @@ class HDF5Viewer(QMainWindow):
             self.preview_edit.setLineWrapMode(QPlainTextEdit.NoWrap)
         except Exception:
             pass
-        right_layout.addWidget(self.preview_label)
-        right_layout.addWidget(self.preview_edit)
+        content_layout.addWidget(self.preview_label)
+        content_layout.addWidget(self.preview_edit)
 
         # Table widget for CSV/tabular data (hidden by default)
         self.preview_table = QTableWidget(self)
@@ -318,16 +328,22 @@ class HDF5Viewer(QMainWindow):
         self.preview_table.setSelectionBehavior(QAbstractItemView.SelectColumns)
         self.preview_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.preview_table.itemSelectionChanged.connect(self._update_plot_action_enabled)
-        right_layout.addWidget(self.preview_table)
+        content_layout.addWidget(self.preview_table)
 
         # Image preview label (hidden by default)
         self.preview_image = ScaledImageLabel(self, rescale_callback=self._show_scaled_image)
         self.preview_image.setAlignment(Qt.AlignCenter)
         self.preview_image.setVisible(False)
         self.preview_image.setScaledContents(False)  # We'll scale manually for aspect ratio
-        right_layout.addWidget(self.preview_image)
+        content_layout.addWidget(self.preview_image)
 
-        # Attributes table (hidden by default)
+        right_splitter.addWidget(content_widget)
+
+        # Bottom section: attributes
+        attrs_widget = QWidget()
+        attrs_layout = QVBoxLayout(attrs_widget)
+        attrs_layout.setContentsMargins(0, 0, 0, 0)
+
         self.attrs_label = QLabel("Attributes")
         self.attrs_label.setVisible(False)
         self.attrs_table = QTableWidget(self)
@@ -338,10 +354,15 @@ class HDF5Viewer(QMainWindow):
         self.attrs_table.setAlternatingRowColors(True)
         self.attrs_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.attrs_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        # Set a reasonable max height so it doesn't dominate the view
-        self.attrs_table.setMaximumHeight(200)
-        right_layout.addWidget(self.attrs_label)
-        right_layout.addWidget(self.attrs_table)
+        # Remove max height constraint to allow splitter resizing
+        attrs_layout.addWidget(self.attrs_label)
+        attrs_layout.addWidget(self.attrs_table)
+
+        right_splitter.addWidget(attrs_widget)
+
+        # Set initial sizes: main content gets most of the space
+        right_splitter.setStretchFactor(0, 3)
+        right_splitter.setStretchFactor(1, 1)
 
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
