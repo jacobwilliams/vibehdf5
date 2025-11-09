@@ -605,6 +605,18 @@ class HDF5Viewer(QMainWindow):
                     QMessageBox.warning(self, "Not Found", f"Source '{source_path}' not found.")
                     return False
 
+                # Prevent moving items out of CSV groups
+                source_parent = posixpath.dirname(source_path) or "/"
+                if source_parent and source_parent != "/" and isinstance(h5[source_parent], h5py.Group):
+                    parent_grp = h5[source_parent]
+                    if 'source_type' in parent_grp.attrs and parent_grp.attrs['source_type'] == 'csv':
+                        QMessageBox.warning(
+                            self,
+                            "Invalid Move",
+                            "Cannot move items out of CSV groups."
+                        )
+                        return False
+
                 # Prevent moving into CSV groups
                 if target_group and target_group != "/" and isinstance(h5[target_group], h5py.Group):
                     grp = h5[target_group]
