@@ -326,6 +326,23 @@ class HDF5Viewer(QMainWindow):
         self.preview_image.setVisible(False)
         self.preview_image.setScaledContents(False)  # We'll scale manually for aspect ratio
         right_layout.addWidget(self.preview_image)
+
+        # Attributes table (hidden by default)
+        self.attrs_label = QLabel("Attributes")
+        self.attrs_label.setVisible(False)
+        self.attrs_table = QTableWidget(self)
+        self.attrs_table.setVisible(False)
+        self.attrs_table.setColumnCount(2)
+        self.attrs_table.setHorizontalHeaderLabels(["Name", "Value"])
+        self.attrs_table.horizontalHeader().setStretchLastSection(True)
+        self.attrs_table.setAlternatingRowColors(True)
+        self.attrs_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.attrs_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        # Set a reasonable max height so it doesn't dominate the view
+        self.attrs_table.setMaximumHeight(200)
+        right_layout.addWidget(self.attrs_label)
+        right_layout.addWidget(self.attrs_table)
+
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 2)
@@ -981,6 +998,7 @@ class HDF5Viewer(QMainWindow):
     def on_selection_changed(self, selected, _deselected) -> None:
         indexes = selected.indexes()
         if not indexes:
+            self._hide_attributes()
             return
         index = indexes[0]
         item = self.model.itemFromIndex(index)
@@ -997,6 +1015,7 @@ class HDF5Viewer(QMainWindow):
         else:
             self.preview_label.setText(str(kind) if kind else "")
             self._set_preview_text("")
+            self._hide_attributes()
 
     # Context menu handling
     def on_tree_context_menu(self, point) -> None:
@@ -1118,6 +1137,7 @@ class HDF5Viewer(QMainWindow):
             self._set_preview_text("No file loaded")
             self.preview_edit.setVisible(True)
             self.preview_image.setVisible(False)
+            self._hide_attributes()
             return
         # If the dataset name ends with .png, try to display as image
         if dspath.lower().endswith('.png'):
@@ -1128,6 +1148,7 @@ class HDF5Viewer(QMainWindow):
                         self._set_preview_text("Selected path is not a dataset.")
                         self.preview_edit.setVisible(True)
                         self.preview_image.setVisible(False)
+                        self._hide_attributes()
                         return
                     # Read raw bytes from dataset
                     data = obj[()]
@@ -1139,6 +1160,7 @@ class HDF5Viewer(QMainWindow):
                         self._set_preview_text("Dataset is not a valid PNG byte array.")
                         self.preview_edit.setVisible(True)
                         self.preview_image.setVisible(False)
+                        self._hide_attributes()
                         return
                     pixmap = QPixmap()
                     if pixmap.loadFromData(img_bytes, "PNG"):
@@ -1146,14 +1168,18 @@ class HDF5Viewer(QMainWindow):
                         self._show_scaled_image(pixmap)
                         self.preview_image.setVisible(True)
                         self.preview_edit.setVisible(False)
+                        # Show attributes for the dataset
+                        self._show_attributes(obj)
                     else:
                         self._set_preview_text("Failed to load PNG image from dataset.")
                         self.preview_edit.setVisible(True)
                         self.preview_image.setVisible(False)
+                        self._hide_attributes()
             except Exception as exc:
                 self._set_preview_text(f"Error reading PNG dataset:\n{exc}")
                 self.preview_edit.setVisible(True)
                 self.preview_image.setVisible(False)
+                self._hide_attributes()
             return
         # Otherwise, show text preview for non-PNG datasets
         try:
@@ -1163,6 +1189,7 @@ class HDF5Viewer(QMainWindow):
                     self._set_preview_text("Selected path is not a dataset.")
                     self.preview_edit.setVisible(True)
                     self.preview_image.setVisible(False)
+                    self._hide_attributes()
                     return
                 ds = obj
                 text, note = _dataset_to_text(ds, limit_bytes=1_000_000)
@@ -1175,10 +1202,13 @@ class HDF5Viewer(QMainWindow):
                 self._set_preview_text(header + "\n\n" + text, language=language)
                 self.preview_edit.setVisible(True)
                 self.preview_image.setVisible(False)
+                # Show attributes for the dataset
+                self._show_attributes(ds)
         except Exception as exc:
             self._set_preview_text(f"Error reading dataset:\n{exc}")
             self.preview_edit.setVisible(True)
             self.preview_image.setVisible(False)
+            self._hide_attributes()
 
     def _set_preview_text(self, text: str, language: str = "plain") -> None:
         """Set preview text with optional syntax highlighting.
@@ -1211,6 +1241,52 @@ class HDF5Viewer(QMainWindow):
         self.preview_table.setVisible(False)
         self.preview_image.setVisible(False)
 
+    def _show_attributes(self, h5_obj) -> None:
+        """Display attributes of an HDF5 object in the attributes table.
+
+        Args:
+            h5_obj: HDF5 group or dataset object with attributes
+        """
+        try:
+            attrs = dict(h5_obj.attrs)
+            if attrs:
+                self.attrs_table.setRowCount(len(attrs))
+                self.attrs_table.setVisible(True)
+                self.attrs_label.setVisible(True)
+                for row, (key, value) in enumerate(attrs.items()):
+                    # Attribute name
+                    name_item = QTableWidgetItem(str(key))
+                    self.attrs_table.setItem(row, 0, name_item)
+                    # Attribute value (convert to string)
+                    try:
+                        if isinstance(value, (np.ndarray, list, tuple)):
+                            # For arrays/lists, show truncated representation
+                            value_str = repr(value)
+                            if len(value_str) > 200:
+                                value_str = value_str[:200] + "..."
+                        else:
+                            value_str = str(value)
+                    except Exception:  # noqa: BLE001
+                        value_str = repr(value)
+                    value_item = QTableWidgetItem(value_str)
+                    self.attrs_table.setItem(row, 1, value_item)
+                # Resize columns to content
+                self.attrs_table.resizeColumnsToContents()
+            else:
+                # No attributes, hide the table
+                self.attrs_table.setVisible(False)
+                self.attrs_label.setVisible(False)
+        except Exception:  # noqa: BLE001
+            # If there's an error, just hide the attributes table
+            self.attrs_table.setVisible(False)
+            self.attrs_label.setVisible(False)
+
+    def _hide_attributes(self) -> None:
+        """Hide the attributes table."""
+        self.attrs_table.setVisible(False)
+        self.attrs_label.setVisible(False)
+        self.attrs_table.setRowCount(0)
+
     def _show_scaled_image(self, pixmap=None):
         # Use the provided pixmap or the stored one
         if pixmap is not None:
@@ -1235,14 +1311,17 @@ class HDF5Viewer(QMainWindow):
         fpath = self.model.filepath
         if not fpath:
             self._set_preview_text("No file loaded")
+            self._hide_attributes()
             return
         try:
             with h5py.File(fpath, "r") as h5:
                 g = h5[grouppath]
                 val = g.attrs[key]
                 self._set_preview_text(repr(val))
+                self._hide_attributes()
         except Exception as exc:
             self._set_preview_text(f"Error reading attribute:\n{exc}")
+            self._hide_attributes()
 
     def preview_group(self, grouppath: str) -> None:
         """Preview a group. If it's a CSV-derived group, show as table."""
@@ -1250,6 +1329,7 @@ class HDF5Viewer(QMainWindow):
         fpath = self.model.filepath
         if not fpath:
             self._set_preview_text("No file loaded")
+            self._hide_attributes()
             return
 
         try:
@@ -1257,6 +1337,7 @@ class HDF5Viewer(QMainWindow):
                 grp = h5[grouppath]
                 if not isinstance(grp, h5py.Group):
                     self._set_preview_text("(Not a group)")
+                    self._hide_attributes()
                     return
 
                 # Check if this is a CSV-derived group
@@ -1268,8 +1349,11 @@ class HDF5Viewer(QMainWindow):
                 else:
                     self._current_csv_group_path = None
                     self._set_preview_text("(No content to display)")
+                    # Show attributes for the group
+                    self._show_attributes(grp)
         except Exception as exc:
             self._set_preview_text(f"Error reading group:\n{exc}")
+            self._hide_attributes()
 
     def _show_csv_table(self, grp: h5py.Group) -> None:
         """Display CSV-derived group data in a table widget."""
@@ -1421,6 +1505,9 @@ class HDF5Viewer(QMainWindow):
             self.preview_edit.setVisible(False)
             self.preview_image.setVisible(False)
 
+            # Show attributes for the CSV group
+            self._show_attributes(grp)
+
             # Show message if data was truncated
             if is_truncated:
                 self.statusBar().showMessage(
@@ -1439,6 +1526,7 @@ class HDF5Viewer(QMainWindow):
             self.preview_table.setVisible(False)
             self.preview_edit.setVisible(True)
             self.preview_image.setVisible(False)
+            self._hide_attributes()
 
     def _get_selected_column_indices(self) -> list[int]:
         try:
