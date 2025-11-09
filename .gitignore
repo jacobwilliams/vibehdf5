@@ -208,6 +208,6 @@ __marimo__/
 
 
 .DS_Store
-*.h5
-*.hdf5
-*.csv
+/*.h5
+/*.hdf5
+/*.csv
