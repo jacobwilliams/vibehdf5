@@ -326,6 +326,10 @@ class HDF5Viewer(QMainWindow):
         self.act_add_folder.setShortcut("Ctrl+Shift+D")
         self.act_add_folder.triggered.connect(self.add_folder_dialog)
 
+        self.act_new_folder = QAction("New Folder…", self)
+        self.act_new_folder.setShortcut("Ctrl+Shift+N")
+        self.act_new_folder.triggered.connect(self.new_folder_dialog)
+
         self.act_expand = QAction("Expand All", self)
         self.act_expand.triggered.connect(self.tree.expandAll)
 
@@ -351,6 +355,7 @@ class HDF5Viewer(QMainWindow):
         tb.addAction(self.act_open)
         tb.addAction(self.act_add_files)
         tb.addAction(self.act_add_folder)
+        tb.addAction(self.act_new_folder)
         tb.addSeparator()
         tb.addAction(self.act_expand)
         tb.addAction(self.act_collapse)
@@ -485,6 +490,62 @@ class HDF5Viewer(QMainWindow):
             QMessageBox.warning(self, "Completed with errors", "\n".join(errors))
         elif added:
             self.statusBar().showMessage(f"Added {added} item(s) under {target_group}", 5000)
+
+    def new_folder_dialog(self) -> None:
+        """Create a new empty group (folder) in the HDF5 file."""
+        fpath = self.model.filepath
+        if not fpath:
+            QMessageBox.information(self, "No file", "Open an HDF5 file first.")
+            return
+
+        target_group = self._get_target_group_path()
+
+        # Get folder name from user
+        from qtpy.QtWidgets import QInputDialog
+        folder_name, ok = QInputDialog.getText(
+            self,
+            "New Folder",
+            f"Enter folder name to create in {target_group}:"
+        )
+
+        if not ok or not folder_name:
+            return
+
+        # Sanitize the folder name
+        folder_name = _sanitize_hdf5_name(folder_name)
+        if not folder_name:
+            QMessageBox.warning(self, "Invalid Name", "Folder name cannot be empty.")
+            return
+
+        # Create the full path for the new group
+        if target_group == "/":
+            new_group_path = "/" + folder_name
+        else:
+            new_group_path = posixpath.join(target_group, folder_name)
+
+        # Create the group in the HDF5 file
+        try:
+            with h5py.File(fpath, "r+") as h5:
+                if new_group_path in h5:
+                    QMessageBox.warning(
+                        self,
+                        "Already Exists",
+                        f"Group '{new_group_path}' already exists."
+                    )
+                    return
+                h5.create_group(new_group_path)
+
+            # Reload the tree and expand to show the new folder
+            self.model.load_file(fpath)
+            self.tree.expandToDepth(2)
+            self.statusBar().showMessage(f"Created folder: {new_group_path}", 5000)
+
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to create folder: {exc}"
+            )
 
     def _add_items_batch(self, files: list[str], folders: list[str], target_group: str) -> tuple[int, list[str]]:
         fpath = self.model.filepath
