@@ -303,6 +303,7 @@ EXTENSION_TO_LANGUAGE = {
     ".ts": "javascript",
     ".tsx": "javascript",
     ".json": "json",
+    ".jcop": "json",
     ".xml": "xml",
     ".html": "html",
     ".htm": "html",

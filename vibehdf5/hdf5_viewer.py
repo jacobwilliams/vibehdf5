@@ -1376,6 +1376,18 @@ class HDF5Viewer(QMainWindow):
             self._set_preview_text(f"Error reading group:\n{exc}")
             self._hide_attributes()
 
+    def _get_th_location(self, ds_key, grp):
+        OPTIONAL_GROUP_FOR_COLUMNS = 'Time History'
+        th_group = OPTIONAL_GROUP_FOR_COLUMNS in grp
+        if th_group:
+            key_in_group = ds_key in grp[OPTIONAL_GROUP_FOR_COLUMNS]
+            th_grp = grp[OPTIONAL_GROUP_FOR_COLUMNS]
+        else:
+            key_in_group = ds_key in grp
+            th_grp = grp
+
+        return key_in_group, th_grp
+
     def _show_csv_table(self, grp: h5py.Group) -> None:
         """Display CSV-derived group data in a table widget."""
         progress = None
@@ -1435,8 +1447,10 @@ class HDF5Viewer(QMainWindow):
                         ds_key = cand
                     elif col_name in grp:
                         ds_key = col_name
-                if ds_key and ds_key in grp:
-                    ds = grp[ds_key]
+
+                key_in_group, th_grp = self._get_th_location(ds_key, grp)
+                if ds_key and key_in_group:
+                    ds = th_grp[ds_key]
                     if isinstance(ds, h5py.Dataset):
                         # Read dataset data
                         data = ds[()]
@@ -1618,9 +1632,10 @@ class HDF5Viewer(QMainWindow):
                             ds_key = cand
                         elif name in grp:
                             ds_key = name
-                    if ds_key is None or ds_key not in grp:
+                    key_in_group, th_grp = self._get_th_location(ds_key, grp)
+                    if ds_key is None or not key_in_group:
                         continue
-                    ds = grp[ds_key]
+                    ds = th_grp[ds_key]
                     if not isinstance(ds, h5py.Dataset):
                         continue
                     data = ds[()]
