@@ -1413,6 +1413,7 @@ class HDF5Viewer(QMainWindow):
             self._hide_attributes()
 
     def _get_th_location(self, ds_key, grp):
+        """We allow an optional 'Time History' group for CSV columns."""
         OPTIONAL_GROUP_FOR_COLUMNS = 'Time History'
         th_group = OPTIONAL_GROUP_FOR_COLUMNS in grp
         if th_group:
