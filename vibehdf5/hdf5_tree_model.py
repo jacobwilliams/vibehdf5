@@ -178,6 +178,13 @@ class HDF5TreeModel(QStandardItemModel):
                     encoding = ds.attrs.get('original_encoding', 'utf-8')
                     if isinstance(encoding, bytes):
                         encoding = encoding.decode('utf-8')
+                    # Check if this is binary data
+                    if encoding == 'binary':
+                        # Write decompressed binary data
+                        with open(file_path, 'wb') as f:
+                            f.write(decompressed)
+                        return
+                    # Otherwise it's text
                     text = decompressed.decode(encoding)
                     with open(file_path, 'w', encoding=encoding) as f:
                         f.write(text)

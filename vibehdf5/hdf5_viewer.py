@@ -73,6 +73,11 @@ def _dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]
                 encoding = ds.attrs.get('original_encoding', 'utf-8')
                 if isinstance(encoding, bytes):
                     encoding = encoding.decode('utf-8')
+                # Check if this is binary data
+                if encoding == 'binary':
+                    # Return decompressed binary data for further processing
+                    return _bytes_to_text(decompressed, limit_bytes, decompressed=True)
+                # Otherwise it's text
                 text = decompressed.decode(encoding)
                 if len(text) > limit_bytes:
                     text = text[:limit_bytes] + "\n… (truncated)"
@@ -133,11 +138,15 @@ def _dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]
     return t, note
 
 
-def _bytes_to_text(b: bytes, limit_bytes: int = 1_000_000) -> tuple[str, str | None]:
+def _bytes_to_text(b: bytes, limit_bytes: int = 1_000_000, decompressed: bool = False) -> tuple[str, str | None]:
     note = None
     if len(b) > limit_bytes:
         b = b[:limit_bytes]
         note = f"Preview limited to {limit_bytes} bytes"
+        if decompressed:
+            note = f"Preview limited to {limit_bytes} bytes (decompressed)"
+    elif decompressed:
+        note = "(decompressed from gzip)"
     try:
         return b.decode('utf-8'), note
     except UnicodeDecodeError:
@@ -148,7 +157,8 @@ def _bytes_to_text(b: bytes, limit_bytes: int = 1_000_000) -> tuple[str, str | N
         if len(grouped) > 200_000:
             grouped = grouped[:200_000] + '… (truncated)'
             note = "Preview truncated"
-        return grouped, (note or "binary data shown as hex")
+        suffix = " (decompressed)" if decompressed else ""
+        return grouped, ((note or "binary data shown as hex") + suffix)
 
 
 class ScaledImageLabel(QLabel):
@@ -822,9 +832,15 @@ class HDF5Viewer(QMainWindow):
             return
         except Exception:  # noqa: BLE001
             pass
+        # Read as binary and compress
         with open(disk_path, "rb") as fin:
             bdata = fin.read()
-        f.create_dataset(h5_path, data=np.frombuffer(bdata, dtype="uint8"))
+        # Compress binary data with gzip (level 9 for maximum compression)
+        compressed = gzip.compress(bdata, compresslevel=9)
+        ds = f.create_dataset(h5_path, data=np.frombuffer(compressed, dtype="uint8"))
+        # Mark as compressed binary so we can decompress on read
+        ds.attrs['compressed'] = 'gzip'
+        ds.attrs['original_encoding'] = 'binary'
 
     def _create_datasets_from_csv(self, f: h5py.File, h5_path: str, disk_path: str) -> None:
         """Convert a CSV file to HDF5 datasets.
@@ -1173,7 +1189,27 @@ class HDF5Viewer(QMainWindow):
                         return
                     # Read raw bytes from dataset
                     data = obj[()]
-                    if isinstance(data, bytes):
+
+                    # Check if this is compressed binary data
+                    if 'compressed' in obj.attrs and obj.attrs['compressed'] == 'gzip':
+                        encoding = obj.attrs.get('original_encoding', 'utf-8')
+                        if isinstance(encoding, bytes):
+                            encoding = encoding.decode('utf-8')
+                        if encoding == 'binary' and isinstance(data, np.ndarray) and data.dtype == np.uint8:
+                            # Decompress the binary data
+                            compressed_bytes = data.tobytes()
+                            img_bytes = gzip.decompress(compressed_bytes)
+                        elif isinstance(data, bytes):
+                            img_bytes = data
+                        elif hasattr(data, 'tobytes'):
+                            img_bytes = data.tobytes()
+                        else:
+                            self._set_preview_text("Dataset is not a valid PNG byte array.")
+                            self.preview_edit.setVisible(True)
+                            self.preview_image.setVisible(False)
+                            self._hide_attributes()
+                            return
+                    elif isinstance(data, bytes):
                         img_bytes = data
                     elif hasattr(data, 'tobytes'):
                         img_bytes = data.tobytes()
