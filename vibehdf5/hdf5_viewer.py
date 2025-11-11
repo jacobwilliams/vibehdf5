@@ -23,6 +23,7 @@ from qtpy.QtWidgets import (
     QMessageBox,
     QWidget,
     QVBoxLayout,
+    QHBoxLayout,
     QSplitter,
     QLabel,
     QPlainTextEdit,
@@ -30,6 +31,13 @@ from qtpy.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QProgressDialog,
+    QDialog,
+    QDialogButtonBox,
+    QComboBox,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QFrame,
 )
 
 from .hdf5_tree_model import HDF5TreeModel
@@ -252,6 +260,119 @@ class DropTreeView(QTreeView):
 
         super().dropEvent(event)
 
+
+class ColumnFilterDialog(QDialog):
+    """Dialog for configuring column filters."""
+
+    def __init__(self, column_names, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configure Column Filters")
+        self.resize(600, 400)
+
+        self.column_names = column_names
+        self.filters = []  # List of (column_name, operator, value) tuples
+
+        layout = QVBoxLayout(self)
+
+        # Instructions
+        info_label = QLabel("Add filters to show only rows matching the criteria:")
+        layout.addWidget(info_label)
+
+        # Scroll area for filters
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.StyledPanel)
+
+        filter_container = QWidget()
+        self.filter_layout = QVBoxLayout(filter_container)
+        self.filter_layout.setContentsMargins(5, 5, 5, 5)
+        self.filter_layout.addStretch()
+
+        scroll.setWidget(filter_container)
+        layout.addWidget(scroll)
+
+        # Add filter button
+        add_btn = QPushButton("+ Add Filter")
+        add_btn.clicked.connect(self._add_filter_row)
+        layout.addWidget(add_btn)
+
+        # Dialog buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def _add_filter_row(self, col_name=None, operator="==", value=""):
+        """Add a new filter row to the dialog."""
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Column dropdown
+        col_combo = QComboBox()
+        col_combo.addItems(self.column_names)
+        if col_name and col_name in self.column_names:
+            col_combo.setCurrentText(col_name)
+        col_combo.setMinimumWidth(150)
+
+        # Operator dropdown
+        op_combo = QComboBox()
+        op_combo.addItems(["==", "!=", ">", ">=", "<", "<=", "contains", "startswith", "endswith"])
+        op_combo.setCurrentText(operator)
+        op_combo.setMinimumWidth(100)
+
+        # Value input
+        value_edit = QLineEdit(value)
+        value_edit.setPlaceholderText("Filter value...")
+        value_edit.setMinimumWidth(150)
+
+        # Remove button
+        remove_btn = QPushButton("Remove")
+        remove_btn.clicked.connect(lambda: self._remove_filter_row(row_widget))
+
+        row_layout.addWidget(QLabel("Column:"))
+        row_layout.addWidget(col_combo)
+        row_layout.addWidget(QLabel("Operator:"))
+        row_layout.addWidget(op_combo)
+        row_layout.addWidget(QLabel("Value:"))
+        row_layout.addWidget(value_edit)
+        row_layout.addWidget(remove_btn)
+        row_layout.addStretch()
+
+        # Store references for later retrieval
+        row_widget._col_combo = col_combo
+        row_widget._op_combo = op_combo
+        row_widget._value_edit = value_edit
+
+        # Insert before the stretch
+        self.filter_layout.insertWidget(self.filter_layout.count() - 1, row_widget)
+
+    def _remove_filter_row(self, row_widget):
+        """Remove a filter row from the dialog."""
+        self.filter_layout.removeWidget(row_widget)
+        row_widget.deleteLater()
+
+    def get_filters(self):
+        """Return list of active filters as (column_name, operator, value) tuples."""
+        filters = []
+        for i in range(self.filter_layout.count() - 1):  # -1 to skip stretch
+            widget = self.filter_layout.itemAt(i).widget()
+            if widget and hasattr(widget, '_col_combo'):
+                col_name = widget._col_combo.currentText()
+                operator = widget._op_combo.currentText()
+                value = widget._value_edit.text()
+                if value:  # Only include filters with values
+                    filters.append((col_name, operator, value))
+        return filters
+
+    def set_filters(self, filters):
+        """Set initial filters from a list of (column_name, operator, value) tuples."""
+        for col_name, operator, value in filters:
+            self._add_filter_row(col_name, operator, value)
+
+
 class HDF5Viewer(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -329,6 +450,31 @@ class HDF5Viewer(QMainWindow):
         content_layout.addWidget(self.preview_label)
         content_layout.addWidget(self.preview_edit)
 
+        # Filter panel for CSV tables (hidden by default)
+        self.filter_panel = QWidget()
+        filter_panel_layout = QHBoxLayout(self.filter_panel)
+        filter_panel_layout.setContentsMargins(5, 5, 5, 5)
+        
+        filter_label = QLabel("Filters:")
+        filter_panel_layout.addWidget(filter_label)
+        
+        self.filter_status_label = QLabel("No filters applied")
+        filter_panel_layout.addWidget(self.filter_status_label)
+        
+        self.btn_configure_filters = QPushButton("Configure Filters...")
+        self.btn_configure_filters.clicked.connect(self._configure_filters_dialog)
+        filter_panel_layout.addWidget(self.btn_configure_filters)
+        
+        self.btn_clear_filters = QPushButton("Clear Filters")
+        self.btn_clear_filters.clicked.connect(self._clear_filters)
+        self.btn_clear_filters.setEnabled(False)
+        filter_panel_layout.addWidget(self.btn_clear_filters)
+        
+        filter_panel_layout.addStretch()
+        
+        self.filter_panel.setVisible(False)
+        content_layout.addWidget(self.filter_panel)
+
         # Table widget for CSV/tabular data (hidden by default)
         self.preview_table = QTableWidget(self)
         self.preview_table.setVisible(False)
@@ -386,6 +532,12 @@ class HDF5Viewer(QMainWindow):
 
         # Track currently previewed CSV group (for plotting)
         self._current_csv_group_path: str | None = None
+        
+        # Track CSV data and filters
+        self._csv_data_dict: dict[str, np.ndarray] = {}  # Full unfiltered data
+        self._csv_column_names: list[str] = []
+        self._csv_filters: list[tuple[str, str, str]] = []  # (column, operator, value)
+        self._csv_filtered_indices: np.ndarray | None = None  # Indices of visible rows
 
     def _create_actions(self) -> None:
         self.act_new = QAction("New HDF5 File…", self)
@@ -1225,6 +1377,8 @@ class HDF5Viewer(QMainWindow):
                         self._show_scaled_image(pixmap)
                         self.preview_image.setVisible(True)
                         self.preview_edit.setVisible(False)
+                        self.preview_table.setVisible(False)
+                        self.filter_panel.setVisible(False)
                         # Show attributes for the dataset
                         self._show_attributes(obj)
                     else:
@@ -1297,6 +1451,7 @@ class HDF5Viewer(QMainWindow):
         self.preview_edit.setVisible(True)
         self.preview_table.setVisible(False)
         self.preview_image.setVisible(False)
+        self.filter_panel.setVisible(False)
 
     def _show_attributes(self, h5_obj) -> None:
         """Display attributes of an HDF5 object in the attributes table.
@@ -1504,6 +1659,10 @@ class HDF5Viewer(QMainWindow):
                 self._set_preview_text("(No datasets found in CSV group)")
                 return
 
+            # Store full data for filtering
+            self._csv_data_dict = data_dict
+            self._csv_column_names = col_names
+
             # Limit display to avoid performance issues
             MAX_DISPLAY_ROWS = 10000
             # display_rows = min(max_rows, MAX_DISPLAY_ROWS)
@@ -1576,6 +1735,9 @@ class HDF5Viewer(QMainWindow):
             self.preview_table.setVisible(True)
             self.preview_edit.setVisible(False)
             self.preview_image.setVisible(False)
+            
+            # Show filter panel for CSV tables
+            self.filter_panel.setVisible(True)
 
             # Show attributes for the CSV group
             self._show_attributes(grp)
@@ -1590,6 +1752,18 @@ class HDF5Viewer(QMainWindow):
             self._update_plot_action_enabled()
 
             progress.close()
+
+            # Apply any existing filters
+            if self._csv_filters:
+                self._apply_filters()
+            else:
+                # No filters - all rows are visible
+                self.filter_status_label.setText("No filters applied")
+                self.btn_clear_filters.setEnabled(False)
+                self._csv_filtered_indices = np.arange(max_rows)
+                # Notify model that no filtering is active
+                if self._current_csv_group_path and self.model:
+                    self.model.set_csv_filtered_indices(self._current_csv_group_path, None)
 
         except Exception as exc:
             if progress:
@@ -1733,10 +1907,24 @@ class HDF5Viewer(QMainWindow):
             QMessageBox.warning(self, "Plot", "Failed to resolve column headers for plotting.")
             return
 
-        # Read columns from the HDF5 group
-        col_data = self._read_csv_columns(self._current_csv_group_path, [x_name] + y_names)
+        # Use filtered data from the table instead of reading from HDF5
+        # This ensures we only plot what's visible (respecting filters)
+        if not self._csv_data_dict or self._csv_filtered_indices is None:
+            QMessageBox.warning(self, "Plot", "No CSV data available.")
+            return
+
+        col_data = {}
+        for name in [x_name] + y_names:
+            if name in self._csv_data_dict:
+                # Get only the filtered rows
+                full_data = self._csv_data_dict[name]
+                if isinstance(full_data, np.ndarray):
+                    col_data[name] = full_data[self._csv_filtered_indices]
+                else:
+                    col_data[name] = np.array([full_data[i] for i in self._csv_filtered_indices])
+
         if x_name not in col_data or not any(name in col_data for name in y_names):
-            QMessageBox.warning(self, "Plot", "Failed to read selected columns from HDF5.")
+            QMessageBox.warning(self, "Plot", "Failed to get selected columns for plotting.")
             return
 
         # Prepare numeric data, align lengths
@@ -1773,6 +1961,11 @@ class HDF5Viewer(QMainWindow):
             try:
                 # Use group base name as title
                 title = os.path.basename(self._current_csv_group_path.rstrip("/"))
+                # Add filter indicator if filters are active
+                if self._csv_filters:
+                    total_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict)
+                    filtered_rows = len(self._csv_filtered_indices) if self._csv_filtered_indices is not None else 0
+                    title += f" ({filtered_rows}/{total_rows} rows, filtered)"
                 plt.title(title)
             except Exception:
                 pass
@@ -1782,6 +1975,165 @@ class HDF5Viewer(QMainWindow):
             plt.show(block=False)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Plot error", f"Failed to plot data:\n{exc}")
+
+    def _configure_filters_dialog(self):
+        """Open dialog to configure column filters."""
+        if not self._csv_column_names:
+            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
+            return
+
+        dialog = ColumnFilterDialog(self._csv_column_names, self)
+        dialog.set_filters(self._csv_filters)
+
+        if dialog.exec() == QDialog.Accepted:
+            self._csv_filters = dialog.get_filters()
+            self._apply_filters()
+
+    def _clear_filters(self):
+        """Clear all active filters and show full dataset."""
+        self._csv_filters = []
+        self._apply_filters()
+
+    def _apply_filters(self):
+        """Apply current filters to the CSV table."""
+        if not self._csv_data_dict:
+            return
+
+        # Update filter status label
+        if self._csv_filters:
+            filter_text = f"{len(self._csv_filters)} filter(s) applied"
+            self.filter_status_label.setText(filter_text)
+            self.btn_clear_filters.setEnabled(True)
+        else:
+            self.filter_status_label.setText("No filters applied")
+            self.btn_clear_filters.setEnabled(False)
+
+        # Determine which rows pass all filters
+        max_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict)
+        valid_rows = np.ones(max_rows, dtype=bool)
+
+        for col_name, operator, value_str in self._csv_filters:
+            if col_name not in self._csv_data_dict:
+                continue
+
+            col_data = self._csv_data_dict[col_name]
+            col_mask = self._evaluate_filter(col_data, operator, value_str)
+
+            # Ensure mask is same length as valid_rows
+            if len(col_mask) != len(valid_rows):
+                col_mask = np.resize(col_mask, len(valid_rows))
+
+            valid_rows &= col_mask
+
+        # Get indices of valid rows
+        filtered_indices = np.where(valid_rows)[0]
+        
+        # Store filtered indices for plotting
+        self._csv_filtered_indices = filtered_indices
+
+        # Notify the model about filtered indices for CSV export
+        if self._current_csv_group_path and self.model:
+            if len(filtered_indices) == max_rows:
+                # No filtering active, clear stored indices
+                self.model.set_csv_filtered_indices(self._current_csv_group_path, None)
+            else:
+                # Set filtered indices
+                self.model.set_csv_filtered_indices(self._current_csv_group_path, filtered_indices)
+
+        # Update table with filtered data
+        self.preview_table.setUpdatesEnabled(False)
+        self.preview_table.setRowCount(len(filtered_indices))
+
+        for col_idx, col_name in enumerate(self._csv_column_names):
+            if col_name not in self._csv_data_dict:
+                continue
+
+            col_data = self._csv_data_dict[col_name]
+
+            # Get filtered data
+            if isinstance(col_data, np.ndarray):
+                filtered_data = col_data[filtered_indices]
+                # Convert to strings
+                if filtered_data.dtype.kind == 'S' or filtered_data.dtype.kind == 'U':
+                    str_data = [str(v) if not isinstance(v, bytes) else v.decode('utf-8', errors='replace')
+                               for v in filtered_data]
+                else:
+                    str_data = np.char.mod('%s', filtered_data)
+            else:
+                filtered_data = [col_data[i] for i in filtered_indices]
+                str_data = [str(v) for v in filtered_data]
+
+            # Set items
+            for row_idx, value_str in enumerate(str_data):
+                item = QTableWidgetItem(value_str)
+                self.preview_table.setItem(row_idx, col_idx, item)
+
+        self.preview_table.setUpdatesEnabled(True)
+
+        # Update status message
+        if self._csv_filters:
+            total_rows = max_rows
+            shown_rows = len(filtered_indices)
+            self.statusBar().showMessage(
+                f"Showing {shown_rows:,} of {total_rows:,} rows (filtered)", 5000
+            )
+
+    def _evaluate_filter(self, col_data, operator, value_str):
+        """Evaluate a filter condition on column data.
+
+        Returns a boolean mask of the same length as col_data.
+        """
+        try:
+            # Try numeric comparison first
+            if operator in ["==", "!=", ">", ">=", "<", "<="]:
+                try:
+                    # Try to convert to numeric
+                    value_num = float(value_str)
+                    if isinstance(col_data, np.ndarray):
+                        # Try numeric comparison
+                        col_numeric = pd.to_numeric(pd.Series(col_data), errors='coerce')
+                        if operator == "==":
+                            return col_numeric == value_num
+                        elif operator == "!=":
+                            return col_numeric != value_num
+                        elif operator == ">":
+                            return col_numeric > value_num
+                        elif operator == ">=":
+                            return col_numeric >= value_num
+                        elif operator == "<":
+                            return col_numeric < value_num
+                        elif operator == "<=":
+                            return col_numeric <= value_num
+                except (ValueError, TypeError):
+                    # Fall back to string comparison
+                    pass
+
+            # String-based operations
+            if isinstance(col_data, np.ndarray):
+                # Convert to string array for comparison
+                str_array = np.array([str(v) if not isinstance(v, bytes)
+                                     else v.decode('utf-8', errors='replace')
+                                     for v in col_data])
+            else:
+                str_array = np.array([str(v) for v in col_data])
+
+            if operator == "==":
+                return str_array == value_str
+            elif operator == "!=":
+                return str_array != value_str
+            elif operator == "contains":
+                return np.array([value_str in s for s in str_array])
+            elif operator == "startswith":
+                return np.array([s.startswith(value_str) for s in str_array])
+            elif operator == "endswith":
+                return np.array([s.endswith(value_str) for s in str_array])
+            else:
+                # Default: no filter
+                return np.ones(len(col_data), dtype=bool)
+
+        except Exception:  # noqa: BLE001
+            # On error, don't filter any rows
+            return np.ones(len(col_data), dtype=bool)
 
 
 def main(argv: list[str] | None = None) -> int:

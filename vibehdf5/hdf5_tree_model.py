@@ -33,6 +33,7 @@ class HDF5TreeModel(QStandardItemModel):
         self.setHorizontalHeaderLabels(["Name", "Info"])
         self._style = QApplication.instance().style() if QApplication.instance() else None
         self._filepath: str | None = None
+        self._csv_filtered_indices = {}  # Dict mapping CSV group path to filtered row indices
 
     def load_file(self, filepath: str) -> None:
         """Load the HDF5 file and populate the model."""
@@ -57,6 +58,29 @@ class HDF5TreeModel(QStandardItemModel):
     @property
     def filepath(self) -> str | None:
         return self._filepath
+
+    def set_csv_filtered_indices(self, csv_group_path: str, indices: np.ndarray | None) -> None:
+        """Set the filtered row indices for a CSV group.
+        
+        Args:
+            csv_group_path: HDF5 path to the CSV group
+            indices: numpy array of row indices to export, or None to export all rows
+        """
+        if indices is None:
+            self._csv_filtered_indices.pop(csv_group_path, None)
+        else:
+            self._csv_filtered_indices[csv_group_path] = indices
+
+    def get_csv_filtered_indices(self, csv_group_path: str) -> np.ndarray | None:
+        """Get the filtered row indices for a CSV group.
+        
+        Args:
+            csv_group_path: HDF5 path to the CSV group
+            
+        Returns:
+            numpy array of row indices, or None if no filtering active
+        """
+        return self._csv_filtered_indices.get(csv_group_path)
 
     def supportedDragActions(self):
         """Enable copy action for drag-and-drop."""
@@ -138,7 +162,9 @@ class HDF5TreeModel(QStandardItemModel):
                     )
 
                     if is_csv:
-                        csv_path = self._reconstruct_csv_tempfile(group, path)
+                        # Get filtered indices for this CSV group (if any)
+                        filtered_indices = self.get_csv_filtered_indices(path)
+                        csv_path = self._reconstruct_csv_tempfile(group, path, filtered_indices)
                         if not csv_path:
                             return None
                         url = QUrl.fromLocalFile(csv_path)
@@ -246,11 +272,16 @@ class HDF5TreeModel(QStandardItemModel):
         except Exception:  # noqa: BLE001
             return 'unnamed'
 
-    def _reconstruct_csv_tempfile(self, group: h5py.Group, group_path: str) -> str | None:
+    def _reconstruct_csv_tempfile(self, group: h5py.Group, group_path: str, row_indices: np.ndarray | None = None) -> str | None:
         """Rebuild a CSV file from a CSV-derived group and return the temp file path.
 
         Uses 'column_names' attribute to determine column ordering if present.
         Falls back to sorted dataset names. Each dataset is expected to be 1-D (same length).
+        
+        Args:
+            group: HDF5 group containing the CSV data
+            group_path: Path to the group in the HDF5 file
+            row_indices: Optional numpy array of row indices to export. If None, exports all rows.
         """
         try:
             # Determine filename
@@ -337,14 +368,23 @@ class HDF5TreeModel(QStandardItemModel):
                 if len(col_list) < max_len:
                     col_list.extend([''] * (max_len - len(col_list)))
 
+            # Determine which rows to export
+            if row_indices is not None:
+                # Export only filtered rows
+                export_indices = row_indices
+            else:
+                # Export all rows
+                export_indices = np.arange(max_len)
+
             # Write CSV
             import csv
             with open(temp_path, 'w', newline='', encoding='utf-8') as fout:
                 writer = csv.writer(fout)
                 writer.writerow(col_names)
-                for row_idx in range(max_len):
-                    row = [column_data[c][row_idx] for c in range(len(col_names))]
-                    writer.writerow(row)
+                for row_idx in export_indices:
+                    if row_idx < max_len:
+                        row = [column_data[c][row_idx] for c in range(len(col_names))]
+                        writer.writerow(row)
             return temp_path
         except Exception:  # noqa: BLE001
             return None
