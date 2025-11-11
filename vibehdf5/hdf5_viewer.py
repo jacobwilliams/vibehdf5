@@ -526,10 +526,15 @@ class HDF5Viewer(QMainWindow):
         # Import matplotlib components for embedding
         try:
             from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+            from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToolbar
             from matplotlib.figure import Figure
 
             self.plot_figure = Figure(figsize=(8, 6))
             self.plot_canvas = FigureCanvas(self.plot_figure)
+            self.plot_toolbar = NavigationToolbar(self.plot_canvas, plot_widget)
+
+            # Add toolbar first, then canvas
+            plot_layout.addWidget(self.plot_toolbar)
             plot_layout.addWidget(self.plot_canvas)
             self._matplotlib_available = True
         except ImportError:
