@@ -570,12 +570,22 @@ class PlotOptionsDialog(QDialog):
         size_layout.addStretch()
         layout.addLayout(size_layout)
 
+        # Legend label in its own row
+        label_layout = QHBoxLayout()
+        label_layout.addWidget(QLabel("Legend Label:"))
+        label_edit = QLineEdit()
+        label_edit.setText(series_options.get("label", series_name))
+        label_edit.setPlaceholderText(f"Default: {series_name}")
+        label_layout.addWidget(label_edit)
+        layout.addLayout(label_layout)
+
         # Store references
         widget._color_combo = color_combo
         widget._linestyle_combo = linestyle_combo
         widget._marker_combo = marker_combo
         widget._width_spin = width_spin
         widget._markersize_spin = markersize_spin
+        widget._label_edit = label_edit
 
         return widget
 
@@ -599,6 +609,7 @@ class PlotOptionsDialog(QDialog):
         series_opts = {}
         for series_name, widget in self.series_widgets:
             series_opts[series_name] = {
+                "label": widget._label_edit.text(),
                 "color": widget._color_combo.currentText(),
                 "linestyle": widget._linestyle_combo.currentData(),
                 "marker": widget._marker_combo.currentData(),
@@ -2825,7 +2836,10 @@ class HDF5Viewer(QMainWindow):
                 if valid.any():
                     # Get series-specific styling options
                     series_opts = series_styles.get(y_name, {})
-                    plot_kwargs = {"label": y_name}
+
+                    # Use custom label if provided, otherwise use column name
+                    label = series_opts.get("label", "").strip() or y_name
+                    plot_kwargs = {"label": label}
 
                     if "color" in series_opts and series_opts["color"]:
                         plot_kwargs["color"] = series_opts["color"]
