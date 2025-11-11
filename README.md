@@ -1,5 +1,7 @@
 # vibehdf5 - HDF5 File Viewer & Manager
 
+![vibehdf5 screenshot](media/screenshot.png)
+
 A powerful, lightweight GUI application for browsing, managing, and visualizing HDF5 file structures. Built with PySide6, it provides an intuitive tree-based interface for exploring groups, datasets, and attributes, with advanced features for content management and data preview.
 
 ## Features
