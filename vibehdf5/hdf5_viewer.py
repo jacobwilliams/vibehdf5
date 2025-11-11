@@ -374,6 +374,38 @@ class ColumnFilterDialog(QDialog):
             self._add_filter_row(col_name, operator, value)
 
 
+class CustomSplitter(QSplitter):
+    """QSplitter with explicit cursor management for macOS compatibility."""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._setupCursor()
+    
+    def _setupCursor(self):
+        """Ensure the splitter handle always has the correct cursor."""
+        # Set the cursor based on orientation
+        if self.orientation() == Qt.Horizontal:
+            cursor = Qt.SplitHCursor
+        else:
+            cursor = Qt.SplitVCursor
+        
+        # Apply cursor to all handles
+        for i in range(self.count()):
+            handle = self.handle(i)
+            if handle:
+                handle.setCursor(cursor)
+    
+    def addWidget(self, widget):
+        """Override to set cursor on handle after widget is added."""
+        super().addWidget(widget)
+        self._setupCursor()
+    
+    def insertWidget(self, index, widget):
+        """Override to set cursor on handle after widget is inserted."""
+        super().insertWidget(index, widget)
+        self._setupCursor()
+
+
 class HDF5Viewer(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -388,7 +420,9 @@ class HDF5Viewer(QMainWindow):
         central_layout.setContentsMargins(0, 0, 0, 0)
         self.setCentralWidget(central)
 
-        splitter = QSplitter(self)
+        splitter = CustomSplitter(self)
+        splitter.setHandleWidth(4)  # Make handle slightly wider for easier grabbing
+        splitter.setChildrenCollapsible(False)  # Prevent panels from collapsing completely
         central_layout.addWidget(splitter)
 
         # Tree view + model (left)
@@ -426,7 +460,9 @@ class HDF5Viewer(QMainWindow):
         right_layout.setContentsMargins(4, 4, 4, 4)
 
         # Create a vertical splitter for content and attributes
-        right_splitter = QSplitter(Qt.Vertical, right)
+        right_splitter = CustomSplitter(Qt.Vertical, right)
+        right_splitter.setHandleWidth(4)  # Make handle slightly wider for easier grabbing
+        right_splitter.setChildrenCollapsible(False)  # Prevent panels from collapsing completely
         right_layout.addWidget(right_splitter)
 
         # Top section: main content preview
