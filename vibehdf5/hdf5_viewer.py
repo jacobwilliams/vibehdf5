@@ -1753,6 +1753,14 @@ class HDF5Viewer(QMainWindow):
 
             progress.close()
 
+            # Load saved filters from HDF5 group
+            saved_filters = self._load_filters_from_hdf5(grp)
+            if saved_filters:
+                self._csv_filters = saved_filters
+                self.statusBar().showMessage(
+                    f"Loaded {len(saved_filters)} saved filter(s) from HDF5 file", 5000
+                )
+
             # Apply any existing filters
             if self._csv_filters:
                 self._apply_filters()
@@ -1987,12 +1995,69 @@ class HDF5Viewer(QMainWindow):
 
         if dialog.exec() == QDialog.Accepted:
             self._csv_filters = dialog.get_filters()
+            self._save_filters_to_hdf5()
             self._apply_filters()
 
     def _clear_filters(self):
         """Clear all active filters and show full dataset."""
         self._csv_filters = []
+        self._save_filters_to_hdf5()
         self._apply_filters()
+
+    def _save_filters_to_hdf5(self):
+        """Save current filters to the HDF5 file as a JSON attribute."""
+        if not self._current_csv_group_path or not self.model or not self.model.filepath:
+            return
+
+        try:
+            import json
+            with h5py.File(self.model.filepath, "r+") as h5:
+                if self._current_csv_group_path in h5:
+                    grp = h5[self._current_csv_group_path]
+                    if isinstance(grp, h5py.Group):
+                        if self._csv_filters:
+                            # Convert filters to JSON string
+                            # Format: list of [column_name, operator, value]
+                            filters_json = json.dumps(self._csv_filters)
+                            grp.attrs['csv_filters'] = filters_json
+                            self.statusBar().showMessage(
+                                f"Saved {len(self._csv_filters)} filter(s) to HDF5 file", 3000
+                            )
+                        else:
+                            # Remove filter attribute if no filters
+                            if 'csv_filters' in grp.attrs:
+                                del grp.attrs['csv_filters']
+                                self.statusBar().showMessage("Cleared filters from HDF5 file", 3000)
+        except Exception as exc:  # noqa: BLE001
+            self.statusBar().showMessage(f"Warning: Could not save filters: {exc}", 5000)
+
+    def _load_filters_from_hdf5(self, grp: h5py.Group) -> list:
+        """Load filters from the HDF5 group attributes.
+
+        Args:
+            grp: HDF5 group to load filters from
+
+        Returns:
+            List of filters in format [column_name, operator, value]
+        """
+        try:
+            if 'csv_filters' in grp.attrs:
+                import json
+                filters_json = grp.attrs['csv_filters']
+                if isinstance(filters_json, bytes):
+                    filters_json = filters_json.decode('utf-8')
+                filters = json.loads(filters_json)
+                # Validate format
+                if isinstance(filters, list):
+                    # Ensure each filter is a 3-element list
+                    valid_filters = []
+                    for f in filters:
+                        if isinstance(f, list) and len(f) == 3:
+                            valid_filters.append(f)
+                    return valid_filters
+        except Exception as exc:  # noqa: BLE001
+            print(f"Warning: Could not load filters from HDF5: {exc}")
+        return []
 
     def _apply_filters(self):
         """Apply current filters to the CSV table."""
