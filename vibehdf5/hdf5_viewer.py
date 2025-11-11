@@ -376,11 +376,11 @@ class ColumnFilterDialog(QDialog):
 
 class CustomSplitter(QSplitter):
     """QSplitter with explicit cursor management for macOS compatibility."""
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._setupCursor()
-    
+
     def _setupCursor(self):
         """Ensure the splitter handle always has the correct cursor."""
         # Set the cursor based on orientation
@@ -388,18 +388,18 @@ class CustomSplitter(QSplitter):
             cursor = Qt.SplitHCursor
         else:
             cursor = Qt.SplitVCursor
-        
+
         # Apply cursor to all handles
         for i in range(self.count()):
             handle = self.handle(i)
             if handle:
                 handle.setCursor(cursor)
-    
+
     def addWidget(self, widget):
         """Override to set cursor on handle after widget is added."""
         super().addWidget(widget)
         self._setupCursor()
-    
+
     def insertWidget(self, index, widget):
         """Override to set cursor on handle after widget is inserted."""
         super().insertWidget(index, widget)
