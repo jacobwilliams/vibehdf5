@@ -121,7 +121,3 @@ def test_filter_persistence():
     print("\n✅ All filter persistence tests passed!")
     print(f"\nTest file location: {test_file}")
     print("You can open this file in the GUI to verify filter loading works correctly.")
-
-
-if __name__ == "__main__":
-    test_filter_persistence()

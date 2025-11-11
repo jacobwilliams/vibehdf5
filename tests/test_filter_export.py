@@ -90,7 +90,3 @@ def test_csv_export():
         assert indices is None, "Indices should be None after clearing"
 
     print("\n✅ All tests passed!")
-
-
-if __name__ == "__main__":
-    test_csv_export()

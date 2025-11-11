@@ -131,6 +131,3 @@ def test_csv_import():
         if os.path.exists(h5_path):
             os.unlink(h5_path)
         raise
-
-if __name__ == '__main__':
-    test_csv_import()

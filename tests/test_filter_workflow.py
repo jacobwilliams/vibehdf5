@@ -78,7 +78,7 @@ def create_multi_csv_test_file():
     return temp_path
 
 
-def verify_filter_workflow():
+def test_verify_filter_workflow():
     """Verify the complete filter persistence workflow."""
     test_file = create_multi_csv_test_file()
 
@@ -161,7 +161,3 @@ def verify_filter_workflow():
     print(f"  4. Click 'Configure Filters' to see: Age >= 30 AND Department == IT")
     print(f"  5. Switch to 'products' or 'sales' - should have no filters")
     print(f"  6. Add filters to any group and they'll be saved automatically")
-
-
-if __name__ == "__main__":
-    verify_filter_workflow()
