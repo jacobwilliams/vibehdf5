@@ -41,6 +41,8 @@ from qtpy.QtWidgets import (
     QTabWidget,
     QListWidget,
     QInputDialog,
+    QCheckBox,
+    QDoubleSpinBox,
 )
 
 from .hdf5_tree_model import HDF5TreeModel
@@ -376,6 +378,238 @@ class ColumnFilterDialog(QDialog):
             self._add_filter_row(col_name, operator, value)
 
 
+class PlotOptionsDialog(QDialog):
+    """Dialog for configuring plot options (title, labels, line styles, etc.)."""
+
+    # Available line styles and colors
+    LINE_STYLES = ['-', '--', '-.', ':', 'None']
+    LINE_STYLE_NAMES = ['Solid', 'Dashed', 'Dash-dot', 'Dotted', 'None']
+    COLORS = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+    MARKERS = ['', 'o', 's', '^', 'v', 'D', '*', '+', 'x', '.']
+    MARKER_NAMES = ['None', 'Circle', 'Square', 'Triangle Up', 'Triangle Down', 'Diamond', 'Star', 'Plus', 'X', 'Point']
+
+    def __init__(self, plot_config, column_names, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Plot Options")
+        self.resize(600, 500)
+
+        self.plot_config = plot_config.copy()  # Work on a copy
+        self.column_names = column_names
+
+        layout = QVBoxLayout(self)
+
+        # Create tab widget for different option categories
+        tabs = QTabWidget()
+        layout.addWidget(tabs)
+
+        # Tab 1: General options
+        general_tab = QWidget()
+        general_layout = QVBoxLayout(general_tab)
+
+        # Plot name
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("Plot Name:"))
+        self.name_edit = QLineEdit(self.plot_config.get("name", "Plot"))
+        name_layout.addWidget(self.name_edit)
+        general_layout.addLayout(name_layout)
+
+        # Title
+        title_layout = QHBoxLayout()
+        title_layout.addWidget(QLabel("Plot Title:"))
+        self.title_edit = QLineEdit(self.plot_config.get("plot_options", {}).get("title", ""))
+        self.title_edit.setPlaceholderText("Auto-generated from CSV group name")
+        title_layout.addWidget(self.title_edit)
+        general_layout.addLayout(title_layout)
+
+        # X-axis label
+        xlabel_layout = QHBoxLayout()
+        xlabel_layout.addWidget(QLabel("X-axis Label:"))
+        self.xlabel_edit = QLineEdit(self.plot_config.get("plot_options", {}).get("xlabel", ""))
+        self.xlabel_edit.setPlaceholderText("Auto-generated from column name")
+        xlabel_layout.addWidget(self.xlabel_edit)
+        general_layout.addLayout(xlabel_layout)
+
+        # Y-axis label
+        ylabel_layout = QHBoxLayout()
+        ylabel_layout.addWidget(QLabel("Y-axis Label:"))
+        self.ylabel_edit = QLineEdit(self.plot_config.get("plot_options", {}).get("ylabel", ""))
+        self.ylabel_edit.setPlaceholderText("Auto-generated from column names")
+        ylabel_layout.addWidget(self.ylabel_edit)
+        general_layout.addLayout(ylabel_layout)
+
+        # Grid options
+        grid_group = QWidget()
+        grid_layout = QHBoxLayout(grid_group)
+        grid_layout.setContentsMargins(0, 10, 0, 10)
+
+        self.grid_checkbox = QCheckBox("Show Grid")
+        self.grid_checkbox.setChecked(self.plot_config.get("plot_options", {}).get("grid", True))
+        grid_layout.addWidget(self.grid_checkbox)
+
+        self.legend_checkbox = QCheckBox("Show Legend")
+        self.legend_checkbox.setChecked(self.plot_config.get("plot_options", {}).get("legend", True))
+        grid_layout.addWidget(self.legend_checkbox)
+
+        grid_layout.addStretch()
+        general_layout.addWidget(grid_group)
+
+        general_layout.addStretch()
+        tabs.addTab(general_tab, "General")
+
+        # Tab 2: Series styles
+        series_tab = QWidget()
+        series_layout = QVBoxLayout(series_tab)
+
+        series_label = QLabel("Configure line style for each data series:")
+        series_label.setStyleSheet("font-weight: bold;")
+        series_layout.addWidget(series_label)
+
+        # Scroll area for series
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.StyledPanel)
+
+        series_container = QWidget()
+        self.series_layout = QVBoxLayout(series_container)
+        self.series_layout.setContentsMargins(5, 5, 5, 5)
+
+        # Get Y column indices and names
+        y_idxs = self.plot_config.get("y_col_idxs", [])
+        series_options = self.plot_config.get("plot_options", {}).get("series", {})
+
+        self.series_widgets = []
+        for idx, y_idx in enumerate(y_idxs):
+            if y_idx < len(column_names):
+                y_name = column_names[y_idx]
+                series_widget = self._create_series_widget(y_name, idx, series_options.get(y_name, {}))
+                self.series_layout.addWidget(series_widget)
+                self.series_widgets.append((y_name, series_widget))
+
+        self.series_layout.addStretch()
+        scroll.setWidget(series_container)
+        series_layout.addWidget(scroll)
+
+        tabs.addTab(series_tab, "Series Styles")
+
+        # Dialog buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def _create_series_widget(self, series_name, series_idx, series_options):
+        """Create a widget for configuring one series."""
+        widget = QFrame()
+        widget.setFrameShape(QFrame.StyledPanel)
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        # Series name label
+        name_label = QLabel(f"<b>{series_name}</b>")
+        layout.addWidget(name_label)
+
+        # Color, line style, and marker in one row
+        style_layout = QHBoxLayout()
+
+        # Color
+        style_layout.addWidget(QLabel("Color:"))
+        color_combo = QComboBox()
+        color_combo.addItems(self.COLORS)
+        current_color = series_options.get("color", self.COLORS[series_idx % len(self.COLORS)])
+        if current_color in self.COLORS:
+            color_combo.setCurrentText(current_color)
+        color_combo.setMinimumWidth(100)
+        style_layout.addWidget(color_combo)
+
+        # Line style
+        style_layout.addWidget(QLabel("Line Style:"))
+        linestyle_combo = QComboBox()
+        for i, name in enumerate(self.LINE_STYLE_NAMES):
+            linestyle_combo.addItem(name, self.LINE_STYLES[i])
+        current_linestyle = series_options.get("linestyle", "-")
+        idx = self.LINE_STYLES.index(current_linestyle) if current_linestyle in self.LINE_STYLES else 0
+        linestyle_combo.setCurrentIndex(idx)
+        linestyle_combo.setMinimumWidth(100)
+        style_layout.addWidget(linestyle_combo)
+
+        # Marker
+        style_layout.addWidget(QLabel("Marker:"))
+        marker_combo = QComboBox()
+        for i, name in enumerate(self.MARKER_NAMES):
+            marker_combo.addItem(name, self.MARKERS[i])
+        current_marker = series_options.get("marker", "")
+        marker_idx = self.MARKERS.index(current_marker) if current_marker in self.MARKERS else 0
+        marker_combo.setCurrentIndex(marker_idx)
+        marker_combo.setMinimumWidth(100)
+        style_layout.addWidget(marker_combo)
+
+        style_layout.addStretch()
+        layout.addLayout(style_layout)
+
+        # Line width and Marker size in one row
+        size_layout = QHBoxLayout()
+
+        size_layout.addWidget(QLabel("Line Width:"))
+        width_spin = QDoubleSpinBox()
+        width_spin.setRange(0.5, 5.0)
+        width_spin.setSingleStep(0.5)
+        width_spin.setValue(series_options.get("linewidth", 1.5))
+        width_spin.setMinimumWidth(80)
+        size_layout.addWidget(width_spin)
+
+        size_layout.addWidget(QLabel("Marker Size:"))
+        markersize_spin = QDoubleSpinBox()
+        markersize_spin.setRange(1.0, 20.0)
+        markersize_spin.setSingleStep(1.0)
+        markersize_spin.setValue(series_options.get("markersize", 6.0))
+        markersize_spin.setMinimumWidth(80)
+        size_layout.addWidget(markersize_spin)
+
+        size_layout.addStretch()
+        layout.addLayout(size_layout)
+
+        # Store references
+        widget._color_combo = color_combo
+        widget._linestyle_combo = linestyle_combo
+        widget._marker_combo = marker_combo
+        widget._width_spin = width_spin
+        widget._markersize_spin = markersize_spin
+
+        return widget
+
+    def get_plot_config(self):
+        """Return updated plot configuration."""
+        # Update name
+        self.plot_config["name"] = self.name_edit.text()
+
+        # Create or update plot_options
+        if "plot_options" not in self.plot_config:
+            self.plot_config["plot_options"] = {}
+
+        plot_opts = self.plot_config["plot_options"]
+        plot_opts["title"] = self.title_edit.text()
+        plot_opts["xlabel"] = self.xlabel_edit.text()
+        plot_opts["ylabel"] = self.ylabel_edit.text()
+        plot_opts["grid"] = self.grid_checkbox.isChecked()
+        plot_opts["legend"] = self.legend_checkbox.isChecked()
+
+        # Update series options
+        series_opts = {}
+        for series_name, widget in self.series_widgets:
+            series_opts[series_name] = {
+                "color": widget._color_combo.currentText(),
+                "linestyle": widget._linestyle_combo.currentData(),
+                "marker": widget._marker_combo.currentData(),
+                "linewidth": widget._width_spin.value(),
+                "markersize": widget._markersize_spin.value(),
+            }
+        plot_opts["series"] = series_opts
+
+        return self.plot_config
+
+
 class CustomSplitter(QSplitter):
     """QSplitter with explicit cursor management for macOS compatibility."""
 
@@ -455,6 +689,11 @@ class HDF5Viewer(QMainWindow):
         self.btn_save_plot.clicked.connect(self._save_plot_config_dialog)
         self.btn_save_plot.setEnabled(False)
         plot_buttons_layout.addWidget(self.btn_save_plot)
+
+        self.btn_edit_plot_options = QPushButton("Edit Options")
+        self.btn_edit_plot_options.clicked.connect(self._edit_plot_options_dialog)
+        self.btn_edit_plot_options.setEnabled(False)
+        plot_buttons_layout.addWidget(self.btn_edit_plot_options)
 
         self.btn_delete_plot = QPushButton("Delete")
         self.btn_delete_plot.clicked.connect(self._delete_plot_config)
@@ -2375,6 +2614,14 @@ class HDF5Viewer(QMainWindow):
             "start_row": start_row,
             "end_row": end_row,
             "timestamp": time.time(),
+            "plot_options": {
+                "title": "",
+                "xlabel": "",
+                "ylabel": "",
+                "grid": True,
+                "legend": True,
+                "series": {}  # Will be populated with per-series styles in the Edit Options dialog
+            }
         }
 
         # Add to local list
@@ -2454,9 +2701,10 @@ class HDF5Viewer(QMainWindow):
         sel_cols = self._get_selected_column_indices() if csv_loaded else []
         self.btn_save_plot.setEnabled(csv_loaded and len(sel_cols) >= 2)
 
-        # Enable Delete button if a plot is selected
+        # Enable Delete and Edit Options buttons if a plot is selected
         has_selection = self.saved_plots_list.currentRow() >= 0
         self.btn_delete_plot.setEnabled(has_selection)
+        self.btn_edit_plot_options.setEnabled(has_selection)
 
     def _on_saved_plot_selection_changed(self):
         """Handle selection change in saved plots list."""
@@ -2563,6 +2811,10 @@ class HDF5Viewer(QMainWindow):
             self.plot_figure.clear()
             ax = self.plot_figure.add_subplot(111)
 
+            # Get plot options from configuration
+            plot_options = plot_config.get("plot_options", {})
+            series_styles = plot_options.get("series", {})
+
             any_plotted = False
             for y_name in y_names:
                 if y_name not in col_data:
@@ -2571,23 +2823,50 @@ class HDF5Viewer(QMainWindow):
                 y_num = _pd.to_numeric(_pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
                 valid = np.isfinite(x_num) & np.isfinite(y_num)
                 if valid.any():
-                    ax.plot(x_num[valid], y_num[valid], label=y_name)
+                    # Get series-specific styling options
+                    series_opts = series_styles.get(y_name, {})
+                    plot_kwargs = {"label": y_name}
+
+                    if "color" in series_opts and series_opts["color"]:
+                        plot_kwargs["color"] = series_opts["color"]
+                    if "linestyle" in series_opts and series_opts["linestyle"]:
+                        plot_kwargs["linestyle"] = series_opts["linestyle"]
+                    if "marker" in series_opts and series_opts["marker"]:
+                        plot_kwargs["marker"] = series_opts["marker"]
+                    if "linewidth" in series_opts:
+                        plot_kwargs["linewidth"] = series_opts["linewidth"]
+                    if "markersize" in series_opts:
+                        plot_kwargs["markersize"] = series_opts["markersize"]
+
+                    ax.plot(x_num[valid], y_num[valid], **plot_kwargs)
                     any_plotted = True
 
             if not any_plotted:
                 QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
                 return
 
-            ax.set_xlabel(x_name)
-            ax.set_ylabel(", ".join(y_names))
+            # Apply custom labels or use defaults
+            xlabel = plot_options.get("xlabel", "").strip() or x_name
+            ylabel = plot_options.get("ylabel", "").strip() or ", ".join(y_names)
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
 
             # Set title with plot name and row range info
-            title = plot_config.get("name", "Plot")
-            if start_row > 0 or end_row < len(self._csv_data_dict.get(x_name, [])) - 1:
-                title += f" (rows {start_row}-{end_row})"
+            custom_title = plot_options.get("title", "").strip()
+            if custom_title:
+                title = custom_title
+            else:
+                title = plot_config.get("name", "Plot")
+                if start_row > 0 or end_row < len(self._csv_data_dict.get(x_name, [])) - 1:
+                    title += f" (rows {start_row}-{end_row})"
             ax.set_title(title)
 
-            ax.legend()
+            # Apply grid and legend options
+            if plot_options.get("grid", True):
+                ax.grid(True)
+            if plot_options.get("legend", True):
+                ax.legend()
+
             self.plot_figure.tight_layout()
 
             # Refresh canvas
@@ -2632,6 +2911,42 @@ class HDF5Viewer(QMainWindow):
         self._refresh_saved_plots_list()
 
         self.statusBar().showMessage(f"Deleted plot configuration: {plot_name}", 3000)
+
+    def _edit_plot_options_dialog(self):
+        """Open dialog to edit plot options for the selected plot configuration."""
+        current_row = self.saved_plots_list.currentRow()
+        if current_row < 0 or current_row >= len(self._saved_plots):
+            return
+
+        plot_config = self._saved_plots[current_row]
+
+        # Get column names from the preview table
+        headers = [
+            self.preview_table.horizontalHeaderItem(i).text()
+            if self.preview_table.horizontalHeaderItem(i) is not None else f"col_{i}"
+            for i in range(self.preview_table.columnCount())
+        ]
+
+        # Show the options dialog (pass all headers so indices work correctly)
+        dialog = PlotOptionsDialog(plot_config, headers, self)
+        if dialog.exec() == QDialog.Accepted:
+            # Update the configuration with the new options
+            updated_config = dialog.get_plot_config()
+            self._saved_plots[current_row] = updated_config
+
+            # Save to HDF5
+            self._save_plot_configs_to_hdf5()
+
+            # Refresh the list (in case the name changed)
+            self._refresh_saved_plots_list()
+
+            # Re-select the same row
+            self.saved_plots_list.setCurrentRow(current_row)
+
+            # Reapply the plot to show the changes
+            self._apply_saved_plot(None)
+
+            self.statusBar().showMessage(f"Updated plot options: {updated_config.get('name', 'Unnamed')}", 3000)
 
     def _on_saved_plots_context_menu(self, point):
         """Show context menu for saved plots list."""
