@@ -21,15 +21,20 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 - **Variable-Length Strings**: Proper handling of HDF5 variable-length string datasets
 - **Extensible Language Support**: Easy to add support for additional programming languages
 
-### 📈 **CSV Data & Filtering**
+### 📈 **CSV Data, Filtering & Plotting**
 - **CSV Import**: Import CSV files as HDF5 groups with one dataset per column
 - **Table Display**: View CSV data in an interactive table with column headers
 - **Column Filtering**: Apply multiple filters to CSV tables (==, !=, >, >=, <, <=, contains, startswith, endswith)
 - **Filter Persistence**: Filters are automatically saved in the HDF5 file and restored when reopening
-- **Plot Filtered Data**: Create matplotlib plots using filtered table data (first selected column is X-axis)
+- **Saved Plot Configurations**: Save multiple plot configurations per CSV group with customizable styling
+- **Interactive Plotting**: Embedded matplotlib plots with full navigation toolbar (zoom, pan, save)
+- **Plot Management**: Create, edit, delete, and instantly switch between saved plot configurations
+- **Comprehensive Styling**: Customize plot titles, axis labels, grid, legend, and per-series styling
+- **Series Customization**: Configure line color, style, marker type, line width, and marker size for each data series
+- **Plot Persistence**: All plot configurations stored in HDF5 and restored when reopening files
 - **Export Filtered Data**: Drag-and-drop CSV export includes only filtered rows
 - **Filter Management**: Configure, clear, and view active filters with real-time table updates
-- **Independent Filters**: Each CSV group in a file maintains its own filter configuration
+- **Independent Settings**: Each CSV group maintains its own filters and plot configurations
 
 ### ✏️ **Content Management**
 - **Add Files**: Import individual files into the HDF5 archive via toolbar or drag-and-drop
@@ -195,10 +200,43 @@ python -m vibehdf5.hdf5_viewer [file.h5]
 
 **Plotting Filtered Data:**
 1. Select 2 or more columns in the table (Ctrl/Cmd+Click)
-2. Click **Plot Selected Columns** in the toolbar
-3. First selected column becomes X-axis, others are Y-series
-4. Only filtered/visible rows are plotted
-5. Plot title shows filter status (e.g., "150/1000 rows, filtered")
+2. Click **Save Plot** to create a new plot configuration
+3. Enter a name for the plot (e.g., "Temperature vs Time")
+4. The plot appears in the **Saved Plots** list below the tree view
+5. Select any saved plot to instantly display it in the Plot tab
+6. Only filtered/visible rows are plotted
+7. Plot title shows filter status (e.g., "150/1000 rows, filtered")
+
+**Managing Saved Plots:**
+1. **Saved Plots List**: All plot configurations appear below the tree view
+2. **Auto-Apply**: Click any plot in the list to instantly display it
+3. **Edit Options**: Click **Edit Options** to customize plot styling
+4. **Delete**: Click **Delete** or right-click to remove a plot configuration
+5. **Persistence**: All plots are saved in the HDF5 file and restored on reopening
+
+**Customizing Plot Appearance:**
+1. Select a saved plot and click **Edit Options**
+2. **General Tab**:
+   - Change plot name
+   - Set custom plot title (or leave blank for auto-generated)
+   - Set X-axis and Y-axis labels (or leave blank for column names)
+   - Toggle grid and legend on/off
+3. **Series Styles Tab**:
+   - Configure each data series independently
+   - Choose from 10 colors: blue, red, green, orange, purple, brown, pink, gray, olive, cyan
+   - Select line style: Solid, Dashed, Dash-dot, Dotted, or None
+   - Choose marker: Circle, Square, Triangle, Diamond, Star, Plus, X, Point, or None
+   - Adjust line width (0.5 to 5.0)
+   - Set marker size (1.0 to 20.0)
+4. Click **OK** to apply changes - the plot updates immediately
+
+**Plot Features:**
+- **Interactive Navigation**: Full matplotlib toolbar with zoom, pan, reset, and save-to-file
+- **Multi-Series Support**: Plot multiple Y columns against a single X column
+- **Data Range Selection**: Plots use the current filtered data and row range
+- **Embedded Display**: Plots appear in a dedicated tab in the main window
+- **Quick Switching**: Instantly switch between different plot configurations
+- **Format Preservation**: All styling settings persist with the HDF5 file
 
 **Exporting Filtered Data:**
 1. Drag CSV group from tree to your file manager
@@ -290,10 +328,12 @@ vibehdf5/
 
 ### CSV Data Management
 - Filters are stored as JSON in the `csv_filters` attribute of CSV groups
-- Each CSV group maintains independent filter state
+- Plot configurations are stored as JSON in the `saved_plots` attribute of CSV groups
+- Each CSV group maintains independent filter state and plot configurations
 - Large CSV files (10,000+ rows) display efficiently with filtered views
 - Use filters before plotting or exporting to work with specific data subsets
 - Column data types are preserved during import (numeric, string, etc.)
+- Create multiple plot views of the same data with different styling and filters
 
 ### Workflow Integration
 - Use drag-and-drop to quickly archive project files
@@ -301,6 +341,9 @@ vibehdf5/
 - Delete temporary or obsolete data to keep archives clean
 - Apply filters to CSV data before exporting for downstream analysis
 - Create multiple filtered views of the same data by duplicating CSV groups
+- Save plot configurations to quickly regenerate visualizations
+- Use plot styling to create publication-ready figures directly from HDF5 data
+- Share HDF5 files with embedded plots and filters for reproducible analysis
 
 ## Troubleshooting
 
