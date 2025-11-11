@@ -38,6 +38,7 @@ from qtpy.QtWidgets import (
     QPushButton,
     QScrollArea,
     QFrame,
+    QTabWidget,
 )
 
 from .hdf5_tree_model import HDF5TreeModel
@@ -495,7 +496,10 @@ class HDF5Viewer(QMainWindow):
 
         right_splitter.addWidget(content_widget)
 
-        # Bottom section: attributes
+        # Bottom section: tabbed widget for Attributes and Plot
+        self.bottom_tabs = QTabWidget()
+
+        # Attributes tab
         attrs_widget = QWidget()
         attrs_layout = QVBoxLayout(attrs_widget)
         attrs_layout.setContentsMargins(0, 0, 0, 0)
@@ -503,18 +507,46 @@ class HDF5Viewer(QMainWindow):
         self.attrs_label = QLabel("Attributes")
         self.attrs_label.setVisible(False)
         self.attrs_table = QTableWidget(self)
-        self.attrs_table.setVisible(False)
+        self.attrs_table.setVisible(True)  # Always visible when tab is active
         self.attrs_table.setColumnCount(2)
         self.attrs_table.setHorizontalHeaderLabels(["Name", "Value"])
         self.attrs_table.horizontalHeader().setStretchLastSection(True)
         self.attrs_table.setAlternatingRowColors(True)
         self.attrs_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.attrs_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        # Remove max height constraint to allow splitter resizing
-        attrs_layout.addWidget(self.attrs_label)
         attrs_layout.addWidget(self.attrs_table)
 
-        right_splitter.addWidget(attrs_widget)
+        self.bottom_tabs.addTab(attrs_widget, "Attributes")
+
+        # Plot tab
+        plot_widget = QWidget()
+        plot_layout = QVBoxLayout(plot_widget)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Import matplotlib components for embedding
+        try:
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+            from matplotlib.figure import Figure
+
+            self.plot_figure = Figure(figsize=(8, 6))
+            self.plot_canvas = FigureCanvas(self.plot_figure)
+            plot_layout.addWidget(self.plot_canvas)
+            self._matplotlib_available = True
+        except ImportError:
+            # Matplotlib not available
+            no_plot_label = QLabel("Matplotlib not installed. Install it to enable plotting.")
+            no_plot_label.setAlignment(Qt.AlignCenter)
+            plot_layout.addWidget(no_plot_label)
+            self.plot_figure = None
+            self.plot_canvas = None
+            self._matplotlib_available = False
+
+        self.bottom_tabs.addTab(plot_widget, "Plot")
+
+        # Start with Attributes tab visible
+        self.bottom_tabs.setCurrentIndex(0)
+
+        right_splitter.addWidget(self.bottom_tabs)
 
         # Set initial sizes: main content gets most of the space
         right_splitter.setStretchFactor(0, 3)
@@ -1463,8 +1495,6 @@ class HDF5Viewer(QMainWindow):
             attrs = dict(h5_obj.attrs)
             if attrs:
                 self.attrs_table.setRowCount(len(attrs))
-                self.attrs_table.setVisible(True)
-                self.attrs_label.setVisible(True)
                 for row, (key, value) in enumerate(attrs.items()):
                     # Attribute name
                     name_item = QTableWidgetItem(str(key))
@@ -1485,18 +1515,14 @@ class HDF5Viewer(QMainWindow):
                 # Resize columns to content
                 self.attrs_table.resizeColumnsToContents()
             else:
-                # No attributes, hide the table
-                self.attrs_table.setVisible(False)
-                self.attrs_label.setVisible(False)
+                # No attributes, clear the table
+                self.attrs_table.setRowCount(0)
         except Exception:  # noqa: BLE001
-            # If there's an error, just hide the attributes table
-            self.attrs_table.setVisible(False)
-            self.attrs_label.setVisible(False)
+            # If there's an error, just clear the attributes table
+            self.attrs_table.setRowCount(0)
 
     def _hide_attributes(self) -> None:
         """Hide the attributes table."""
-        self.attrs_table.setVisible(False)
-        self.attrs_label.setVisible(False)
         self.attrs_table.setRowCount(0)
 
     def _show_scaled_image(self, pixmap=None):
@@ -1872,19 +1898,18 @@ class HDF5Viewer(QMainWindow):
 
         - First selected (or current) column is X
         - Subsequent selected columns are Y series
-        - Adds legend and shows a new window
+        - Adds legend and shows plot in embedded canvas
         """
         if self._current_csv_group_path is None or not self.preview_table.isVisible():
             QMessageBox.information(self, "Plot", "No CSV table is active to plot.")
             return
-        # Import matplotlib lazily to keep it optional
-        try:
-            import matplotlib.pyplot as plt  # type: ignore
-        except Exception as exc:  # noqa: BLE001
+
+        # Check if matplotlib is available
+        if not self._matplotlib_available:
             QMessageBox.critical(
                 self,
                 "Matplotlib not available",
-                f"Could not import matplotlib. Please install it first.\n\nError: {exc}",
+                "Matplotlib is not available. Please install it to use plotting features.",
             )
             return
 
@@ -1948,7 +1973,12 @@ class HDF5Viewer(QMainWindow):
                 return
             x_num = _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
 
-            plt.figure()
+            # Clear the previous plot
+            self.plot_figure.clear()
+
+            # Create a subplot
+            ax = self.plot_figure.add_subplot(111)
+
             any_plotted = False
             for y_name in y_names:
                 if y_name not in col_data:
@@ -1958,14 +1988,16 @@ class HDF5Viewer(QMainWindow):
                 import numpy as _np
                 valid = _np.isfinite(x_num) & _np.isfinite(y_num)
                 if valid.any():
-                    plt.plot(x_num[valid], y_num[valid], label=y_name)
+                    ax.plot(x_num[valid], y_num[valid], label=y_name)
                     any_plotted = True
+
             if not any_plotted:
                 QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
-                plt.close()
                 return
-            plt.xlabel(x_name)
-            plt.ylabel(", ".join(y_names))
+
+            ax.set_xlabel(x_name)
+            ax.set_ylabel(", ".join(y_names))
+
             try:
                 # Use group base name as title
                 title = os.path.basename(self._current_csv_group_path.rstrip("/"))
@@ -1974,13 +2006,19 @@ class HDF5Viewer(QMainWindow):
                     total_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict)
                     filtered_rows = len(self._csv_filtered_indices) if self._csv_filtered_indices is not None else 0
                     title += f" ({filtered_rows}/{total_rows} rows, filtered)"
-                plt.title(title)
+                ax.set_title(title)
             except Exception:
                 pass
-            plt.legend()
-            plt.tight_layout()
-            # Use block=False to avoid conflicting with Qt's event loop
-            plt.show(block=False)
+
+            ax.legend()
+            self.plot_figure.tight_layout()
+
+            # Refresh the canvas to display the plot
+            self.plot_canvas.draw()
+
+            # Switch to the Plot tab
+            self.bottom_tabs.setCurrentIndex(1)
+
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Plot error", f"Failed to plot data:\n{exc}")
 
