@@ -365,3 +365,9 @@ Built with:
 - [h5py](https://www.h5py.org/) - Pythonic interface to HDF5
 - [PySide6](https://wiki.qt.io/Qt_for_Python) - Python bindings for Qt
 - [NumPy](https://numpy.org/) - Numerical computing library
+
+## Similar projects
+
+* [HDFView](https://www.hdfgroup.org/download-hdfview/) -- the official HDF5 viewer (Java)
+* [hdf5view](https://github.com/tgwoodcock/hdf5view/)
+* [hdf5-viewer](https://github.com/loenard97/hdf5-viewer)
