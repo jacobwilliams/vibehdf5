@@ -19,7 +19,11 @@ import tempfile
 
 def create_multi_csv_test_file():
     """Create HDF5 file with multiple CSV groups for testing."""
-    temp_path = os.path.join(tempfile.gettempdir(), "test_multi_csv_filters.h5")
+    # Use tests/tmp directory for test files
+    test_dir = os.path.dirname(__file__)
+    tmp_dir = os.path.join(test_dir, "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    temp_path = os.path.join(tmp_dir, "test_multi_csv_filters.h5")
 
     with h5py.File(temp_path, "w") as f:
         # CSV 1: Employee data

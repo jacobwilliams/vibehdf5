@@ -13,7 +13,11 @@ from vibehdf5.hdf5_tree_model import HDF5TreeModel
 
 def create_test_file():
     """Create a test HDF5 file with CSV data."""
-    temp_path = os.path.join(tempfile.gettempdir(), "test_filter_export.h5")
+    # Use tests/tmp directory for test files
+    test_dir = os.path.dirname(__file__)
+    tmp_dir = os.path.join(test_dir, "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    temp_path = os.path.join(tmp_dir, "test_filter_export.h5")
 
     with h5py.File(temp_path, "w") as f:
         # Create a CSV group

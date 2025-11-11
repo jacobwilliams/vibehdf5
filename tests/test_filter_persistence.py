@@ -10,7 +10,11 @@ import tempfile
 
 def create_test_file_with_filters():
     """Create a test HDF5 file with CSV data and saved filters."""
-    temp_path = os.path.join(tempfile.gettempdir(), "test_filter_persistence.h5")
+    # Use tests/tmp directory for test files
+    test_dir = os.path.dirname(__file__)
+    tmp_dir = os.path.join(test_dir, "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    temp_path = os.path.join(tmp_dir, "test_filter_persistence.h5")
 
     with h5py.File(temp_path, "w") as f:
         # Create first CSV group

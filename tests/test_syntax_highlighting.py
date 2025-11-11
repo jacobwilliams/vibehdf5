@@ -259,8 +259,11 @@ Use `import h5py` to work with HDF5 files in Python.
 ''',
     }
     
-    # Create temp file
-    temp_file = os.path.join(tempfile.gettempdir(), "syntax_highlight_test.h5")
+    # Create temp file in tests/tmp directory
+    test_dir = os.path.dirname(__file__)
+    tmp_dir = os.path.join(test_dir, "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    temp_file = os.path.join(tmp_dir, "syntax_highlight_test.h5")
     
     with h5py.File(temp_file, "w") as f:
         # Create a group for examples

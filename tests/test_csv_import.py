@@ -73,9 +73,11 @@ def _create_datasets_from_csv(f: h5py.File, h5_path: str, disk_path: str) -> Non
 def test_csv_import():
     """Test importing a CSV file into HDF5."""
 
-    # Create a test HDF5 file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.h5', delete=False) as tmp_h5:
-        h5_path = tmp_h5.name
+    # Create a test HDF5 file in tests/tmp directory
+    test_dir = os.path.dirname(__file__)
+    tmp_dir = os.path.join(test_dir, "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    h5_path = os.path.join(tmp_dir, "test_csv_import.h5")
 
     try:
         # Create empty HDF5 file

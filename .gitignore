@@ -211,3 +211,4 @@ __marimo__/
 /*.h5
 /*.hdf5
 /*.csv
+/tests/tmp

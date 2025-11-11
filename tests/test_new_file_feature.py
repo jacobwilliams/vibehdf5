@@ -12,9 +12,11 @@ def test_new_file_creation():
     print("Testing New HDF5 File Feature")
     print("=" * 50)
     
-    # Create a temporary file path
-    temp_dir = tempfile.gettempdir()
-    test_file = os.path.join(temp_dir, "test_vibehdf5_new.h5")
+    # Create a temporary file path in tests/tmp directory
+    test_dir = os.path.dirname(__file__)
+    tmp_dir = os.path.join(test_dir, "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    test_file = os.path.join(tmp_dir, "test_vibehdf5_new.h5")
     
     print(f"\n1. Creating new HDF5 file: {test_file}")
     
