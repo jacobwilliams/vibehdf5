@@ -11,7 +11,7 @@ import binascii
 import gzip
 
 from qtpy.QtCore import Qt
-from qtpy.QtGui import QAction, QFont, QFontDatabase, QPixmap
+from qtpy.QtGui import QAction, QFont, QFontDatabase, QPixmap, QColor
 from qtpy.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -43,6 +43,7 @@ from qtpy.QtWidgets import (
     QInputDialog,
     QCheckBox,
     QDoubleSpinBox,
+    QColorDialog,
 )
 
 from .hdf5_tree_model import HDF5TreeModel
@@ -384,7 +385,17 @@ class PlotOptionsDialog(QDialog):
     # Available line styles and colors
     LINE_STYLES = ['-', '--', '-.', ':', 'None']
     LINE_STYLE_NAMES = ['Solid', 'Dashed', 'Dash-dot', 'Dotted', 'None']
-    COLORS = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+
+    # Get matplotlib's default color cycle
+    try:
+        import matplotlib.pyplot as plt
+        _prop_cycle = plt.rcParams['axes.prop_cycle']
+        COLORS = _prop_cycle.by_key()['color']
+    except Exception:
+        # Fallback to matplotlib's default tab10 colors if prop_cycle not available
+        COLORS = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+                  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+
     MARKERS = ['', 'o', 's', '^', 'v', 'D', '*', '+', 'x', '.']
     MARKER_NAMES = ['None', 'Circle', 'Square', 'Triangle Up', 'Triangle Down', 'Diamond', 'Star', 'Plus', 'X', 'Point']
 
@@ -513,15 +524,33 @@ class PlotOptionsDialog(QDialog):
         # Color, line style, and marker in one row
         style_layout = QHBoxLayout()
 
-        # Color
+        # Color picker button
         style_layout.addWidget(QLabel("Color:"))
-        color_combo = QComboBox()
-        color_combo.addItems(self.COLORS)
+        color_button = QPushButton()
+        color_button.setMaximumWidth(80)
+        color_button.setMinimumHeight(25)
+
+        # Get current color (hex string or default from cycle)
         current_color = series_options.get("color", self.COLORS[series_idx % len(self.COLORS)])
-        if current_color in self.COLORS:
-            color_combo.setCurrentText(current_color)
-        color_combo.setMinimumWidth(100)
-        style_layout.addWidget(color_combo)
+        # Parse color to QColor
+        qcolor = QColor(current_color)
+        if not qcolor.isValid():
+            # Fallback to first default color if invalid
+            qcolor = QColor(self.COLORS[0])
+
+        # Set button style with current color
+        color_button.setStyleSheet(f"background-color: {qcolor.name()}; border: 1px solid #999;")
+        color_button._color = qcolor
+
+        # Connect to color picker dialog
+        def pick_color():
+            color = QColorDialog.getColor(color_button._color, self, "Select Color")
+            if color.isValid():
+                color_button._color = color
+                color_button.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #999;")
+
+        color_button.clicked.connect(pick_color)
+        style_layout.addWidget(color_button)
 
         # Line style
         style_layout.addWidget(QLabel("Line Style:"))
@@ -580,7 +609,7 @@ class PlotOptionsDialog(QDialog):
         layout.addLayout(label_layout)
 
         # Store references
-        widget._color_combo = color_combo
+        widget._color_button = color_button
         widget._linestyle_combo = linestyle_combo
         widget._marker_combo = marker_combo
         widget._width_spin = width_spin
@@ -610,7 +639,7 @@ class PlotOptionsDialog(QDialog):
         for series_name, widget in self.series_widgets:
             series_opts[series_name] = {
                 "label": widget._label_edit.text(),
-                "color": widget._color_combo.currentText(),
+                "color": widget._color_button._color.name(),  # Get hex color from QColor
                 "linestyle": widget._linestyle_combo.currentData(),
                 "marker": widget._marker_combo.currentData(),
                 "linewidth": widget._width_spin.value(),
