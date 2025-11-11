@@ -489,6 +489,81 @@ class PlotOptionsDialog(QDialog):
         grid_layout.addStretch()
         general_layout.addWidget(grid_group)
 
+        # Axis limits section
+        limits_label = QLabel("<b>Axis Limits:</b>")
+        general_layout.addWidget(limits_label)
+
+        # X-axis limits
+        xlim_layout = QHBoxLayout()
+        xlim_layout.addWidget(QLabel("X-axis:"))
+        xlim_layout.addWidget(QLabel("Min:"))
+        self.xlim_min_edit = QLineEdit()
+        self.xlim_min_edit.setPlaceholderText("auto")
+        self.xlim_min_edit.setMaximumWidth(100)
+        xlim_min_val = self.plot_config.get("plot_options", {}).get("xlim_min", "")
+        if xlim_min_val not in (None, ""):
+            self.xlim_min_edit.setText(str(xlim_min_val))
+        xlim_layout.addWidget(self.xlim_min_edit)
+
+        xlim_layout.addWidget(QLabel("Max:"))
+        self.xlim_max_edit = QLineEdit()
+        self.xlim_max_edit.setPlaceholderText("auto")
+        self.xlim_max_edit.setMaximumWidth(100)
+        xlim_max_val = self.plot_config.get("plot_options", {}).get("xlim_max", "")
+        if xlim_max_val not in (None, ""):
+            self.xlim_max_edit.setText(str(xlim_max_val))
+        xlim_layout.addWidget(self.xlim_max_edit)
+
+        xlim_layout.addStretch()
+        general_layout.addLayout(xlim_layout)
+
+        # Y-axis limits
+        ylim_layout = QHBoxLayout()
+        ylim_layout.addWidget(QLabel("Y-axis:"))
+        ylim_layout.addWidget(QLabel("Min:"))
+        self.ylim_min_edit = QLineEdit()
+        self.ylim_min_edit.setPlaceholderText("auto")
+        self.ylim_min_edit.setMaximumWidth(100)
+        ylim_min_val = self.plot_config.get("plot_options", {}).get("ylim_min", "")
+        if ylim_min_val not in (None, ""):
+            self.ylim_min_edit.setText(str(ylim_min_val))
+        ylim_layout.addWidget(self.ylim_min_edit)
+
+        ylim_layout.addWidget(QLabel("Max:"))
+        self.ylim_max_edit = QLineEdit()
+        self.ylim_max_edit.setPlaceholderText("auto")
+        self.ylim_max_edit.setMaximumWidth(100)
+        ylim_max_val = self.plot_config.get("plot_options", {}).get("ylim_max", "")
+        if ylim_max_val not in (None, ""):
+            self.ylim_max_edit.setText(str(ylim_max_val))
+        ylim_layout.addWidget(self.ylim_max_edit)
+
+        ylim_layout.addStretch()
+        general_layout.addLayout(ylim_layout)
+
+        # Log scale options
+        log_scale_label = QLabel("<b>Logarithmic Scale:</b>")
+        general_layout.addWidget(log_scale_label)
+
+        log_scale_layout = QHBoxLayout()
+        log_scale_layout.setContentsMargins(0, 5, 0, 10)
+
+        self.xlog_checkbox = QCheckBox("X-axis Log Scale")
+        self.xlog_checkbox.setChecked(
+            self.plot_config.get("plot_options", {}).get("xlog", False)
+        )
+        log_scale_layout.addWidget(self.xlog_checkbox)
+
+        self.ylog_checkbox = QCheckBox("Y-axis Log Scale")
+        self.ylog_checkbox.setChecked(
+            self.plot_config.get("plot_options", {}).get("ylog", False)
+        )
+        log_scale_layout.addWidget(self.ylog_checkbox)
+
+        log_scale_layout.addStretch()
+        general_layout.addWidget(QWidget())  # Spacer
+        general_layout.addLayout(log_scale_layout)
+
         general_layout.addStretch()
         tabs.addTab(general_tab, "General")
 
@@ -664,6 +739,25 @@ class PlotOptionsDialog(QDialog):
         plot_opts["ylabel"] = self.ylabel_edit.text()
         plot_opts["grid"] = self.grid_checkbox.isChecked()
         plot_opts["legend"] = self.legend_checkbox.isChecked()
+
+        # Save axis limits (convert to float or None)
+        def parse_limit(text):
+            text = text.strip()
+            if not text:
+                return None
+            try:
+                return float(text)
+            except ValueError:
+                return None
+
+        plot_opts["xlim_min"] = parse_limit(self.xlim_min_edit.text())
+        plot_opts["xlim_max"] = parse_limit(self.xlim_max_edit.text())
+        plot_opts["ylim_min"] = parse_limit(self.ylim_min_edit.text())
+        plot_opts["ylim_max"] = parse_limit(self.ylim_max_edit.text())
+
+        # Save log scale options
+        plot_opts["xlog"] = self.xlog_checkbox.isChecked()
+        plot_opts["ylog"] = self.ylog_checkbox.isChecked()
 
         # Update series options
         series_opts = {}
@@ -2991,6 +3085,33 @@ class HDF5Viewer(QMainWindow):
                 ax.grid(True)
             if plot_options.get("legend", True):
                 ax.legend()
+
+            # Apply axis limits if specified
+            xlim_min = plot_options.get("xlim_min")
+            xlim_max = plot_options.get("xlim_max")
+            if xlim_min is not None or xlim_max is not None:
+                current_xlim = ax.get_xlim()
+                new_xlim = (
+                    xlim_min if xlim_min is not None else current_xlim[0],
+                    xlim_max if xlim_max is not None else current_xlim[1],
+                )
+                ax.set_xlim(new_xlim)
+
+            ylim_min = plot_options.get("ylim_min")
+            ylim_max = plot_options.get("ylim_max")
+            if ylim_min is not None or ylim_max is not None:
+                current_ylim = ax.get_ylim()
+                new_ylim = (
+                    ylim_min if ylim_min is not None else current_ylim[0],
+                    ylim_max if ylim_max is not None else current_ylim[1],
+                )
+                ax.set_ylim(new_ylim)
+
+            # Apply log scale if requested
+            if plot_options.get("xlog", False):
+                ax.set_xscale("log")
+            if plot_options.get("ylog", False):
+                ax.set_yscale("log")
 
             self.plot_figure.tight_layout()
 
