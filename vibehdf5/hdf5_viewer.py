@@ -1,54 +1,54 @@
 from __future__ import annotations
 
-import os
-import sys
-from pathlib import Path
-import numpy as np
-import pandas as pd
-import h5py
-import posixpath
 import binascii
 import gzip
+import os
+import posixpath
+import sys
+from pathlib import Path
 
+import h5py
+import numpy as np
+import pandas as pd
 from qtpy.QtCore import Qt
-from qtpy.QtGui import QAction, QFont, QFontDatabase, QPixmap, QColor
+from qtpy.QtGui import QAction, QColor, QFont, QFontDatabase, QPixmap
 from qtpy.QtWidgets import (
-    QApplication,
-    QFileDialog,
-    QMainWindow,
-    QTreeView,
     QAbstractItemView,
-    QToolBar,
-    QStatusBar,
-    QMessageBox,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QSplitter,
-    QLabel,
-    QPlainTextEdit,
-    QMenu,
-    QTableWidget,
-    QTableWidgetItem,
-    QProgressDialog,
+    QApplication,
+    QCheckBox,
+    QColorDialog,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
-    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
     QLineEdit,
+    QListWidget,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QPlainTextEdit,
+    QProgressDialog,
     QPushButton,
     QScrollArea,
-    QFrame,
+    QSplitter,
+    QStatusBar,
+    QTableWidget,
+    QTableWidgetItem,
     QTabWidget,
-    QListWidget,
-    QInputDialog,
-    QCheckBox,
-    QDoubleSpinBox,
-    QColorDialog,
+    QToolBar,
+    QTreeView,
+    QVBoxLayout,
+    QWidget,
 )
 
 from .hdf5_tree_model import HDF5TreeModel
-from .utilities import excluded_dirs, excluded_files
 from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
+from .utilities import excluded_dirs, excluded_files
 
 
 # Helpers (placed before main/class so they are defined at runtime)
@@ -66,6 +66,7 @@ def _sanitize_hdf5_name(name: str) -> str:
     except Exception:  # noqa: BLE001
         return "unnamed"
 
+
 def _dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]:
     """Read an h5py dataset and return a text representation and an optional note.
 
@@ -80,15 +81,15 @@ def _dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]
 
     # Check if this is a gzip-compressed text dataset
     try:
-        if 'compressed' in ds.attrs and ds.attrs['compressed'] == 'gzip':
+        if "compressed" in ds.attrs and ds.attrs["compressed"] == "gzip":
             if isinstance(data, np.ndarray) and data.dtype == np.uint8:
                 compressed_bytes = data.tobytes()
                 decompressed = gzip.decompress(compressed_bytes)
-                encoding = ds.attrs.get('original_encoding', 'utf-8')
+                encoding = ds.attrs.get("original_encoding", "utf-8")
                 if isinstance(encoding, bytes):
-                    encoding = encoding.decode('utf-8')
+                    encoding = encoding.decode("utf-8")
                 # Check if this is binary data
-                if encoding == 'binary':
+                if encoding == "binary":
                     # Return decompressed binary data for further processing
                     return _bytes_to_text(decompressed, limit_bytes, decompressed=True)
                 # Otherwise it's text
@@ -103,10 +104,10 @@ def _dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]
         pass
 
     # Convert to bytes if it's an array of fixed-length ASCII (S) blocks
-    if isinstance(data, np.ndarray) and data.dtype.kind == 'S':
+    if isinstance(data, np.ndarray) and data.dtype.kind == "S":
         try:
             # Flatten and join bytes chunks
-            b = b''.join(x.tobytes() if hasattr(x, 'tobytes') else bytes(x) for x in data.ravel())
+            b = b"".join(x.tobytes() if hasattr(x, "tobytes") else bytes(x) for x in data.ravel())
         except Exception:
             b = data.tobytes()
         return _bytes_to_text(b, limit_bytes)
@@ -118,13 +119,13 @@ def _dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]
             # Read as Python str
             as_str = ds.asstr()[()]
             if isinstance(as_str, np.ndarray):
-                text = '\n'.join(map(str, as_str.ravel().tolist()))
+                text = "\n".join(map(str, as_str.ravel().tolist()))
             else:
                 text = str(as_str)
             note = None
-            if len(text.encode('utf-8')) > limit_bytes:
-                enc = text.encode('utf-8')[:limit_bytes]
-                text = enc.decode('utf-8', errors='ignore') + "\n… (truncated)"
+            if len(text.encode("utf-8")) > limit_bytes:
+                enc = text.encode("utf-8")[:limit_bytes]
+                text = enc.decode("utf-8", errors="ignore") + "\n… (truncated)"
                 note = f"Preview limited to {limit_bytes} bytes"
             return text, note
         except Exception:
@@ -147,12 +148,14 @@ def _dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]
     # Fallback to repr
     t = repr(data)
     if len(t) > 200_000:
-        t = t[:200_000] + '… (truncated)'
+        t = t[:200_000] + "… (truncated)"
         note = "Preview truncated"
     return t, note
 
 
-def _bytes_to_text(b: bytes, limit_bytes: int = 1_000_000, decompressed: bool = False) -> tuple[str, str | None]:
+def _bytes_to_text(
+    b: bytes, limit_bytes: int = 1_000_000, decompressed: bool = False
+) -> tuple[str, str | None]:
     note = None
     if len(b) > limit_bytes:
         b = b[:limit_bytes]
@@ -162,14 +165,14 @@ def _bytes_to_text(b: bytes, limit_bytes: int = 1_000_000, decompressed: bool = 
     elif decompressed:
         note = "(decompressed from gzip)"
     try:
-        return b.decode('utf-8'), note
+        return b.decode("utf-8"), note
     except UnicodeDecodeError:
         # Provide a hex dump preview
-        hexstr = binascii.hexlify(b).decode('ascii')
+        hexstr = binascii.hexlify(b).decode("ascii")
         # Group hex bytes in pairs for readability
-        grouped = ' '.join(hexstr[i:i+2] for i in range(0, len(hexstr), 2))
+        grouped = " ".join(hexstr[i : i + 2] for i in range(0, len(hexstr), 2))
         if len(grouped) > 200_000:
-            grouped = grouped[:200_000] + '… (truncated)'
+            grouped = grouped[:200_000] + "… (truncated)"
             note = "Preview truncated"
         suffix = " (decompressed)" if decompressed else ""
         return grouped, ((note or "binary data shown as hex") + suffix)
@@ -215,7 +218,7 @@ class DropTreeView(QTreeView):
 
         # Check if this is an internal HDF5 move
         if md.hasFormat("application/x-hdf5-path"):
-            source_path = bytes(md.data("application/x-hdf5-path")).decode('utf-8')
+            source_path = bytes(md.data("application/x-hdf5-path")).decode("utf-8")
             try:
                 pos = event.position().toPoint()
             except Exception:  # noqa: BLE001
@@ -303,9 +306,7 @@ class ColumnFilterDialog(QDialog):
         layout.addWidget(add_btn)
 
         # Dialog buttons
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-        )
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
@@ -365,7 +366,7 @@ class ColumnFilterDialog(QDialog):
         filters = []
         for i in range(self.filter_layout.count() - 1):  # -1 to skip stretch
             widget = self.filter_layout.itemAt(i).widget()
-            if widget and hasattr(widget, '_col_combo'):
+            if widget and hasattr(widget, "_col_combo"):
                 col_name = widget._col_combo.currentText()
                 operator = widget._op_combo.currentText()
                 value = widget._value_edit.text()
@@ -383,21 +384,43 @@ class PlotOptionsDialog(QDialog):
     """Dialog for configuring plot options (title, labels, line styles, etc.)."""
 
     # Available line styles and colors
-    LINE_STYLES = ['-', '--', '-.', ':', 'None']
-    LINE_STYLE_NAMES = ['Solid', 'Dashed', 'Dash-dot', 'Dotted', 'None']
+    LINE_STYLES = ["-", "--", "-.", ":", "None"]
+    LINE_STYLE_NAMES = ["Solid", "Dashed", "Dash-dot", "Dotted", "None"]
 
     # Get matplotlib's default color cycle
     try:
         import matplotlib.pyplot as plt
-        _prop_cycle = plt.rcParams['axes.prop_cycle']
-        COLORS = _prop_cycle.by_key()['color']
+
+        _prop_cycle = plt.rcParams["axes.prop_cycle"]
+        COLORS = _prop_cycle.by_key()["color"]
     except Exception:
         # Fallback to matplotlib's default tab10 colors if prop_cycle not available
-        COLORS = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-                  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+        COLORS = [
+            "#1f77b4",
+            "#ff7f0e",
+            "#2ca02c",
+            "#d62728",
+            "#9467bd",
+            "#8c564b",
+            "#e377c2",
+            "#7f7f7f",
+            "#bcbd22",
+            "#17becf",
+        ]
 
-    MARKERS = ['', 'o', 's', '^', 'v', 'D', '*', '+', 'x', '.']
-    MARKER_NAMES = ['None', 'Circle', 'Square', 'Triangle Up', 'Triangle Down', 'Diamond', 'Star', 'Plus', 'X', 'Point']
+    MARKERS = ["", "o", "s", "^", "v", "D", "*", "+", "x", "."]
+    MARKER_NAMES = [
+        "None",
+        "Circle",
+        "Square",
+        "Triangle Up",
+        "Triangle Down",
+        "Diamond",
+        "Star",
+        "Plus",
+        "X",
+        "Point",
+    ]
 
     def __init__(self, plot_config, column_names, parent=None):
         super().__init__(parent)
@@ -458,7 +481,9 @@ class PlotOptionsDialog(QDialog):
         grid_layout.addWidget(self.grid_checkbox)
 
         self.legend_checkbox = QCheckBox("Show Legend")
-        self.legend_checkbox.setChecked(self.plot_config.get("plot_options", {}).get("legend", True))
+        self.legend_checkbox.setChecked(
+            self.plot_config.get("plot_options", {}).get("legend", True)
+        )
         grid_layout.addWidget(self.legend_checkbox)
 
         grid_layout.addStretch()
@@ -492,7 +517,9 @@ class PlotOptionsDialog(QDialog):
         for idx, y_idx in enumerate(y_idxs):
             if y_idx < len(column_names):
                 y_name = column_names[y_idx]
-                series_widget = self._create_series_widget(y_name, idx, series_options.get(y_name, {}))
+                series_widget = self._create_series_widget(
+                    y_name, idx, series_options.get(y_name, {})
+                )
                 self.series_layout.addWidget(series_widget)
                 self.series_widgets.append((y_name, series_widget))
 
@@ -503,9 +530,7 @@ class PlotOptionsDialog(QDialog):
         tabs.addTab(series_tab, "Series Styles")
 
         # Dialog buttons
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-        )
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
@@ -547,7 +572,9 @@ class PlotOptionsDialog(QDialog):
             color = QColorDialog.getColor(color_button._color, self, "Select Color")
             if color.isValid():
                 color_button._color = color
-                color_button.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #999;")
+                color_button.setStyleSheet(
+                    f"background-color: {color.name()}; border: 1px solid #999;"
+                )
 
         color_button.clicked.connect(pick_color)
         style_layout.addWidget(color_button)
@@ -558,7 +585,11 @@ class PlotOptionsDialog(QDialog):
         for i, name in enumerate(self.LINE_STYLE_NAMES):
             linestyle_combo.addItem(name, self.LINE_STYLES[i])
         current_linestyle = series_options.get("linestyle", "-")
-        idx = self.LINE_STYLES.index(current_linestyle) if current_linestyle in self.LINE_STYLES else 0
+        idx = (
+            self.LINE_STYLES.index(current_linestyle)
+            if current_linestyle in self.LINE_STYLES
+            else 0
+        )
         linestyle_combo.setCurrentIndex(idx)
         linestyle_combo.setMinimumWidth(100)
         style_layout.addWidget(linestyle_combo)
@@ -1018,7 +1049,9 @@ class HDF5Viewer(QMainWindow):
                         obj = None
                     if obj is not None and isinstance(obj, h5py.Group):
                         try:
-                            is_csv = ('source_type' in obj.attrs and obj.attrs['source_type'] == 'csv')
+                            is_csv = (
+                                "source_type" in obj.attrs and obj.attrs["source_type"] == "csv"
+                            )
                         except Exception:  # noqa: BLE001
                             is_csv = False
                         if is_csv:
@@ -1063,7 +1096,9 @@ class HDF5Viewer(QMainWindow):
                         obj = None
                     if obj is not None and isinstance(obj, h5py.Group):
                         try:
-                            is_csv = ('source_type' in obj.attrs and obj.attrs['source_type'] == 'csv')
+                            is_csv = (
+                                "source_type" in obj.attrs and obj.attrs["source_type"] == "csv"
+                            )
                         except Exception:  # noqa: BLE001
                             is_csv = False
                         if is_csv:
@@ -1119,10 +1154,9 @@ class HDF5Viewer(QMainWindow):
 
         # Get folder name from user
         from qtpy.QtWidgets import QInputDialog
+
         folder_name, ok = QInputDialog.getText(
-            self,
-            "New Folder",
-            f"Enter folder name to create in {target_group}:"
+            self, "New Folder", f"Enter folder name to create in {target_group}:"
         )
 
         if not ok or not folder_name:
@@ -1145,9 +1179,7 @@ class HDF5Viewer(QMainWindow):
             with h5py.File(fpath, "r+") as h5:
                 if new_group_path in h5:
                     QMessageBox.warning(
-                        self,
-                        "Already Exists",
-                        f"Group '{new_group_path}' already exists."
+                        self, "Already Exists", f"Group '{new_group_path}' already exists."
                     )
                     return
                 h5.create_group(new_group_path)
@@ -1158,11 +1190,7 @@ class HDF5Viewer(QMainWindow):
             self.statusBar().showMessage(f"Created folder: {new_group_path}", 5000)
 
         except Exception as exc:
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to create folder: {exc}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to create folder: {exc}")
 
     def _move_hdf5_item(self, source_path: str, target_group: str) -> bool:
         """Move an HDF5 dataset or group from source_path to target_group.
@@ -1193,24 +1221,31 @@ class HDF5Viewer(QMainWindow):
 
                 # Prevent moving items out of CSV groups
                 source_parent = posixpath.dirname(source_path) or "/"
-                if source_parent and source_parent != "/" and isinstance(h5[source_parent], h5py.Group):
+                if (
+                    source_parent
+                    and source_parent != "/"
+                    and isinstance(h5[source_parent], h5py.Group)
+                ):
                     parent_grp = h5[source_parent]
-                    if 'source_type' in parent_grp.attrs and parent_grp.attrs['source_type'] == 'csv':
+                    if (
+                        "source_type" in parent_grp.attrs
+                        and parent_grp.attrs["source_type"] == "csv"
+                    ):
                         QMessageBox.warning(
-                            self,
-                            "Invalid Move",
-                            "Cannot move items out of CSV groups."
+                            self, "Invalid Move", "Cannot move items out of CSV groups."
                         )
                         return False
 
                 # Prevent moving into CSV groups
-                if target_group and target_group != "/" and isinstance(h5[target_group], h5py.Group):
+                if (
+                    target_group
+                    and target_group != "/"
+                    and isinstance(h5[target_group], h5py.Group)
+                ):
                     grp = h5[target_group]
-                    if 'source_type' in grp.attrs and grp.attrs['source_type'] == 'csv':
+                    if "source_type" in grp.attrs and grp.attrs["source_type"] == "csv":
                         QMessageBox.warning(
-                            self,
-                            "Invalid Target",
-                            "Cannot move items into CSV groups."
+                            self, "Invalid Target", "Cannot move items into CSV groups."
                         )
                         return False
 
@@ -1245,14 +1280,12 @@ class HDF5Viewer(QMainWindow):
                 return True
 
         except Exception as exc:
-            QMessageBox.critical(
-                self,
-                "Move Failed",
-                f"Failed to move item: {exc}"
-            )
+            QMessageBox.critical(self, "Move Failed", f"Failed to move item: {exc}")
             return False
 
-    def _add_items_batch(self, files: list[str], folders: list[str], target_group: str) -> tuple[int, list[str]]:
+    def _add_items_batch(
+        self, files: list[str], folders: list[str], target_group: str
+    ) -> tuple[int, list[str]]:
         fpath = self.model.filepath
         if not fpath:
             return 0, ["No HDF5 file loaded"]
@@ -1262,9 +1295,13 @@ class HDF5Viewer(QMainWindow):
             with h5py.File(fpath, "r+") as h5:
                 # Final safety: never allow writing into a CSV-derived group
                 try:
-                    if target_group and target_group != "/" and isinstance(h5[target_group], h5py.Group):
+                    if (
+                        target_group
+                        and target_group != "/"
+                        and isinstance(h5[target_group], h5py.Group)
+                    ):
                         grp = h5[target_group]
-                        if 'source_type' in grp.attrs and grp.attrs['source_type'] == 'csv':
+                        if "source_type" in grp.attrs and grp.attrs["source_type"] == "csv":
                             target_group = posixpath.dirname(target_group) or "/"
                 except Exception:  # noqa: BLE001
                     pass
@@ -1277,7 +1314,9 @@ class HDF5Viewer(QMainWindow):
                     name = os.path.basename(path_on_disk)
                     if name in excluded_files:
                         continue
-                    h5_path = posixpath.join(target_group, name) if target_group != "/" else "/" + name
+                    h5_path = (
+                        posixpath.join(target_group, name) if target_group != "/" else "/" + name
+                    )
                     try:
                         self._create_dataset_from_file(base_grp, h5_path, path_on_disk, np)
                         added += 1
@@ -1349,7 +1388,7 @@ class HDF5Viewer(QMainWindow):
             raise FileExistsError(h5_path)
 
         # Special handling for CSV files
-        if disk_path.lower().endswith('.csv'):
+        if disk_path.lower().endswith(".csv"):
             self._create_datasets_from_csv(f, h5_path, disk_path)
             return
 
@@ -1362,11 +1401,11 @@ class HDF5Viewer(QMainWindow):
             with open(disk_path, "r", encoding="utf-8") as fin:
                 data = fin.read()
             # Compress text data with gzip (level 9 for maximum compression)
-            compressed = gzip.compress(data.encode('utf-8'), compresslevel=9)
+            compressed = gzip.compress(data.encode("utf-8"), compresslevel=9)
             ds = f.create_dataset(h5_path, data=np.frombuffer(compressed, dtype="uint8"))
             # Mark as compressed text so we can decompress on read
-            ds.attrs['compressed'] = 'gzip'
-            ds.attrs['original_encoding'] = 'utf-8'
+            ds.attrs["compressed"] = "gzip"
+            ds.attrs["original_encoding"] = "utf-8"
             return
         except Exception:  # noqa: BLE001
             pass
@@ -1377,8 +1416,8 @@ class HDF5Viewer(QMainWindow):
         compressed = gzip.compress(bdata, compresslevel=9)
         ds = f.create_dataset(h5_path, data=np.frombuffer(compressed, dtype="uint8"))
         # Mark as compressed binary so we can decompress on read
-        ds.attrs['compressed'] = 'gzip'
-        ds.attrs['original_encoding'] = 'binary'
+        ds.attrs["compressed"] = "gzip"
+        ds.attrs["original_encoding"] = "binary"
 
     def _create_datasets_from_csv(self, f: h5py.File, h5_path: str, disk_path: str) -> None:
         """Convert a CSV file to HDF5 datasets.
@@ -1406,7 +1445,7 @@ class HDF5Viewer(QMainWindow):
 
         # Remove .csv extension from group name
         group_path = h5_path
-        if group_path.lower().endswith('.csv'):
+        if group_path.lower().endswith(".csv"):
             group_path = group_path[:-4]
 
         # Ensure parent groups exist
@@ -1418,9 +1457,9 @@ class HDF5Viewer(QMainWindow):
         grp = f.create_group(group_path)
 
         # Add metadata about the source file
-        grp.attrs['source_file'] = os.path.basename(disk_path)
-        grp.attrs['source_type'] = 'csv'
-        grp.attrs['column_names'] = list(df.columns)
+        grp.attrs["source_file"] = os.path.basename(disk_path)
+        grp.attrs["source_type"] = "csv"
+        grp.attrs["column_names"] = list(df.columns)
 
         progress.setLabelText(f"Creating datasets for {len(df.columns)} columns...")
         progress.setValue(30)
@@ -1450,7 +1489,7 @@ class HDF5Viewer(QMainWindow):
 
             # Clean column name for use as dataset name
             base = _sanitize_hdf5_name(str(col))
-            ds_name = base if base else 'unnamed_column'
+            ds_name = base if base else "unnamed_column"
             # Ensure uniqueness within the group
             if ds_name in used_names:
                 i = 2
@@ -1461,24 +1500,20 @@ class HDF5Viewer(QMainWindow):
             column_dataset_names.append(ds_name)
 
             # Convert pandas Series to numpy array with appropriate dtype
-            if col_data.dtype == 'object':
+            if col_data.dtype == "object":
                 # For object dtype, convert to Python list then create dataset
                 # This avoids numpy unicode string issues
                 try:
                     # Convert to Python strings
                     str_list = [str(x) for x in col_data.values]
                     grp.create_dataset(
-                        ds_name,
-                        data=str_list,
-                        dtype=h5py.string_dtype(encoding='utf-8')
+                        ds_name, data=str_list, dtype=h5py.string_dtype(encoding="utf-8")
                     )
                 except Exception:  # noqa: BLE001
                     # Fallback: convert to bytes
                     str_list = [str(x) for x in col_data.values]
                     grp.create_dataset(
-                        ds_name,
-                        data=str_list,
-                        dtype=h5py.string_dtype(encoding='utf-8')
+                        ds_name, data=str_list, dtype=h5py.string_dtype(encoding="utf-8")
                     )
             else:
                 # Numeric or other numpy-supported dtypes
@@ -1490,10 +1525,10 @@ class HDF5Viewer(QMainWindow):
         QApplication.processEvents()
 
         try:
-            grp.attrs['column_dataset_names'] = np.array(column_dataset_names, dtype=object)
+            grp.attrs["column_dataset_names"] = np.array(column_dataset_names, dtype=object)
         except Exception:  # noqa: BLE001
             # Fallback to list assignment if dtype=object attr not permitted
-            grp.attrs['column_dataset_names'] = column_dataset_names
+            grp.attrs["column_dataset_names"] = column_dataset_names
 
         progress.setValue(100)
         progress.close()
@@ -1511,8 +1546,8 @@ class HDF5Viewer(QMainWindow):
             return
 
         # Add .h5 extension if no extension provided
-        if not filepath.endswith(('.h5', '.hdf5')):
-            filepath += '.h5'
+        if not filepath.endswith((".h5", ".hdf5")):
+            filepath += ".h5"
 
         # Check if file already exists
         if os.path.exists(filepath):
@@ -1614,7 +1649,7 @@ class HDF5Viewer(QMainWindow):
                 with h5py.File(self.model.filepath, "r") as h5:
                     grp = h5[path]
                     if isinstance(grp, h5py.Group):
-                        if 'source_type' in grp.attrs and grp.attrs['source_type'] == 'csv':
+                        if "source_type" in grp.attrs and grp.attrs["source_type"] == "csv":
                             is_csv_group = True
                             csv_expanded = item.data(self.model.ROLE_CSV_EXPANDED) or False
             except Exception:  # noqa: BLE001
@@ -1703,7 +1738,9 @@ class HDF5Viewer(QMainWindow):
             self.model.load_file(fpath)
             self.tree.expandToDepth(1)
         except Exception as exc:
-            QMessageBox.warning(self, "Refresh failed", f"Deleted, but failed to refresh view: {exc}")
+            QMessageBox.warning(
+                self, "Refresh failed", f"Deleted, but failed to refresh view: {exc}"
+            )
 
     def preview_dataset(self, dspath: str) -> None:
         self.preview_label.setText(f"Dataset: {os.path.basename(dspath)}")
@@ -1715,7 +1752,7 @@ class HDF5Viewer(QMainWindow):
             self._hide_attributes()
             return
         # If the dataset name ends with .png, try to display as image
-        if dspath.lower().endswith('.png'):
+        if dspath.lower().endswith(".png"):
             try:
                 with h5py.File(fpath, "r") as h5:
                     obj = h5[dspath]
@@ -1729,17 +1766,21 @@ class HDF5Viewer(QMainWindow):
                     data = obj[()]
 
                     # Check if this is compressed binary data
-                    if 'compressed' in obj.attrs and obj.attrs['compressed'] == 'gzip':
-                        encoding = obj.attrs.get('original_encoding', 'utf-8')
+                    if "compressed" in obj.attrs and obj.attrs["compressed"] == "gzip":
+                        encoding = obj.attrs.get("original_encoding", "utf-8")
                         if isinstance(encoding, bytes):
-                            encoding = encoding.decode('utf-8')
-                        if encoding == 'binary' and isinstance(data, np.ndarray) and data.dtype == np.uint8:
+                            encoding = encoding.decode("utf-8")
+                        if (
+                            encoding == "binary"
+                            and isinstance(data, np.ndarray)
+                            and data.dtype == np.uint8
+                        ):
                             # Decompress the binary data
                             compressed_bytes = data.tobytes()
                             img_bytes = gzip.decompress(compressed_bytes)
                         elif isinstance(data, bytes):
                             img_bytes = data
-                        elif hasattr(data, 'tobytes'):
+                        elif hasattr(data, "tobytes"):
                             img_bytes = data.tobytes()
                         else:
                             self._set_preview_text("Dataset is not a valid PNG byte array.")
@@ -1749,7 +1790,7 @@ class HDF5Viewer(QMainWindow):
                             return
                     elif isinstance(data, bytes):
                         img_bytes = data
-                    elif hasattr(data, 'tobytes'):
+                    elif hasattr(data, "tobytes"):
                         img_bytes = data.tobytes()
                     else:
                         self._set_preview_text("Dataset is not a valid PNG byte array.")
@@ -1826,8 +1867,7 @@ class HDF5Viewer(QMainWindow):
         if language != "plain":
             try:
                 self._current_highlighter = SyntaxHighlighter(
-                    self.preview_edit.document(),
-                    language=language
+                    self.preview_edit.document(), language=language
                 )
             except Exception:  # noqa: BLE001
                 # If highlighting fails, just show plain text
@@ -1933,7 +1973,7 @@ class HDF5Viewer(QMainWindow):
                     return
 
                 # Check if this is a CSV-derived group
-                if 'source_type' in grp.attrs and grp.attrs['source_type'] == 'csv':
+                if "source_type" in grp.attrs and grp.attrs["source_type"] == "csv":
                     # Track current CSV group for plotting
                     self._current_csv_group_path = grouppath
                     self._show_csv_table(grp)
@@ -1951,7 +1991,7 @@ class HDF5Viewer(QMainWindow):
 
     def _get_th_location(self, ds_key, grp):
         """We allow an optional 'Time History' group for CSV columns."""
-        OPTIONAL_GROUP_FOR_COLUMNS = 'Time History'
+        OPTIONAL_GROUP_FOR_COLUMNS = "Time History"
         th_group = OPTIONAL_GROUP_FOR_COLUMNS in grp
         if th_group:
             key_in_group = ds_key in grp[OPTIONAL_GROUP_FOR_COLUMNS]
@@ -1967,9 +2007,9 @@ class HDF5Viewer(QMainWindow):
         progress = None
         try:
             # Get column names (for headers)
-            if 'column_names' in grp.attrs:
+            if "column_names" in grp.attrs:
                 try:
-                    col_names = [str(c) for c in list(grp.attrs['column_names'])]
+                    col_names = [str(c) for c in list(grp.attrs["column_names"])]
                 except Exception:  # noqa: BLE001
                     col_names = list(grp.keys())
             else:
@@ -1977,9 +2017,9 @@ class HDF5Viewer(QMainWindow):
 
             # Optional mapping of columns to actual dataset names
             col_ds_names: list[str] | None = None
-            if 'column_dataset_names' in grp.attrs:
+            if "column_dataset_names" in grp.attrs:
                 try:
-                    col_ds_names = [str(c) for c in list(grp.attrs['column_dataset_names'])]
+                    col_ds_names = [str(c) for c in list(grp.attrs["column_dataset_names"])]
                     if len(col_ds_names) != len(col_names):
                         col_ds_names = None
                 except Exception:  # noqa: BLE001
@@ -2086,13 +2126,17 @@ class HDF5Viewer(QMainWindow):
                     # Convert entire column to strings at once (much faster)
                     if isinstance(col_data, np.ndarray):
                         # Use numpy's vectorized string conversion
-                        if col_data.dtype.kind == 'S' or col_data.dtype.kind == 'U':
+                        if col_data.dtype.kind == "S" or col_data.dtype.kind == "U":
                             # Byte or unicode strings
-                            str_data = [str(v) if not isinstance(v, bytes) else v.decode('utf-8', errors='replace')
-                                       for v in col_data[:display_rows]]
+                            str_data = [
+                                str(v)
+                                if not isinstance(v, bytes)
+                                else v.decode("utf-8", errors="replace")
+                                for v in col_data[:display_rows]
+                            ]
                         else:
                             # Numeric or other types - use numpy's string conversion
-                            str_data = np.char.mod('%s', col_data[:display_rows])
+                            str_data = np.char.mod("%s", col_data[:display_rows])
                     else:
                         str_data = [str(v) for v in col_data[:display_rows]]
 
@@ -2110,7 +2154,7 @@ class HDF5Viewer(QMainWindow):
 
             # Re-enable updates and sorting
             self.preview_table.setUpdatesEnabled(True)
-            #self.preview_table.setSortingEnabled(True)  # don't want sorting since it interfers with selecting columns for plotting.
+            # self.preview_table.setSortingEnabled(True)  # don't want sorting since it interfers with selecting columns for plotting.
 
             # Show table, hide others
             progress.setValue(100)
@@ -2207,15 +2251,15 @@ class HDF5Viewer(QMainWindow):
                 grp = h5[group_path]
                 # Resolve mapping from original names to dataset keys if present
                 mapping: dict[str, str] = {}
-                if 'column_names' in grp.attrs:
+                if "column_names" in grp.attrs:
                     try:
-                        orig = [str(c) for c in list(grp.attrs['column_names'])]
+                        orig = [str(c) for c in list(grp.attrs["column_names"])]
                     except Exception:  # noqa: BLE001
                         orig = []
                     ds_names: list[str] | None = None
-                    if 'column_dataset_names' in grp.attrs:
+                    if "column_dataset_names" in grp.attrs:
                         try:
-                            ds_names = [str(c) for c in list(grp.attrs['column_dataset_names'])]
+                            ds_names = [str(c) for c in list(grp.attrs["column_dataset_names"])]
                             if len(ds_names) != len(orig):
                                 ds_names = None
                         except Exception:  # noqa: BLE001
@@ -2292,7 +2336,8 @@ class HDF5Viewer(QMainWindow):
         # Column names from headers
         headers = [
             self.preview_table.horizontalHeaderItem(i).text()
-            if self.preview_table.horizontalHeaderItem(i) is not None else f"col_{i}"
+            if self.preview_table.horizontalHeaderItem(i) is not None
+            else f"col_{i}"
             for i in range(self.preview_table.columnCount())
         ]
         try:
@@ -2326,6 +2371,7 @@ class HDF5Viewer(QMainWindow):
         try:
             # Coerce X to numeric
             import pandas as _pd  # local alias
+
             x_arr = col_data[x_name]
             # Ensure 1-D
             x_arr = x_arr.ravel()
@@ -2333,7 +2379,11 @@ class HDF5Viewer(QMainWindow):
             if min_len <= 0:
                 QMessageBox.warning(self, "Plot", "No data to plot.")
                 return
-            x_num = _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+            x_num = (
+                _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce")
+                .astype(float)
+                .to_numpy()
+            )
 
             # Clear the previous plot
             self.plot_figure.clear()
@@ -2348,6 +2398,7 @@ class HDF5Viewer(QMainWindow):
                 y_arr = col_data[y_name].ravel()[:min_len]
                 y_num = _pd.to_numeric(_pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
                 import numpy as _np
+
                 valid = _np.isfinite(x_num) & _np.isfinite(y_num)
                 if valid.any():
                     ax.plot(x_num[valid], y_num[valid], label=y_name)
@@ -2366,7 +2417,11 @@ class HDF5Viewer(QMainWindow):
                 # Add filter indicator if filters are active
                 if self._csv_filters:
                     total_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict)
-                    filtered_rows = len(self._csv_filtered_indices) if self._csv_filtered_indices is not None else 0
+                    filtered_rows = (
+                        len(self._csv_filtered_indices)
+                        if self._csv_filtered_indices is not None
+                        else 0
+                    )
                     title += f" ({filtered_rows}/{total_rows} rows, filtered)"
                 ax.set_title(title)
             except Exception:
@@ -2411,6 +2466,7 @@ class HDF5Viewer(QMainWindow):
 
         try:
             import json
+
             with h5py.File(self.model.filepath, "r+") as h5:
                 if self._current_csv_group_path in h5:
                     grp = h5[self._current_csv_group_path]
@@ -2419,14 +2475,14 @@ class HDF5Viewer(QMainWindow):
                             # Convert filters to JSON string
                             # Format: list of [column_name, operator, value]
                             filters_json = json.dumps(self._csv_filters)
-                            grp.attrs['csv_filters'] = filters_json
+                            grp.attrs["csv_filters"] = filters_json
                             self.statusBar().showMessage(
                                 f"Saved {len(self._csv_filters)} filter(s) to HDF5 file", 3000
                             )
                         else:
                             # Remove filter attribute if no filters
-                            if 'csv_filters' in grp.attrs:
-                                del grp.attrs['csv_filters']
+                            if "csv_filters" in grp.attrs:
+                                del grp.attrs["csv_filters"]
                                 self.statusBar().showMessage("Cleared filters from HDF5 file", 3000)
         except Exception as exc:  # noqa: BLE001
             self.statusBar().showMessage(f"Warning: Could not save filters: {exc}", 5000)
@@ -2441,11 +2497,12 @@ class HDF5Viewer(QMainWindow):
             List of filters in format [column_name, operator, value]
         """
         try:
-            if 'csv_filters' in grp.attrs:
+            if "csv_filters" in grp.attrs:
                 import json
-                filters_json = grp.attrs['csv_filters']
+
+                filters_json = grp.attrs["csv_filters"]
                 if isinstance(filters_json, bytes):
-                    filters_json = filters_json.decode('utf-8')
+                    filters_json = filters_json.decode("utf-8")
                 filters = json.loads(filters_json)
                 # Validate format
                 if isinstance(filters, list):
@@ -2519,11 +2576,13 @@ class HDF5Viewer(QMainWindow):
             if isinstance(col_data, np.ndarray):
                 filtered_data = col_data[filtered_indices]
                 # Convert to strings
-                if filtered_data.dtype.kind == 'S' or filtered_data.dtype.kind == 'U':
-                    str_data = [str(v) if not isinstance(v, bytes) else v.decode('utf-8', errors='replace')
-                               for v in filtered_data]
+                if filtered_data.dtype.kind == "S" or filtered_data.dtype.kind == "U":
+                    str_data = [
+                        str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace")
+                        for v in filtered_data
+                    ]
                 else:
-                    str_data = np.char.mod('%s', filtered_data)
+                    str_data = np.char.mod("%s", filtered_data)
             else:
                 filtered_data = [col_data[i] for i in filtered_indices]
                 str_data = [str(v) for v in filtered_data]
@@ -2556,7 +2615,7 @@ class HDF5Viewer(QMainWindow):
                     value_num = float(value_str)
                     if isinstance(col_data, np.ndarray):
                         # Try numeric comparison
-                        col_numeric = pd.to_numeric(pd.Series(col_data), errors='coerce')
+                        col_numeric = pd.to_numeric(pd.Series(col_data), errors="coerce")
                         if operator == "==":
                             return col_numeric == value_num
                         elif operator == "!=":
@@ -2576,9 +2635,12 @@ class HDF5Viewer(QMainWindow):
             # String-based operations
             if isinstance(col_data, np.ndarray):
                 # Convert to string array for comparison
-                str_array = np.array([str(v) if not isinstance(v, bytes)
-                                     else v.decode('utf-8', errors='replace')
-                                     for v in col_data])
+                str_array = np.array(
+                    [
+                        str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace")
+                        for v in col_data
+                    ]
+                )
             else:
                 str_array = np.array([str(v) for v in col_data])
 
@@ -2605,7 +2667,9 @@ class HDF5Viewer(QMainWindow):
     def _save_plot_config_dialog(self):
         """Open dialog to save current plot configuration."""
         if not self._current_csv_group_path or not self.preview_table.isVisible():
-            QMessageBox.information(self, "No CSV Data", "Load a CSV group and create a plot first.")
+            QMessageBox.information(
+                self, "No CSV Data", "Load a CSV group and create a plot first."
+            )
             return
 
         # Get currently selected columns
@@ -2629,7 +2693,7 @@ class HDF5Viewer(QMainWindow):
             "Save Plot Configuration",
             "Enter a name for this plot configuration:",
             QLineEdit.Normal,
-            f"Plot {len(self._saved_plots) + 1}"
+            f"Plot {len(self._saved_plots) + 1}",
         )
 
         if not ok or not plot_name:
@@ -2641,12 +2705,17 @@ class HDF5Viewer(QMainWindow):
             end_row = int(self._csv_filtered_indices[-1])
         else:
             # No filtering - use full range
-            max_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
+            max_rows = (
+                max(len(self._csv_data_dict[col]) for col in self._csv_data_dict)
+                if self._csv_data_dict
+                else 0
+            )
             start_row = 0
             end_row = max_rows - 1 if max_rows > 0 else 0
 
         # Create plot configuration dictionary
         import time
+
         plot_config = {
             "name": plot_name,
             "x_col_idx": x_idx,
@@ -2660,8 +2729,8 @@ class HDF5Viewer(QMainWindow):
                 "ylabel": "",
                 "grid": True,
                 "legend": True,
-                "series": {}  # Will be populated with per-series styles in the Edit Options dialog
-            }
+                "series": {},  # Will be populated with per-series styles in the Edit Options dialog
+            },
         }
 
         # Add to local list
@@ -2682,6 +2751,7 @@ class HDF5Viewer(QMainWindow):
 
         try:
             import json
+
             with h5py.File(self.model.filepath, "r+") as h5:
                 if self._current_csv_group_path in h5:
                     grp = h5[self._current_csv_group_path]
@@ -2689,11 +2759,11 @@ class HDF5Viewer(QMainWindow):
                         if self._saved_plots:
                             # Convert plot configs to JSON string
                             plots_json = json.dumps(self._saved_plots)
-                            grp.attrs['saved_plots'] = plots_json
+                            grp.attrs["saved_plots"] = plots_json
                         else:
                             # Remove attribute if no plots
-                            if 'saved_plots' in grp.attrs:
-                                del grp.attrs['saved_plots']
+                            if "saved_plots" in grp.attrs:
+                                del grp.attrs["saved_plots"]
         except Exception as exc:  # noqa: BLE001
             self.statusBar().showMessage(f"Warning: Could not save plot configs: {exc}", 5000)
 
@@ -2704,11 +2774,12 @@ class HDF5Viewer(QMainWindow):
             grp: HDF5 group to load plot configs from
         """
         try:
-            if 'saved_plots' in grp.attrs:
+            if "saved_plots" in grp.attrs:
                 import json
-                plots_json = grp.attrs['saved_plots']
+
+                plots_json = grp.attrs["saved_plots"]
                 if isinstance(plots_json, bytes):
-                    plots_json = plots_json.decode('utf-8')
+                    plots_json = plots_json.decode("utf-8")
                 plots = json.loads(plots_json)
                 # Validate format
                 if isinstance(plots, list):
@@ -2781,7 +2852,9 @@ class HDF5Viewer(QMainWindow):
         end_row = plot_config.get("end_row", -1)
 
         if x_idx is None or not y_idxs:
-            QMessageBox.warning(self, "Invalid Configuration", "Plot configuration is missing column information.")
+            QMessageBox.warning(
+                self, "Invalid Configuration", "Plot configuration is missing column information."
+            )
             return
 
         # Check if we have the CSV data loaded
@@ -2801,20 +2874,25 @@ class HDF5Viewer(QMainWindow):
         # Get column names
         headers = [
             self.preview_table.horizontalHeaderItem(i).text()
-            if self.preview_table.horizontalHeaderItem(i) is not None else f"col_{i}"
+            if self.preview_table.horizontalHeaderItem(i) is not None
+            else f"col_{i}"
             for i in range(self.preview_table.columnCount())
         ]
 
         # Validate column indices
         if x_idx >= len(headers) or any(y_idx >= len(headers) for y_idx in y_idxs):
-            QMessageBox.warning(self, "Invalid Columns", "Plot configuration references invalid column indices.")
+            QMessageBox.warning(
+                self, "Invalid Columns", "Plot configuration references invalid column indices."
+            )
             return
 
         try:
             x_name = headers[x_idx]
             y_names = [headers[i] for i in y_idxs]
         except Exception:
-            QMessageBox.warning(self, "Plot Error", "Failed to resolve column headers for plotting.")
+            QMessageBox.warning(
+                self, "Plot Error", "Failed to resolve column headers for plotting."
+            )
             return
 
         # Get the data for the specified row range
@@ -2825,7 +2903,7 @@ class HDF5Viewer(QMainWindow):
                 # Apply row range
                 if isinstance(full_data, np.ndarray):
                     if end_row >= 0 and end_row < len(full_data):
-                        col_data[name] = full_data[start_row:end_row + 1]
+                        col_data[name] = full_data[start_row : end_row + 1]
                     else:
                         col_data[name] = full_data[start_row:]
                 else:
@@ -2845,7 +2923,11 @@ class HDF5Viewer(QMainWindow):
                 QMessageBox.warning(self, "Plot Error", "No data to plot.")
                 return
 
-            x_num = _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+            x_num = (
+                _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce")
+                .astype(float)
+                .to_numpy()
+            )
 
             # Clear previous plot
             self.plot_figure.clear()
@@ -2918,7 +3000,9 @@ class HDF5Viewer(QMainWindow):
             # Switch to Plot tab
             self.bottom_tabs.setCurrentIndex(1)
 
-            self.statusBar().showMessage(f"Applied plot: {plot_config.get('name', 'Unnamed')}", 3000)
+            self.statusBar().showMessage(
+                f"Applied plot: {plot_config.get('name', 'Unnamed')}", 3000
+            )
 
         except Exception as exc:
             QMessageBox.critical(self, "Plot Error", f"Failed to plot data:\n{exc}")
@@ -2966,7 +3050,8 @@ class HDF5Viewer(QMainWindow):
         # Get column names from the preview table
         headers = [
             self.preview_table.horizontalHeaderItem(i).text()
-            if self.preview_table.horizontalHeaderItem(i) is not None else f"col_{i}"
+            if self.preview_table.horizontalHeaderItem(i) is not None
+            else f"col_{i}"
             for i in range(self.preview_table.columnCount())
         ]
 
@@ -2989,7 +3074,9 @@ class HDF5Viewer(QMainWindow):
             # Reapply the plot to show the changes
             self._apply_saved_plot(None)
 
-            self.statusBar().showMessage(f"Updated plot options: {updated_config.get('name', 'Unnamed')}", 3000)
+            self.statusBar().showMessage(
+                f"Updated plot options: {updated_config.get('name', 'Unnamed')}", 3000
+            )
 
     def _on_saved_plots_context_menu(self, point):
         """Show context menu for saved plots list."""

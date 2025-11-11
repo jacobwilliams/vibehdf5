@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+import gzip
+import os
+import shutil
+import tempfile
 import h5py
 import numpy as np
-import tempfile
-import os
-from pathlib import Path
-import shutil
-import gzip
-from qtpy.QtCore import Qt, QUrl, QMimeData
+from qtpy.QtCore import QMimeData, Qt, QUrl
 from qtpy.QtGui import QStandardItem, QStandardItemModel
-from qtpy.QtWidgets import QStyle, QApplication
+from qtpy.QtWidgets import QApplication, QStyle
 
 
 class HDF5TreeModel(QStandardItemModel):
@@ -118,13 +117,12 @@ class HDF5TreeModel(QStandardItemModel):
 
         # Store internal HDF5 path for internal moves
         mime = QMimeData()
-        mime.setData("application/x-hdf5-path", path.encode('utf-8'))
+        mime.setData("application/x-hdf5-path", path.encode("utf-8"))
 
         if not self._filepath:
             return None
 
         try:
-
             if kind == "dataset":
                 # Extract single dataset to a file
                 with h5py.File(self._filepath, "r") as h5:
@@ -157,8 +155,8 @@ class HDF5TreeModel(QStandardItemModel):
                         return None
 
                     is_csv = (
-                        'source_type' in group.attrs
-                        and str(group.attrs['source_type']).lower() == 'csv'
+                        "source_type" in group.attrs
+                        and str(group.attrs["source_type"]).lower() == "csv"
                     )
 
                     if is_csv:
@@ -197,22 +195,22 @@ class HDF5TreeModel(QStandardItemModel):
 
         # Check if this is a gzip-compressed text dataset
         try:
-            if 'compressed' in ds.attrs and ds.attrs['compressed'] == 'gzip':
+            if "compressed" in ds.attrs and ds.attrs["compressed"] == "gzip":
                 if isinstance(data, np.ndarray) and data.dtype == np.uint8:
                     compressed_bytes = data.tobytes()
                     decompressed = gzip.decompress(compressed_bytes)
-                    encoding = ds.attrs.get('original_encoding', 'utf-8')
+                    encoding = ds.attrs.get("original_encoding", "utf-8")
                     if isinstance(encoding, bytes):
-                        encoding = encoding.decode('utf-8')
+                        encoding = encoding.decode("utf-8")
                     # Check if this is binary data
-                    if encoding == 'binary':
+                    if encoding == "binary":
                         # Write decompressed binary data
-                        with open(file_path, 'wb') as f:
+                        with open(file_path, "wb") as f:
                             f.write(decompressed)
                         return
                     # Otherwise it's text
                     text = decompressed.decode(encoding)
-                    with open(file_path, 'w', encoding=encoding) as f:
+                    with open(file_path, "w", encoding=encoding) as f:
                         f.write(text)
                     return
         except Exception:  # noqa: BLE001
@@ -221,15 +219,15 @@ class HDF5TreeModel(QStandardItemModel):
         # Try to save based on data type
         if isinstance(data, np.ndarray) and data.dtype == np.uint8:
             # Binary data (like images)
-            with open(file_path, 'wb') as f:
+            with open(file_path, "wb") as f:
                 f.write(data.tobytes())
         elif isinstance(data, (bytes, bytearray)):
             # Raw bytes
-            with open(file_path, 'wb') as f:
+            with open(file_path, "wb") as f:
                 f.write(data)
         elif isinstance(data, str):
             # String data
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(data)
         else:
             # Try string representation
@@ -238,14 +236,14 @@ class HDF5TreeModel(QStandardItemModel):
                 # Variable-length string
                 as_str = ds.asstr()[()]
                 if isinstance(as_str, np.ndarray):
-                    text = '\n'.join(map(str, as_str.ravel().tolist()))
+                    text = "\n".join(map(str, as_str.ravel().tolist()))
                 else:
                     text = str(as_str)
-                with open(file_path, 'w', encoding='utf-8') as f:
+                with open(file_path, "w", encoding="utf-8") as f:
                     f.write(text)
             else:
                 # Fallback: convert to text
-                with open(file_path, 'w', encoding='utf-8') as f:
+                with open(file_path, "w", encoding="utf-8") as f:
                     f.write(str(data))
 
     def _extract_group_to_folder(self, group, folder_path):
@@ -267,12 +265,14 @@ class HDF5TreeModel(QStandardItemModel):
     def _sanitize_hdf5_name(name: str) -> str:
         try:
             s = (name or "").strip()
-            s = s.replace('/', '_')
-            return s or 'unnamed'
+            s = s.replace("/", "_")
+            return s or "unnamed"
         except Exception:  # noqa: BLE001
-            return 'unnamed'
+            return "unnamed"
 
-    def _reconstruct_csv_tempfile(self, group: h5py.Group, group_path: str, row_indices: np.ndarray | None = None) -> str | None:
+    def _reconstruct_csv_tempfile(
+        self, group: h5py.Group, group_path: str, row_indices: np.ndarray | None = None
+    ) -> str | None:
         """Rebuild a CSV file from a CSV-derived group and return the temp file path.
 
         Uses 'column_names' attribute to determine column ordering if present.
@@ -285,23 +285,23 @@ class HDF5TreeModel(QStandardItemModel):
         """
         try:
             # Determine filename
-            source_file = group.attrs.get('source_file')
+            source_file = group.attrs.get("source_file")
             if isinstance(source_file, (bytes, bytearray)):
                 try:
-                    source_file = source_file.decode('utf-8')
+                    source_file = source_file.decode("utf-8")
                 except Exception:  # noqa: BLE001
                     source_file = None
-            if isinstance(source_file, str) and source_file.lower().endswith('.csv'):
+            if isinstance(source_file, str) and source_file.lower().endswith(".csv"):
                 fname = source_file
             else:
                 # Use group name + .csv
-                fname = (os.path.basename(group_path) or 'group') + '.csv'
+                fname = (os.path.basename(group_path) or "group") + ".csv"
 
             temp_dir = tempfile.gettempdir()
             temp_path = os.path.join(temp_dir, fname)
 
             # Column names
-            raw_cols = group.attrs.get('column_names')
+            raw_cols = group.attrs.get("column_names")
             if raw_cols is not None:
                 # h5py may give numpy array; convert to list of str
                 try:
@@ -318,7 +318,7 @@ class HDF5TreeModel(QStandardItemModel):
 
             # If present, use explicit mapping of column -> dataset name
             col_ds_names = None
-            raw_map = group.attrs.get('column_dataset_names')
+            raw_map = group.attrs.get("column_dataset_names")
             if raw_map is not None:
                 try:
                     col_ds_names = [str(c) for c in list(raw_map)]
@@ -353,9 +353,9 @@ class HDF5TreeModel(QStandardItemModel):
                     for v in data.ravel().tolist():
                         if isinstance(v, bytes):
                             try:
-                                entries.append(v.decode('utf-8'))
+                                entries.append(v.decode("utf-8"))
                             except Exception:  # noqa: BLE001
-                                entries.append(v.decode('utf-8', 'replace'))
+                                entries.append(v.decode("utf-8", "replace"))
                         else:
                             entries.append(str(v))
                     column_data.append(entries)
@@ -366,7 +366,7 @@ class HDF5TreeModel(QStandardItemModel):
             # Align columns (pad shorter columns with empty strings)
             for col_list in column_data:
                 if len(col_list) < max_len:
-                    col_list.extend([''] * (max_len - len(col_list)))
+                    col_list.extend([""] * (max_len - len(col_list)))
 
             # Determine which rows to export
             if row_indices is not None:
@@ -378,7 +378,8 @@ class HDF5TreeModel(QStandardItemModel):
 
             # Write CSV
             import csv
-            with open(temp_path, 'w', newline='', encoding='utf-8') as fout:
+
+            with open(temp_path, "w", newline="", encoding="utf-8") as fout:
                 writer = csv.writer(fout)
                 writer.writerow(col_names)
                 for row_idx in export_indices:
@@ -395,7 +396,7 @@ class HDF5TreeModel(QStandardItemModel):
         # Check if this is a CSV-derived group
         is_csv_group = False
         try:
-            if 'source_type' in group.attrs and group.attrs['source_type'] == 'csv':
+            if "source_type" in group.attrs and group.attrs["source_type"] == "csv":
                 is_csv_group = True
         except Exception:  # noqa: BLE001
             pass
@@ -475,7 +476,7 @@ class HDF5TreeModel(QStandardItemModel):
                 grp = h5[path]
                 if not isinstance(grp, h5py.Group):
                     return
-                if 'source_type' not in grp.attrs or grp.attrs['source_type'] != 'csv':
+                if "source_type" not in grp.attrs or grp.attrs["source_type"] != "csv":
                     return
 
                 # Toggle expansion state
