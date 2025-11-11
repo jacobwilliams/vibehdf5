@@ -19,6 +19,16 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 - **Variable-Length Strings**: Proper handling of HDF5 variable-length string datasets
 - **Extensible Language Support**: Easy to add support for additional programming languages
 
+### 📈 **CSV Data & Filtering**
+- **CSV Import**: Import CSV files as HDF5 groups with one dataset per column
+- **Table Display**: View CSV data in an interactive table with column headers
+- **Column Filtering**: Apply multiple filters to CSV tables (==, !=, >, >=, <, <=, contains, startswith, endswith)
+- **Filter Persistence**: Filters are automatically saved in the HDF5 file and restored when reopening
+- **Plot Filtered Data**: Create matplotlib plots using filtered table data (first selected column is X-axis)
+- **Export Filtered Data**: Drag-and-drop CSV export includes only filtered rows
+- **Filter Management**: Configure, clear, and view active filters with real-time table updates
+- **Independent Filters**: Each CSV group in a file maintains its own filter configuration
+
 ### ✏️ **Content Management**
 - **Add Files**: Import individual files into the HDF5 archive via toolbar or drag-and-drop
 - **Add Folders**: Import entire directory structures with hierarchy preservation
@@ -149,6 +159,51 @@ python -m vibehdf5.hdf5_viewer [file.h5]
 - Text data displays with syntax highlighting
 - Binary data shows as hex dump
 
+### Working with CSV Data
+
+**Importing CSV Files:**
+1. Use **Add Files…** or drag-and-drop to import a CSV file
+2. CSV files are automatically converted to HDF5 groups with:
+   - One dataset per column preserving data types
+   - Column names stored as group attributes
+   - Source file metadata for reference
+
+**Viewing CSV Tables:**
+1. Click on a CSV group in the tree (marked with `source_type='csv'` attribute)
+2. Data displays as an interactive table with column headers
+3. Select multiple columns (Ctrl/Cmd+Click) for analysis
+
+**Filtering CSV Data:**
+1. Click **Configure Filters…** above the table
+2. Add filter conditions:
+   - Select column name
+   - Choose operator (==, !=, >, >=, <, <=, contains, startswith, endswith)
+   - Enter value to compare against
+3. Add multiple filters (combined with AND logic)
+4. Filters are **automatically saved** to the HDF5 file
+5. Click **Clear Filters** to remove all filters
+
+**Filter Features:**
+- Filters persist when closing and reopening files
+- Each CSV group has independent filters
+- Numeric comparisons (>, >=, <, <=) automatically convert values
+- String operations (contains, startswith, endswith) for text data
+- Real-time table updates when filters change
+- Status shows "X filter(s) applied" and filtered row count
+
+**Plotting Filtered Data:**
+1. Select 2 or more columns in the table (Ctrl/Cmd+Click)
+2. Click **Plot Selected Columns** in the toolbar
+3. First selected column becomes X-axis, others are Y-series
+4. Only filtered/visible rows are plotted
+5. Plot title shows filter status (e.g., "150/1000 rows, filtered")
+
+**Exporting Filtered Data:**
+1. Drag CSV group from tree to your file manager
+2. Exported CSV file contains **only filtered rows**
+3. If no filters are active, all rows are exported
+4. Original column names and order are preserved
+
 ## Project Structure
 
 ```
@@ -212,6 +267,8 @@ vibehdf5/
 - **PySide6** or **PyQt6** (via qtpy abstraction)
 - **h5py** - HDF5 interface
 - **numpy** - Array operations
+- **pandas** - CSV import and data filtering
+- **matplotlib** - Plotting (optional, for CSV plotting features)
 - **qtpy** - Qt abstraction layer for PySide6/PyQt6 compatibility
 
 ## Tips & Best Practices
@@ -220,16 +277,28 @@ vibehdf5/
 - The viewer loads the entire tree structure on open
 - For very large files (thousands of items), initial load may take a few seconds
 - Preview panel limits displayed content to 1 MB by default
+- CSV tables with many columns may take time to populate initially
+- Filters are applied in-memory for fast updates
 
 ### File Organization
 - Use descriptive group names to organize related datasets
 - Store metadata as attributes rather than separate datasets when appropriate
 - For binary files like images, use extensions in dataset names (.png, .jpg) to enable preview features
+- Import related CSV files to keep tabular data organized
+
+### CSV Data Management
+- Filters are stored as JSON in the `csv_filters` attribute of CSV groups
+- Each CSV group maintains independent filter state
+- Large CSV files (10,000+ rows) display efficiently with filtered views
+- Use filters before plotting or exporting to work with specific data subsets
+- Column data types are preserved during import (numeric, string, etc.)
 
 ### Workflow Integration
 - Use drag-and-drop to quickly archive project files
 - Export specific datasets for analysis in other tools
 - Delete temporary or obsolete data to keep archives clean
+- Apply filters to CSV data before exporting for downstream analysis
+- Create multiple filtered views of the same data by duplicating CSV groups
 
 ## Troubleshooting
 
