@@ -39,6 +39,8 @@ from qtpy.QtWidgets import (
     QScrollArea,
     QFrame,
     QTabWidget,
+    QListWidget,
+    QInputDialog,
 )
 
 from .hdf5_tree_model import HDF5TreeModel
@@ -435,6 +437,32 @@ class HDF5Viewer(QMainWindow):
         self.tree.setSelectionBehavior(QTreeView.SelectRows)
         self.tree.setHeaderHidden(False)
         left_layout.addWidget(self.tree)
+
+        # Saved plots list widget (below tree)
+        saved_plots_label = QLabel("Saved Plots:")
+        saved_plots_label.setStyleSheet("font-weight: bold; padding: 4px;")
+        left_layout.addWidget(saved_plots_label)
+
+        self.saved_plots_list = QListWidget()
+        self.saved_plots_list.setMaximumHeight(150)
+        self.saved_plots_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.saved_plots_list.customContextMenuRequested.connect(self._on_saved_plots_context_menu)
+        left_layout.addWidget(self.saved_plots_list)
+
+        # Buttons for plot management
+        plot_buttons_layout = QHBoxLayout()
+        self.btn_save_plot = QPushButton("Save Plot")
+        self.btn_save_plot.clicked.connect(self._save_plot_config_dialog)
+        self.btn_save_plot.setEnabled(False)
+        plot_buttons_layout.addWidget(self.btn_save_plot)
+
+        self.btn_delete_plot = QPushButton("Delete")
+        self.btn_delete_plot.clicked.connect(self._delete_plot_config)
+        self.btn_delete_plot.setEnabled(False)
+        plot_buttons_layout.addWidget(self.btn_delete_plot)
+
+        left_layout.addLayout(plot_buttons_layout)
+
         splitter.addWidget(left)
 
         self.model = HDF5TreeModel(self)
@@ -611,6 +639,12 @@ class HDF5Viewer(QMainWindow):
         self._csv_column_names: list[str] = []
         self._csv_filters: list[tuple[str, str, str]] = []  # (column, operator, value)
         self._csv_filtered_indices: np.ndarray | None = None  # Indices of visible rows
+
+        # Track saved plot configurations for current CSV group
+        self._saved_plots: list[dict] = []  # List of plot config dictionaries
+
+        # Connect saved plots list selection changed
+        self.saved_plots_list.itemSelectionChanged.connect(self._on_saved_plot_selection_changed)
 
     def _create_actions(self) -> None:
         self.act_new = QAction("New HDF5 File…", self)
@@ -1627,6 +1661,8 @@ class HDF5Viewer(QMainWindow):
                     self._update_plot_action_enabled()
                 else:
                     self._current_csv_group_path = None
+                    self._saved_plots = []
+                    self._refresh_saved_plots_list()
                     self._set_preview_text("(No content to display)")
                     # Show attributes for the group
                     self._show_attributes(grp)
@@ -1828,6 +1864,9 @@ class HDF5Viewer(QMainWindow):
                     f"Loaded {len(saved_filters)} saved filter(s) from HDF5 file", 5000
                 )
 
+            # Load saved plot configurations from HDF5 group
+            self._load_plot_configs_from_hdf5(grp)
+
             # Apply any existing filters
             if self._csv_filters:
                 self._apply_filters()
@@ -1871,6 +1910,9 @@ class HDF5Viewer(QMainWindow):
         is_csv = self._current_csv_group_path is not None and self.preview_table.isVisible()
         sel_cols = self._get_selected_column_indices() if is_csv else []
         self.act_plot_selected.setEnabled(is_csv and len(sel_cols) >= 2)
+
+        # Also update plot management buttons
+        self._update_plot_buttons_state()
 
     def _read_csv_columns(self, group_path: str, column_names: list[str]) -> dict[str, np.ndarray]:
         """Read one or more column arrays from a CSV-derived group by original column names.
@@ -2278,6 +2320,333 @@ class HDF5Viewer(QMainWindow):
         except Exception:  # noqa: BLE001
             # On error, don't filter any rows
             return np.ones(len(col_data), dtype=bool)
+
+    # ========== Plot Configuration Management ==========
+
+    def _save_plot_config_dialog(self):
+        """Open dialog to save current plot configuration."""
+        if not self._current_csv_group_path or not self.preview_table.isVisible():
+            QMessageBox.information(self, "No CSV Data", "Load a CSV group and create a plot first.")
+            return
+
+        # Get currently selected columns
+        sel_cols = self._get_selected_column_indices()
+        if len(sel_cols) < 2:
+            QMessageBox.information(
+                self,
+                "No Plot Selection",
+                "Select at least two columns (X and Y) before saving a plot configuration.",
+            )
+            return
+
+        # Determine X and Y columns (same logic as plot_selected_columns)
+        current_col = self.preview_table.currentColumn()
+        x_idx = current_col if current_col in sel_cols else min(sel_cols)
+        y_idxs = [c for c in sel_cols if c != x_idx]
+
+        # Prompt for plot name
+        plot_name, ok = QInputDialog.getText(
+            self,
+            "Save Plot Configuration",
+            "Enter a name for this plot configuration:",
+            QLineEdit.Normal,
+            f"Plot {len(self._saved_plots) + 1}"
+        )
+
+        if not ok or not plot_name:
+            return
+
+        # Get filtered row range (start and end indices in the full dataset)
+        if self._csv_filtered_indices is not None and len(self._csv_filtered_indices) > 0:
+            start_row = int(self._csv_filtered_indices[0])
+            end_row = int(self._csv_filtered_indices[-1])
+        else:
+            # No filtering - use full range
+            max_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
+            start_row = 0
+            end_row = max_rows - 1 if max_rows > 0 else 0
+
+        # Create plot configuration dictionary
+        import time
+        plot_config = {
+            "name": plot_name,
+            "x_col_idx": x_idx,
+            "y_col_idxs": y_idxs,
+            "start_row": start_row,
+            "end_row": end_row,
+            "timestamp": time.time(),
+        }
+
+        # Add to local list
+        self._saved_plots.append(plot_config)
+
+        # Save to HDF5
+        self._save_plot_configs_to_hdf5()
+
+        # Update list widget
+        self._refresh_saved_plots_list()
+
+        self.statusBar().showMessage(f"Saved plot configuration: {plot_name}", 3000)
+
+    def _save_plot_configs_to_hdf5(self):
+        """Save all plot configurations to the HDF5 file as a JSON attribute."""
+        if not self._current_csv_group_path or not self.model or not self.model.filepath:
+            return
+
+        try:
+            import json
+            with h5py.File(self.model.filepath, "r+") as h5:
+                if self._current_csv_group_path in h5:
+                    grp = h5[self._current_csv_group_path]
+                    if isinstance(grp, h5py.Group):
+                        if self._saved_plots:
+                            # Convert plot configs to JSON string
+                            plots_json = json.dumps(self._saved_plots)
+                            grp.attrs['saved_plots'] = plots_json
+                        else:
+                            # Remove attribute if no plots
+                            if 'saved_plots' in grp.attrs:
+                                del grp.attrs['saved_plots']
+        except Exception as exc:  # noqa: BLE001
+            self.statusBar().showMessage(f"Warning: Could not save plot configs: {exc}", 5000)
+
+    def _load_plot_configs_from_hdf5(self, grp: h5py.Group):
+        """Load plot configurations from the HDF5 group attributes.
+
+        Args:
+            grp: HDF5 group to load plot configs from
+        """
+        try:
+            if 'saved_plots' in grp.attrs:
+                import json
+                plots_json = grp.attrs['saved_plots']
+                if isinstance(plots_json, bytes):
+                    plots_json = plots_json.decode('utf-8')
+                plots = json.loads(plots_json)
+                # Validate format
+                if isinstance(plots, list):
+                    self._saved_plots = plots
+                else:
+                    self._saved_plots = []
+            else:
+                self._saved_plots = []
+        except Exception as exc:  # noqa: BLE001
+            print(f"Warning: Could not load plot configs from HDF5: {exc}")
+            self._saved_plots = []
+
+        # Refresh the list widget
+        self._refresh_saved_plots_list()
+
+    def _refresh_saved_plots_list(self):
+        """Update the saved plots list widget with current configurations."""
+        self.saved_plots_list.clear()
+        for plot_config in self._saved_plots:
+            name = plot_config.get("name", "Unnamed Plot")
+            self.saved_plots_list.addItem(name)
+
+        # Update button states
+        self._update_plot_buttons_state()
+
+    def _update_plot_buttons_state(self):
+        """Enable/disable plot management buttons based on current state."""
+        # Enable Save Plot button if CSV is loaded and columns are selected
+        csv_loaded = self._current_csv_group_path is not None and self.preview_table.isVisible()
+        sel_cols = self._get_selected_column_indices() if csv_loaded else []
+        self.btn_save_plot.setEnabled(csv_loaded and len(sel_cols) >= 2)
+
+        # Enable Delete button if a plot is selected
+        has_selection = self.saved_plots_list.currentRow() >= 0
+        self.btn_delete_plot.setEnabled(has_selection)
+
+    def _on_saved_plot_selection_changed(self):
+        """Handle selection change in saved plots list."""
+        self._update_plot_buttons_state()
+
+        # Automatically apply the selected plot
+        current_item = self.saved_plots_list.currentItem()
+        if current_item is not None:
+            self._apply_saved_plot(current_item)
+
+    def _apply_saved_plot(self, item=None):
+        """Apply a saved plot configuration.
+
+        Args:
+            item: QListWidgetItem that was clicked/selected (optional)
+        """
+        if item is None:
+            item = self.saved_plots_list.currentItem()
+
+        if item is None:
+            return
+
+        # Get the plot configuration
+        row = self.saved_plots_list.row(item)
+        if row < 0 or row >= len(self._saved_plots):
+            return
+
+        plot_config = self._saved_plots[row]
+
+        # Extract configuration
+        x_idx = plot_config.get("x_col_idx")
+        y_idxs = plot_config.get("y_col_idxs", [])
+        start_row = plot_config.get("start_row", 0)
+        end_row = plot_config.get("end_row", -1)
+
+        if x_idx is None or not y_idxs:
+            QMessageBox.warning(self, "Invalid Configuration", "Plot configuration is missing column information.")
+            return
+
+        # Check if we have the CSV data loaded
+        if not self._csv_data_dict or not self._current_csv_group_path:
+            QMessageBox.information(self, "No Data", "CSV data is not loaded.")
+            return
+
+        # Check matplotlib availability
+        if not self._matplotlib_available:
+            QMessageBox.critical(
+                self,
+                "Matplotlib not available",
+                "Matplotlib is not available. Please install it to use plotting features.",
+            )
+            return
+
+        # Get column names
+        headers = [
+            self.preview_table.horizontalHeaderItem(i).text()
+            if self.preview_table.horizontalHeaderItem(i) is not None else f"col_{i}"
+            for i in range(self.preview_table.columnCount())
+        ]
+
+        # Validate column indices
+        if x_idx >= len(headers) or any(y_idx >= len(headers) for y_idx in y_idxs):
+            QMessageBox.warning(self, "Invalid Columns", "Plot configuration references invalid column indices.")
+            return
+
+        try:
+            x_name = headers[x_idx]
+            y_names = [headers[i] for i in y_idxs]
+        except Exception:
+            QMessageBox.warning(self, "Plot Error", "Failed to resolve column headers for plotting.")
+            return
+
+        # Get the data for the specified row range
+        col_data = {}
+        for name in [x_name] + y_names:
+            if name in self._csv_data_dict:
+                full_data = self._csv_data_dict[name]
+                # Apply row range
+                if isinstance(full_data, np.ndarray):
+                    if end_row >= 0 and end_row < len(full_data):
+                        col_data[name] = full_data[start_row:end_row + 1]
+                    else:
+                        col_data[name] = full_data[start_row:]
+                else:
+                    col_data[name] = np.array([full_data])
+
+        if x_name not in col_data or not any(name in col_data for name in y_names):
+            QMessageBox.warning(self, "Plot Error", "Failed to get column data for plotting.")
+            return
+
+        # Plot the data
+        try:
+            import pandas as _pd
+
+            x_arr = col_data[x_name].ravel()
+            min_len = min(len(x_arr), *(len(col_data.get(n, [])) for n in y_names if n in col_data))
+            if min_len <= 0:
+                QMessageBox.warning(self, "Plot Error", "No data to plot.")
+                return
+
+            x_num = _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+
+            # Clear previous plot
+            self.plot_figure.clear()
+            ax = self.plot_figure.add_subplot(111)
+
+            any_plotted = False
+            for y_name in y_names:
+                if y_name not in col_data:
+                    continue
+                y_arr = col_data[y_name].ravel()[:min_len]
+                y_num = _pd.to_numeric(_pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
+                valid = np.isfinite(x_num) & np.isfinite(y_num)
+                if valid.any():
+                    ax.plot(x_num[valid], y_num[valid], label=y_name)
+                    any_plotted = True
+
+            if not any_plotted:
+                QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
+                return
+
+            ax.set_xlabel(x_name)
+            ax.set_ylabel(", ".join(y_names))
+
+            # Set title with plot name and row range info
+            title = plot_config.get("name", "Plot")
+            if start_row > 0 or end_row < len(self._csv_data_dict.get(x_name, [])) - 1:
+                title += f" (rows {start_row}-{end_row})"
+            ax.set_title(title)
+
+            ax.legend()
+            self.plot_figure.tight_layout()
+
+            # Refresh canvas
+            self.plot_canvas.draw()
+
+            # Switch to Plot tab
+            self.bottom_tabs.setCurrentIndex(1)
+
+            self.statusBar().showMessage(f"Applied plot: {plot_config.get('name', 'Unnamed')}", 3000)
+
+        except Exception as exc:
+            QMessageBox.critical(self, "Plot Error", f"Failed to plot data:\n{exc}")
+
+    def _delete_plot_config(self):
+        """Delete the selected plot configuration."""
+        current_row = self.saved_plots_list.currentRow()
+        if current_row < 0 or current_row >= len(self._saved_plots):
+            return
+
+        plot_config = self._saved_plots[current_row]
+        plot_name = plot_config.get("name", "Unnamed Plot")
+
+        # Confirm deletion
+        resp = QMessageBox.question(
+            self,
+            "Delete Plot Configuration",
+            f"Are you sure you want to delete '{plot_name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+
+        if resp != QMessageBox.Yes:
+            return
+
+        # Remove from list
+        del self._saved_plots[current_row]
+
+        # Save to HDF5
+        self._save_plot_configs_to_hdf5()
+
+        # Refresh list widget
+        self._refresh_saved_plots_list()
+
+        self.statusBar().showMessage(f"Deleted plot configuration: {plot_name}", 3000)
+
+    def _on_saved_plots_context_menu(self, point):
+        """Show context menu for saved plots list."""
+        item = self.saved_plots_list.itemAt(point)
+        if item is None:
+            return
+
+        menu = QMenu(self)
+        act_delete = menu.addAction("Delete Plot")
+
+        global_pos = self.saved_plots_list.viewport().mapToGlobal(point)
+        chosen = menu.exec(global_pos)
+
+        if chosen == act_delete:
+            self._delete_plot_config()
 
 
 def main(argv: list[str] | None = None) -> int:
