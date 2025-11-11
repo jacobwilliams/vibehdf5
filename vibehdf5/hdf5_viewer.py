@@ -454,24 +454,24 @@ class HDF5Viewer(QMainWindow):
         self.filter_panel = QWidget()
         filter_panel_layout = QHBoxLayout(self.filter_panel)
         filter_panel_layout.setContentsMargins(5, 5, 5, 5)
-        
+
         filter_label = QLabel("Filters:")
         filter_panel_layout.addWidget(filter_label)
-        
+
         self.filter_status_label = QLabel("No filters applied")
         filter_panel_layout.addWidget(self.filter_status_label)
-        
+
         self.btn_configure_filters = QPushButton("Configure Filters...")
         self.btn_configure_filters.clicked.connect(self._configure_filters_dialog)
         filter_panel_layout.addWidget(self.btn_configure_filters)
-        
+
         self.btn_clear_filters = QPushButton("Clear Filters")
         self.btn_clear_filters.clicked.connect(self._clear_filters)
         self.btn_clear_filters.setEnabled(False)
         filter_panel_layout.addWidget(self.btn_clear_filters)
-        
+
         filter_panel_layout.addStretch()
-        
+
         self.filter_panel.setVisible(False)
         content_layout.addWidget(self.filter_panel)
 
@@ -532,7 +532,7 @@ class HDF5Viewer(QMainWindow):
 
         # Track currently previewed CSV group (for plotting)
         self._current_csv_group_path: str | None = None
-        
+
         # Track CSV data and filters
         self._csv_data_dict: dict[str, np.ndarray] = {}  # Full unfiltered data
         self._csv_column_names: list[str] = []
@@ -1735,7 +1735,7 @@ class HDF5Viewer(QMainWindow):
             self.preview_table.setVisible(True)
             self.preview_edit.setVisible(False)
             self.preview_image.setVisible(False)
-            
+
             # Show filter panel for CSV tables
             self.filter_panel.setVisible(True)
 
@@ -2027,7 +2027,7 @@ class HDF5Viewer(QMainWindow):
 
         # Get indices of valid rows
         filtered_indices = np.where(valid_rows)[0]
-        
+
         # Store filtered indices for plotting
         self._csv_filtered_indices = filtered_indices
 

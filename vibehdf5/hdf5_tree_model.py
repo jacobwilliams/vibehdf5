@@ -61,7 +61,7 @@ class HDF5TreeModel(QStandardItemModel):
 
     def set_csv_filtered_indices(self, csv_group_path: str, indices: np.ndarray | None) -> None:
         """Set the filtered row indices for a CSV group.
-        
+
         Args:
             csv_group_path: HDF5 path to the CSV group
             indices: numpy array of row indices to export, or None to export all rows
@@ -73,10 +73,10 @@ class HDF5TreeModel(QStandardItemModel):
 
     def get_csv_filtered_indices(self, csv_group_path: str) -> np.ndarray | None:
         """Get the filtered row indices for a CSV group.
-        
+
         Args:
             csv_group_path: HDF5 path to the CSV group
-            
+
         Returns:
             numpy array of row indices, or None if no filtering active
         """
@@ -277,7 +277,7 @@ class HDF5TreeModel(QStandardItemModel):
 
         Uses 'column_names' attribute to determine column ordering if present.
         Falls back to sorted dataset names. Each dataset is expected to be 1-D (same length).
-        
+
         Args:
             group: HDF5 group containing the CSV data
             group_path: Path to the group in the HDF5 file
