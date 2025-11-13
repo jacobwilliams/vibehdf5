@@ -2758,11 +2758,47 @@ class HDF5Viewer(QMainWindow):
             if min_len <= 0:
                 QMessageBox.warning(self, "Plot", "No data to plot.")
                 return
-            x_num = (
-                _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce")
-                .astype(float)
-                .to_numpy()
-            )
+
+            # Check if x_arr contains strings (automatic date detection)
+            x_is_string = False
+            xaxis_datetime = False
+            if len(x_arr) > 0:
+                first_val = x_arr[0]
+                x_is_string = isinstance(first_val, str) or (
+                    hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
+                )
+
+            # If x-axis is strings, try auto-parsing as dates
+            if x_is_string:
+                try:
+                    # Try to parse as datetime without explicit format (pandas will infer)
+                    x_data = _pd.to_datetime(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    # Check if parsing was successful (not all NaT/null)
+                    valid_dates = x_data.notna()
+                    if valid_dates.sum() > 0:
+                        # Successfully parsed as dates - use datetime mode
+                        # Convert to matplotlib date numbers using pandas
+                        import matplotlib.dates as mdates
+                        # Convert pandas datetime to matplotlib float dates
+                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan
+                                         for d in x_data])
+                        xaxis_datetime = True
+                    else:
+                        # Parsing failed - treat as categorical/text
+                        # Use integer indices for x-axis
+                        x_num = np.arange(min_len, dtype=float)
+                        xaxis_datetime = False
+                except Exception:
+                    # If auto-parsing fails, use integer indices
+                    x_num = np.arange(min_len, dtype=float)
+                    xaxis_datetime = False
+            else:
+                # Try numeric conversion
+                x_num = (
+                    _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    .astype(float)
+                    .to_numpy()
+                )
 
             # Clear the previous plot
             self.plot_figure.clear()
@@ -2807,6 +2843,29 @@ class HDF5Viewer(QMainWindow):
                 pass
 
             ax.legend()
+
+            # Format datetime x-axis if dates were detected
+            if xaxis_datetime:
+                from matplotlib.dates import AutoDateLocator
+                # Use automatic date formatting
+                ax.xaxis.set_major_locator(AutoDateLocator())
+                # Rotate labels for better readability
+                self.plot_figure.autofmt_xdate()
+            elif x_is_string and not xaxis_datetime:
+                # X-axis is categorical strings - set string labels on integer positions
+                # Limit labels to avoid overcrowding
+                num_points = min(min_len, len(x_arr))
+                if num_points <= 50:
+                    # Show all labels if not too many
+                    ax.set_xticks(np.arange(num_points))
+                    ax.set_xticklabels(x_arr[:num_points], rotation=45, ha="right")
+                else:
+                    # Show subset of labels to avoid overcrowding
+                    step = max(1, num_points // 20)  # Show ~20 labels
+                    indices = np.arange(0, num_points, step)
+                    ax.set_xticks(indices)
+                    ax.set_xticklabels([x_arr[i] for i in indices], rotation=45, ha="right")
+
             self.plot_figure.tight_layout()
 
             # Refresh the canvas to display the plot
@@ -3309,8 +3368,66 @@ class HDF5Viewer(QMainWindow):
             xaxis_datetime = plot_options.get("xaxis_datetime", False)
             datetime_format = plot_options.get("datetime_format", "").strip()
 
-            if xaxis_datetime and datetime_format:
-                # Parse as datetime
+            # Check if x_arr contains strings (automatic date detection)
+            x_is_string = False
+            if len(x_arr) > 0:
+                first_val = x_arr[0]
+                x_is_string = isinstance(first_val, str) or (
+                    hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
+                )
+
+            # If x-axis is strings, try parsing as datetime
+            if x_is_string and xaxis_datetime and not datetime_format:
+                # Datetime mode enabled but no format specified - use auto-detection
+                try:
+                    # Try to parse as datetime without explicit format (pandas will infer)
+                    x_data = _pd.to_datetime(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    # Check if parsing was successful (not all NaT/null)
+                    valid_dates = x_data.notna()
+                    if valid_dates.sum() > 0:
+                        # Successfully parsed as dates - use datetime mode
+                        # Convert to matplotlib date numbers using pandas
+                        import matplotlib.dates as mdates
+                        # Convert pandas datetime to numpy datetime64, then to matplotlib float dates
+                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan
+                                         for d in x_data])
+                        # Auto-detect worked, proceed with datetime
+                    else:
+                        # Parsing failed - treat as categorical/text
+                        # Use integer indices for x-axis
+                        x_num = np.arange(min_len, dtype=float)
+                        xaxis_datetime = False
+                except Exception:
+                    # If auto-parsing fails, use integer indices
+                    x_num = np.arange(min_len, dtype=float)
+                    xaxis_datetime = False
+            elif x_is_string and not xaxis_datetime:
+                # Auto-detect dates even when checkbox not checked
+                try:
+                    # Try to parse as datetime without explicit format (pandas will infer)
+                    x_data = _pd.to_datetime(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    # Check if parsing was successful (not all NaT/null)
+                    valid_dates = x_data.notna()
+                    if valid_dates.sum() > 0:
+                        # Successfully parsed as dates - use datetime mode
+                        # Convert to matplotlib date numbers using pandas
+                        import matplotlib.dates as mdates
+                        # Convert pandas datetime to numpy datetime64, then to matplotlib float dates
+                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan
+                                         for d in x_data])
+                        xaxis_datetime = True
+                        # Auto-detect worked, proceed with datetime
+                    else:
+                        # Parsing failed - treat as categorical/text
+                        # Use integer indices for x-axis
+                        x_num = np.arange(min_len, dtype=float)
+                        xaxis_datetime = False
+                except Exception:
+                    # If auto-parsing fails, use integer indices
+                    x_num = np.arange(min_len, dtype=float)
+                    xaxis_datetime = False
+            elif xaxis_datetime and datetime_format:
+                # Parse as datetime with explicit format
                 try:
                     x_data = _pd.to_datetime(
                         _pd.Series(x_arr[:min_len]),
@@ -3318,8 +3435,20 @@ class HDF5Viewer(QMainWindow):
                         errors="coerce"
                     )
                     # Convert to matplotlib dates
-                    from matplotlib.dates import date2num
-                    x_num = date2num(x_data.to_numpy())
+                    import matplotlib.dates as mdates
+                    valid_dates = x_data.notna()
+                    if valid_dates.sum() > 0:
+                        # Convert pandas datetime to matplotlib numbers
+                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan
+                                         for d in x_data])
+                    else:
+                        # No valid dates - fall back to numeric
+                        x_num = (
+                            _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce")
+                            .astype(float)
+                            .to_numpy()
+                        )
+                        xaxis_datetime = False
                 except Exception:
                     # Fall back to numeric if datetime parsing fails
                     x_num = (
@@ -3411,6 +3540,20 @@ class HDF5Viewer(QMainWindow):
                     ax.xaxis.set_major_locator(AutoDateLocator())
                 # Rotate labels for better readability
                 self.plot_figure.autofmt_xdate()
+            elif x_is_string and not xaxis_datetime:
+                # X-axis is categorical strings - set string labels on integer positions
+                # Limit labels to avoid overcrowding
+                num_points = min(min_len, len(x_arr))
+                if num_points <= 50:
+                    # Show all labels if not too many
+                    ax.set_xticks(np.arange(num_points))
+                    ax.set_xticklabels(x_arr[:num_points], rotation=45, ha="right")
+                else:
+                    # Show subset of labels to avoid overcrowding
+                    step = max(1, num_points // 20)  # Show ~20 labels
+                    indices = np.arange(0, num_points, step)
+                    ax.set_xticks(indices)
+                    ax.set_xticklabels([x_arr[i] for i in indices], rotation=45, ha="right")
 
             # Apply axis limits if specified
             xlim_min = plot_options.get("xlim_min")
