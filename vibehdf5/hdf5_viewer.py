@@ -11,7 +11,7 @@ import h5py
 import numpy as np
 import pandas as pd
 from qtpy.QtCore import Qt
-from qtpy.QtGui import QAction, QColor, QFont, QFontDatabase, QPixmap
+from qtpy.QtGui import QAction, QColor, QDoubleValidator, QFont, QFontDatabase, QPixmap
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -604,6 +604,55 @@ class PlotOptionsDialog(QDialog):
 
         tabs.addTab(series_tab, "Series Styles")
 
+        # Tab 3: Reference Lines
+        reflines_tab = QWidget()
+        reflines_layout = QVBoxLayout(reflines_tab)
+
+        reflines_label = QLabel("Add horizontal and vertical reference lines:")
+        reflines_label.setStyleSheet("font-weight: bold;")
+        reflines_layout.addWidget(reflines_label)
+
+        # Scroll area for reference lines
+        reflines_scroll = QScrollArea()
+        reflines_scroll.setWidgetResizable(True)
+        reflines_scroll.setFrameShape(QFrame.StyledPanel)
+
+        reflines_container = QWidget()
+        self.reflines_layout = QVBoxLayout(reflines_container)
+        self.reflines_layout.setContentsMargins(5, 5, 5, 5)
+
+        # Load existing reference lines
+        self.refline_widgets = []
+        existing_reflines = self.plot_config.get("plot_options", {}).get("reference_lines", [])
+        for refline in existing_reflines:
+            self._add_refline_widget(
+                refline.get("type", "horizontal"),
+                refline.get("value", ""),
+                refline.get("color", "#FF0000"),
+                refline.get("linestyle", "--"),
+                refline.get("linewidth", 1.0),
+                refline.get("label", "")
+            )
+
+        self.reflines_layout.addStretch()
+        reflines_scroll.setWidget(reflines_container)
+        reflines_layout.addWidget(reflines_scroll)
+
+        # Buttons to add reference lines
+        reflines_buttons = QHBoxLayout()
+        add_hline_btn = QPushButton("+ Add Horizontal Line")
+        add_hline_btn.clicked.connect(lambda: self._add_refline_widget("horizontal"))
+        reflines_buttons.addWidget(add_hline_btn)
+
+        add_vline_btn = QPushButton("+ Add Vertical Line")
+        add_vline_btn.clicked.connect(lambda: self._add_refline_widget("vertical"))
+        reflines_buttons.addWidget(add_vline_btn)
+
+        reflines_buttons.addStretch()
+        reflines_layout.addLayout(reflines_buttons)
+
+        tabs.addTab(reflines_tab, "Reference Lines")
+
         # Dialog buttons
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
@@ -724,6 +773,127 @@ class PlotOptionsDialog(QDialog):
 
         return widget
 
+    def _add_refline_widget(self, line_type, value=None, color=None, linestyle=None, linewidth=None, label=None):
+        """Add a reference line configuration widget.
+
+        Args:
+            line_type: "horizontal" or "vertical"
+            value: Position value (y for horizontal, x for vertical)
+            color: Line color (hex string or None for default)
+            linestyle: Line style string (default: "solid")
+            linewidth: Line width float (default: 1.5)
+            label: Optional label for the line
+        """
+        widget = QFrame()
+        widget.setFrameStyle(QFrame.Panel | QFrame.Raised)
+        layout = QVBoxLayout(widget)
+
+        # Header row: Type and Remove button
+        header_layout = QHBoxLayout()
+        type_label = QLabel(f"{'Horizontal' if line_type == 'horizontal' else 'Vertical'} Line")
+        type_label.setStyleSheet("font-weight: bold;")
+        header_layout.addWidget(type_label)
+        header_layout.addStretch()
+
+        remove_btn = QPushButton("Remove")
+        remove_btn.clicked.connect(lambda: self._remove_refline_widget(widget))
+        header_layout.addWidget(remove_btn)
+        layout.addLayout(header_layout)
+
+        # Value and Color in one row
+        value_color_layout = QHBoxLayout()
+
+        value_color_layout.addWidget(QLabel("Value:"))
+        value_edit = QLineEdit()
+        value_edit.setPlaceholderText("0.0")
+        if value is not None:
+            value_edit.setText(str(value))
+        # Add numeric validator
+        value_edit.setValidator(QDoubleValidator())
+        value_edit.setMinimumWidth(100)
+        value_color_layout.addWidget(value_edit)
+
+        value_color_layout.addWidget(QLabel("Color:"))
+        color_button = QPushButton()
+        color_button.setMinimumWidth(60)
+        color_button.setMaximumWidth(60)
+        # Set initial color
+        if color:
+            initial_color = QColor(color)
+        else:
+            initial_color = QColor("#000000")  # Black default
+        color_button._color = initial_color
+        color_button.setStyleSheet(f"background-color: {initial_color.name()};")
+
+        def choose_color():
+            color = QColorDialog.getColor(color_button._color, self, "Choose Reference Line Color")
+            if color.isValid():
+                color_button._color = color
+                color_button.setStyleSheet(f"background-color: {color.name()};")
+
+        color_button.clicked.connect(choose_color)
+        value_color_layout.addWidget(color_button)
+
+        value_color_layout.addStretch()
+        layout.addLayout(value_color_layout)
+
+        # Style, Width, and Label in one row
+        style_layout = QHBoxLayout()
+
+        style_layout.addWidget(QLabel("Style:"))
+        linestyle_combo = QComboBox()
+        linestyle_combo.addItem("Solid", "solid")
+        linestyle_combo.addItem("Dashed", "dashed")
+        linestyle_combo.addItem("Dash-dot", "dashdot")
+        linestyle_combo.addItem("Dotted", "dotted")
+        # Set current style
+        styles = ["solid", "dashed", "dashdot", "dotted"]
+        current_style = linestyle if linestyle in styles else "solid"
+        linestyle_combo.setCurrentIndex(styles.index(current_style))
+        linestyle_combo.setMinimumWidth(100)
+        style_layout.addWidget(linestyle_combo)
+
+        style_layout.addWidget(QLabel("Width:"))
+        width_spin = QDoubleSpinBox()
+        width_spin.setRange(0.5, 5.0)
+        width_spin.setSingleStep(0.5)
+        width_spin.setValue(linewidth if linewidth is not None else 1.5)
+        width_spin.setMinimumWidth(80)
+        style_layout.addWidget(width_spin)
+
+        style_layout.addWidget(QLabel("Label:"))
+        label_edit = QLineEdit()
+        label_edit.setPlaceholderText("Optional")
+        if label:
+            label_edit.setText(label)
+        label_edit.setMinimumWidth(120)
+        style_layout.addWidget(label_edit)
+
+        style_layout.addStretch()
+        layout.addLayout(style_layout)
+
+        # Store references and metadata
+        widget._line_type = line_type
+        widget._value_edit = value_edit
+        widget._color_button = color_button
+        widget._linestyle_combo = linestyle_combo
+        widget._width_spin = width_spin
+        widget._label_edit = label_edit
+
+        # Add to layout and tracking list
+        self.refline_widgets.append(widget)
+        # Insert before the stretch
+        self.reflines_layout.insertWidget(self.reflines_layout.count() - 1, widget)
+
+        return widget
+
+    def _remove_refline_widget(self, widget):
+        """Remove a reference line widget."""
+        if widget in self.refline_widgets:
+            self.refline_widgets.remove(widget)
+            self.reflines_layout.removeWidget(widget)
+            widget.deleteLater()
+
     def get_plot_config(self):
         """Return updated plot configuration."""
         # Update name
@@ -758,6 +928,27 @@ class PlotOptionsDialog(QDialog):
         # Save log scale options
         plot_opts["xlog"] = self.xlog_checkbox.isChecked()
         plot_opts["ylog"] = self.ylog_checkbox.isChecked()
+
+        # Save reference lines
+        ref_lines = []
+        for widget in self.refline_widgets:
+            value_text = widget._value_edit.text().strip()
+            if value_text:  # Only save if value is provided
+                try:
+                    value = float(value_text)
+                    label_text = widget._label_edit.text().strip()
+                    ref_lines.append({
+                        "type": widget._line_type,
+                        "value": value,
+                        "color": widget._color_button._color.name(),
+                        "linestyle": widget._linestyle_combo.currentData(),
+                        "linewidth": widget._width_spin.value(),
+                        "label": label_text if label_text else None
+                    })
+                except ValueError:
+                    # Skip invalid values
+                    pass
+        plot_opts["reference_lines"] = ref_lines
 
         # Update series options
         series_opts = {}
@@ -3112,6 +3303,27 @@ class HDF5Viewer(QMainWindow):
                 ax.set_xscale("log")
             if plot_options.get("ylog", False):
                 ax.set_yscale("log")
+
+            # Draw reference lines
+            reference_lines = plot_options.get("reference_lines", [])
+            for refline in reference_lines:
+                try:
+                    line_type = refline.get("type")
+                    value = refline.get("value")
+                    color = refline.get("color", "black")
+                    linestyle = refline.get("linestyle", "solid")
+                    linewidth = refline.get("linewidth", 1.5)
+                    label = refline.get("label")
+
+                    if line_type == "horizontal" and value is not None:
+                        ax.axhline(y=value, color=color, linestyle=linestyle,
+                                   linewidth=linewidth, label=label)
+                    elif line_type == "vertical" and value is not None:
+                        ax.axvline(x=value, color=color, linestyle=linestyle,
+                                   linewidth=linewidth, label=label)
+                except Exception:
+                    # Skip invalid reference lines
+                    pass
 
             self.plot_figure.tight_layout()
 
