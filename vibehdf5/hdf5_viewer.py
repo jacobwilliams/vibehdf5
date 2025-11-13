@@ -564,6 +564,53 @@ class PlotOptionsDialog(QDialog):
         general_layout.addWidget(QWidget())  # Spacer
         general_layout.addLayout(log_scale_layout)
 
+        # Date/Time X-axis options
+        datetime_label = QLabel("<b>Date/Time X-axis:</b>")
+        general_layout.addWidget(datetime_label)
+
+        datetime_layout = QVBoxLayout()
+        datetime_layout.setContentsMargins(0, 5, 0, 10)
+
+        self.xaxis_datetime_checkbox = QCheckBox("X-axis is Date/Time")
+        self.xaxis_datetime_checkbox.setChecked(
+            self.plot_config.get("plot_options", {}).get("xaxis_datetime", False)
+        )
+        datetime_layout.addWidget(self.xaxis_datetime_checkbox)
+
+        # Date format input
+        format_layout = QHBoxLayout()
+        format_layout.addWidget(QLabel("Date Format:"))
+        self.datetime_format_edit = QLineEdit()
+        self.datetime_format_edit.setPlaceholderText("%Y-%m-%d %H:%M:%S")
+        datetime_format = self.plot_config.get("plot_options", {}).get("datetime_format", "")
+        if datetime_format:
+            self.datetime_format_edit.setText(datetime_format)
+        self.datetime_format_edit.setToolTip(
+            "Python datetime format string (e.g., %Y-%m-%d, %Y-%m-%d %H:%M:%S, %m/%d/%Y)\n"
+            "Common codes: %Y=year, %m=month, %d=day, %H=hour, %M=minute, %S=second"
+        )
+        format_layout.addWidget(self.datetime_format_edit)
+        format_layout.addStretch()
+        datetime_layout.addLayout(format_layout)
+
+        # Date display format
+        display_format_layout = QHBoxLayout()
+        display_format_layout.addWidget(QLabel("Display Format:"))
+        self.datetime_display_format_edit = QLineEdit()
+        self.datetime_display_format_edit.setPlaceholderText("%Y-%m-%d")
+        datetime_display_format = self.plot_config.get("plot_options", {}).get("datetime_display_format", "")
+        if datetime_display_format:
+            self.datetime_display_format_edit.setText(datetime_display_format)
+        self.datetime_display_format_edit.setToolTip(
+            "Format for axis labels (e.g., %Y-%m-%d, %b %d, %m/%d)\n"
+            "Leave empty to use matplotlib's automatic formatting"
+        )
+        display_format_layout.addWidget(self.datetime_display_format_edit)
+        display_format_layout.addStretch()
+        datetime_layout.addLayout(display_format_layout)
+
+        general_layout.addLayout(datetime_layout)
+
         general_layout.addStretch()
         tabs.addTab(general_tab, "General")
 
@@ -928,6 +975,11 @@ class PlotOptionsDialog(QDialog):
         # Save log scale options
         plot_opts["xlog"] = self.xlog_checkbox.isChecked()
         plot_opts["ylog"] = self.ylog_checkbox.isChecked()
+
+        # Save datetime x-axis options
+        plot_opts["xaxis_datetime"] = self.xaxis_datetime_checkbox.isChecked()
+        plot_opts["datetime_format"] = self.datetime_format_edit.text().strip()
+        plot_opts["datetime_display_format"] = self.datetime_display_format_edit.text().strip()
 
         # Save reference lines
         ref_lines = []
@@ -3208,11 +3260,39 @@ class HDF5Viewer(QMainWindow):
                 QMessageBox.warning(self, "Plot Error", "No data to plot.")
                 return
 
-            x_num = (
-                _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce")
-                .astype(float)
-                .to_numpy()
-            )
+            # Get plot options from configuration
+            plot_options = plot_config.get("plot_options", {})
+
+            # Process x-axis data - check if it's datetime
+            xaxis_datetime = plot_options.get("xaxis_datetime", False)
+            datetime_format = plot_options.get("datetime_format", "").strip()
+
+            if xaxis_datetime and datetime_format:
+                # Parse as datetime
+                try:
+                    x_data = _pd.to_datetime(
+                        _pd.Series(x_arr[:min_len]),
+                        format=datetime_format,
+                        errors="coerce"
+                    )
+                    # Convert to matplotlib dates
+                    from matplotlib.dates import date2num
+                    x_num = date2num(x_data.to_numpy())
+                except Exception:
+                    # Fall back to numeric if datetime parsing fails
+                    x_num = (
+                        _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce")
+                        .astype(float)
+                        .to_numpy()
+                    )
+                    xaxis_datetime = False  # Disable datetime formatting
+            else:
+                # Process as numeric
+                x_num = (
+                    _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    .astype(float)
+                    .to_numpy()
+                )
 
             # Clear previous plot
             self.plot_figure.clear()
@@ -3276,6 +3356,19 @@ class HDF5Viewer(QMainWindow):
                 ax.grid(True)
             if plot_options.get("legend", True):
                 ax.legend()
+
+            # Format datetime x-axis if enabled
+            if xaxis_datetime:
+                from matplotlib.dates import DateFormatter, AutoDateLocator
+                datetime_display_format = plot_options.get("datetime_display_format", "").strip()
+                if datetime_display_format:
+                    # Use custom format
+                    ax.xaxis.set_major_formatter(DateFormatter(datetime_display_format))
+                else:
+                    # Use automatic date formatting
+                    ax.xaxis.set_major_locator(AutoDateLocator())
+                # Rotate labels for better readability
+                self.plot_figure.autofmt_xdate()
 
             # Apply axis limits if specified
             xlim_min = plot_options.get("xlim_min")
