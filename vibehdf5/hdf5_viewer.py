@@ -2406,10 +2406,25 @@ class HDF5Viewer(QMainWindow):
                         # Read dataset data
                         data = ds[()]
                         if isinstance(data, np.ndarray):
+                            # Decode byte strings to UTF-8 strings for display
+                            if data.dtype.kind == "S":
+                                # Byte strings - decode to UTF-8
+                                data = np.array([
+                                    v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
+                                    for v in data
+                                ], dtype=object)
+                            elif data.dtype.kind == "O":
+                                # Object dtype - could be mixed, handle bytes if present
+                                data = np.array([
+                                    v.decode("utf-8", errors="replace") if isinstance(v, bytes) else v
+                                    for v in data
+                                ], dtype=object)
                             data_dict[col_name] = data
                             max_rows = max(max_rows, len(data))
                         else:
-                            # Scalar dataset
+                            # Scalar dataset - handle bytes
+                            if isinstance(data, bytes):
+                                data = data.decode("utf-8", errors="replace")
                             data_dict[col_name] = [data]
                             max_rows = max(max_rows, 1)
 
@@ -2462,20 +2477,31 @@ class HDF5Viewer(QMainWindow):
                     col_data = data_dict[col_name]
                     # Convert entire column to strings at once (much faster)
                     if isinstance(col_data, np.ndarray):
-                        # Use numpy's vectorized string conversion
-                        if col_data.dtype.kind == "S" or col_data.dtype.kind == "U":
-                            # Byte or unicode strings
+                        # Handle different data types
+                        if col_data.dtype.kind == "S":
+                            # Byte strings - decode to UTF-8
                             str_data = [
-                                str(v)
-                                if not isinstance(v, bytes)
-                                else v.decode("utf-8", errors="replace")
+                                v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
+                                for v in col_data[:display_rows]
+                            ]
+                        elif col_data.dtype.kind == "U":
+                            # Unicode strings - already strings, just convert
+                            str_data = [str(v) for v in col_data[:display_rows]]
+                        elif col_data.dtype.kind == "O":
+                            # Object dtype - could be mixed, handle bytes if present
+                            str_data = [
+                                v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
                                 for v in col_data[:display_rows]
                             ]
                         else:
                             # Numeric or other types - use numpy's string conversion
                             str_data = np.char.mod("%s", col_data[:display_rows])
                     else:
-                        str_data = [str(v) for v in col_data[:display_rows]]
+                        # Handle bytes in non-array data
+                        if isinstance(col_data, bytes):
+                            str_data = [col_data.decode("utf-8", errors="replace")]
+                        else:
+                            str_data = [str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace") for v in col_data[:display_rows]]
 
                     # Set items in batch
                     for row_idx, value_str in enumerate(str_data):
@@ -2629,7 +2655,23 @@ class HDF5Viewer(QMainWindow):
                     data = ds[()]
                     if isinstance(data, np.ndarray):
                         arr = data
+                        # Decode byte strings to UTF-8 strings
+                        if arr.dtype.kind == "S":
+                            # Byte strings - decode to UTF-8
+                            arr = np.array([
+                                v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
+                                for v in arr
+                            ], dtype=object)
+                        elif arr.dtype.kind == "O":
+                            # Object dtype - could be mixed, handle bytes if present
+                            arr = np.array([
+                                v.decode("utf-8", errors="replace") if isinstance(v, bytes) else v
+                                for v in arr
+                            ], dtype=object)
                     else:
+                        # Handle scalar bytes
+                        if isinstance(data, bytes):
+                            data = data.decode("utf-8", errors="replace")
                         arr = np.array([data])
                     result[name] = arr
         except Exception:  # noqa: BLE001
