@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import binascii
+import fnmatch
 import gzip
 import json
 import os
@@ -1345,6 +1346,21 @@ class HDF5Viewer(QMainWindow):
         left = QWidget(self)
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Search bar for filtering tree items
+        search_layout = QHBoxLayout()
+        search_layout.setContentsMargins(4, 4, 4, 4)
+        search_label = QLabel("Filter:")
+        search_layout.addWidget(search_label)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Enter glob pattern (e.g., *.csv, data*, *test*)")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.textChanged.connect(self._on_search_text_changed)
+        search_layout.addWidget(self.search_input)
+
+        left_layout.addLayout(search_layout)
+
         self.tree = DropTreeView(left, viewer=self)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
@@ -1550,6 +1566,9 @@ class HDF5Viewer(QMainWindow):
 
         # Connect saved plots list selection changed
         self.saved_plots_list.itemSelectionChanged.connect(self._on_saved_plot_selection_changed)
+
+        # Track current search pattern
+        self._search_pattern: str = ""
 
     def _create_actions(self) -> None:
         self.act_new = QAction("New HDF5 File…", self)
@@ -2210,6 +2229,97 @@ class HDF5Viewer(QMainWindow):
         self.tree.expandToDepth(1)
         self.preview_label.setText("No selection")
         self._set_preview_text("")
+
+    # Search/Filter handling
+    def _on_search_text_changed(self, text: str) -> None:
+        """Handle search text changes and filter the tree view."""
+        self._search_pattern = text.strip()
+        self._apply_tree_filter()
+
+    def _apply_tree_filter(self) -> None:
+        """Apply the search filter to the tree view."""
+        if not self._search_pattern:
+            # Show all items if search is empty
+            self._set_all_items_visible(self.model.invisibleRootItem(), True)
+            return
+
+        # Hide all items first
+        self._set_all_items_visible(self.model.invisibleRootItem(), False)
+
+        # Show items matching the pattern and their parents
+        self._filter_items_recursive(self.model.invisibleRootItem(), self._search_pattern)
+
+    def _set_all_items_visible(self, parent_item, visible: bool) -> None:
+        """Recursively set visibility of all items in the tree."""
+        for row in range(parent_item.rowCount()):
+            child_item = parent_item.child(row, 0)
+            if child_item:
+                # Get the index for this item
+                index = child_item.index()
+                self.tree.setRowHidden(index.row(), index.parent(), not visible)
+                # Recursively process children
+                self._set_all_items_visible(child_item, visible)
+
+    def _filter_items_recursive(self, parent_item, pattern: str) -> bool:
+        """Recursively filter items based on glob pattern.
+
+        Returns True if this item or any of its children match the pattern.
+        """
+        has_visible_child = False
+
+        for row in range(parent_item.rowCount()):
+            child_item = parent_item.child(row, 0)
+            if not child_item:
+                continue
+
+            # Get the item name
+            item_name = child_item.text()
+
+            # Check if any children match (recursive)
+            child_has_match = self._filter_items_recursive(child_item, pattern)
+
+            # Check if this item matches the pattern
+            # If pattern contains a slash, match against the full path from root
+            if '/' in pattern:
+                # Build the full path for this item
+                full_path = self._get_item_path(child_item)
+                # Strip leading slash for matching (e.g., "/folder/file.png" -> "folder/file.png")
+                if full_path.startswith('/'):
+                    full_path = full_path[1:]
+                item_matches = fnmatch.fnmatch(full_path.lower(), pattern.lower())
+            else:
+                # Match against just the item name
+                item_matches = fnmatch.fnmatch(item_name.lower(), pattern.lower())
+
+            # Show item if it matches OR if any of its children match
+            should_show = item_matches or child_has_match
+
+            # Get the index for this item
+            index = child_item.index()
+            self.tree.setRowHidden(index.row(), index.parent(), not should_show)
+
+            if should_show:
+                has_visible_child = True
+
+        return has_visible_child
+
+    def _get_item_path(self, item) -> str:
+        """Build the full path of an item from root to the item."""
+        path_parts = []
+        current = item
+        while current is not None:
+            # Skip the root invisible item
+            if current.parent() is None:
+                break
+            path_parts.append(current.text())
+            current = current.parent()
+
+        # Reverse to get path from root to item
+        path_parts.reverse()
+        # Skip the first element (filename) to get HDF5-like path
+        if len(path_parts) > 1:
+            return '/' + '/'.join(path_parts[1:])
+        return '/'
 
     # Selection handling
     def on_selection_changed(self, selected, _deselected) -> None:
