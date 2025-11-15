@@ -341,6 +341,124 @@ class DropTreeView(QTreeView):
         super().dropEvent(event)
 
 
+class ColumnStatisticsDialog(QDialog):
+    """Dialog for displaying column statistics."""
+
+    def __init__(self, column_names, data_dict, filtered_indices, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Column Statistics")
+        self.resize(700, 500)
+
+        self.column_names = column_names
+        self.data_dict = data_dict
+        self.filtered_indices = filtered_indices
+
+        layout = QVBoxLayout(self)
+
+        # Info label
+        if filtered_indices is not None and len(filtered_indices) > 0:
+            total_rows = max(len(data_dict[col]) for col in data_dict if col in column_names)
+            info_text = f"Statistics for {len(filtered_indices)} filtered rows (out of {total_rows} total)"
+        else:
+            total_rows = max(len(data_dict[col]) for col in data_dict if col in column_names)
+            info_text = f"Statistics for all {total_rows} rows"
+        info_label = QLabel(info_text)
+        info_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(info_label)
+
+        # Statistics table
+        self.stats_table = QTableWidget(self)
+        self.stats_table.setAlternatingRowColors(True)
+        self.stats_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.stats_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        layout.addWidget(self.stats_table)
+
+        # Calculate and display statistics
+        self._calculate_statistics()
+
+        # Close button
+        button_box = QDialogButtonBox(QDialogButtonBox.Close)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def _calculate_statistics(self):
+        """Calculate statistics for all columns."""
+        # Define statistics to calculate
+        stat_labels = ["Count", "Min", "Max", "Mean", "Median", "Std Dev", "Sum", "Unique Values"]
+
+        # Set up table dimensions
+        self.stats_table.setRowCount(len(stat_labels))
+        self.stats_table.setColumnCount(len(self.column_names))
+        self.stats_table.setHorizontalHeaderLabels(self.column_names)
+        self.stats_table.setVerticalHeaderLabels(stat_labels)
+
+        # Calculate statistics for each column
+        for col_idx, col_name in enumerate(self.column_names):
+            if col_name not in self.data_dict:
+                continue
+
+            col_data = self.data_dict[col_name]
+
+            # Apply filtering if needed
+            if self.filtered_indices is not None and len(self.filtered_indices) > 0:
+                if isinstance(col_data, np.ndarray):
+                    filtered_data = col_data[self.filtered_indices]
+                else:
+                    filtered_data = [col_data[i] for i in self.filtered_indices]
+            else:
+                filtered_data = col_data
+
+            # Convert to pandas Series for easier statistics
+            try:
+                if isinstance(filtered_data, np.ndarray):
+                    series = pd.Series(filtered_data)
+                else:
+                    series = pd.Series(list(filtered_data))
+
+                # Try to convert to numeric
+                numeric_series = pd.to_numeric(series, errors="coerce")
+                is_numeric = not numeric_series.isna().all()
+
+                # Calculate statistics
+                stats = {}
+                stats["Count"] = len(series.dropna())
+
+                if is_numeric:
+                    # Numeric statistics
+                    stats["Min"] = f"{numeric_series.min():.6g}" if not numeric_series.isna().all() else "N/A"
+                    stats["Max"] = f"{numeric_series.max():.6g}" if not numeric_series.isna().all() else "N/A"
+                    stats["Mean"] = f"{numeric_series.mean():.6g}" if not numeric_series.isna().all() else "N/A"
+                    stats["Median"] = f"{numeric_series.median():.6g}" if not numeric_series.isna().all() else "N/A"
+                    stats["Std Dev"] = f"{numeric_series.std():.6g}" if not numeric_series.isna().all() else "N/A"
+                    stats["Sum"] = f"{numeric_series.sum():.6g}" if not numeric_series.isna().all() else "N/A"
+                else:
+                    # String statistics
+                    stats["Min"] = str(series.min()) if len(series) > 0 else "N/A"
+                    stats["Max"] = str(series.max()) if len(series) > 0 else "N/A"
+                    stats["Mean"] = "N/A"
+                    stats["Median"] = "N/A"
+                    stats["Std Dev"] = "N/A"
+                    stats["Sum"] = "N/A"
+
+                stats["Unique Values"] = str(series.nunique())
+
+                # Populate table
+                for row_idx, stat_label in enumerate(stat_labels):
+                    value = stats.get(stat_label, "N/A")
+                    item = QTableWidgetItem(str(value))
+                    self.stats_table.setItem(row_idx, col_idx, item)
+
+            except Exception as e:
+                # On error, fill with N/A
+                for row_idx in range(len(stat_labels)):
+                    item = QTableWidgetItem("Error")
+                    item.setToolTip(str(e))
+                    self.stats_table.setItem(row_idx, col_idx, item)
+
+        # Resize columns to content
+        self.stats_table.resizeColumnsToContents()
+
+
 class ColumnFilterDialog(QDialog):
     """Dialog for configuring column filters."""
 
@@ -1493,6 +1611,10 @@ class HDF5Viewer(QMainWindow):
         self.btn_clear_filters.clicked.connect(self._clear_filters)
         self.btn_clear_filters.setEnabled(False)
         filter_panel_layout.addWidget(self.btn_clear_filters)
+
+        self.btn_show_statistics = QPushButton("Statistics...")
+        self.btn_show_statistics.clicked.connect(self._show_statistics_dialog)
+        filter_panel_layout.addWidget(self.btn_show_statistics)
 
         filter_panel_layout.addStretch()
 
@@ -3353,6 +3475,23 @@ class HDF5Viewer(QMainWindow):
             self._csv_filters = dialog.get_filters()
             self._save_filters_to_hdf5()
             self._apply_filters()
+
+    def _show_statistics_dialog(self):
+        """Open dialog to show statistics for CSV columns."""
+        if not self._csv_column_names or not self._csv_data_dict:
+            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
+            return
+
+        # Use filtered indices if available
+        filtered_indices = self._csv_filtered_indices if hasattr(self, '_csv_filtered_indices') else None
+
+        dialog = ColumnStatisticsDialog(
+            self._csv_column_names,
+            self._csv_data_dict,
+            filtered_indices,
+            self
+        )
+        dialog.exec()
 
     def _clear_filters(self):
         """Clear all active filters and show full dataset."""

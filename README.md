@@ -368,6 +368,13 @@ vibehdf5/
 
 ## Development
 
+### Launching from the pixi environment
+
+```bash
+pixi shell --manifest-path ./env/pixi.toml
+python -m vibehdf5
+```
+
 ### Running Tests
 ```bash
 # From the project root
@@ -388,28 +395,13 @@ ruff check vibehdf5/
 python -m build
 ```
 
-## Contributing
-
-Contributions are welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes with tests
-4. Submit a pull request
-
-## License
-
-See LICENSE file for details.
-
-## Author
-
-Jacob Williams
-
 ## Acknowledgments
 
 Built with:
 - [h5py](https://www.h5py.org/) - Pythonic interface to HDF5
 - [PySide6](https://wiki.qt.io/Qt_for_Python) - Python bindings for Qt
 - [NumPy](https://numpy.org/) - Numerical computing library
+- [Pandas](https://pandas.pydata.org) - Data analysis and manipulation tool
 
 ## Similar projects
 
