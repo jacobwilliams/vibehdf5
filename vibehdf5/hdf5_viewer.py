@@ -774,6 +774,22 @@ class PlotOptionsDialog(QDialog):
         font_size_layout.addStretch()
         general_layout.addLayout(font_size_layout)
 
+        # Font family option
+        font_family_layout = QHBoxLayout()
+        font_family_layout.setContentsMargins(0, 5, 0, 10)
+        font_family_layout.addWidget(QLabel("Font Family:"))
+        self.font_family_combo = QComboBox()
+        self.font_family_combo.addItems(["serif", "sans-serif", "monospace", "cursive", "fantasy"])
+        current_family = self.plot_config.get("plot_options", {}).get("font_family", "serif")
+        family_idx = self.font_family_combo.findText(current_family)
+        if family_idx >= 0:
+            self.font_family_combo.setCurrentIndex(family_idx)
+        self.font_family_combo.setToolTip("Font family for all plot text")
+        self.font_family_combo.setMinimumWidth(150)
+        font_family_layout.addWidget(self.font_family_combo)
+        font_family_layout.addStretch()
+        general_layout.addLayout(font_family_layout)
+
         general_layout.addStretch()
         tabs.addTab(general_tab, "General")
 
@@ -1224,6 +1240,9 @@ class PlotOptionsDialog(QDialog):
         plot_opts["axis_label_fontsize"] = self.axis_label_fontsize_spin.value()
         plot_opts["tick_fontsize"] = self.tick_fontsize_spin.value()
         plot_opts["legend_fontsize"] = self.legend_fontsize_spin.value()
+
+        # Save font family option
+        plot_opts["font_family"] = self.font_family_combo.currentText()
 
         # Save reference lines
         ref_lines = []
@@ -3738,6 +3757,11 @@ class HDF5Viewer(QMainWindow):
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
 
+            # Apply font family
+            font_family = plot_options.get("font_family", "serif")
+            import matplotlib.pyplot as plt
+            plt.rcParams['font.family'] = font_family
+
             # Get plot options from configuration
             plot_options = plot_config.get("plot_options", {})
             series_styles = plot_options.get("series", {})
@@ -4059,6 +4083,11 @@ class HDF5Viewer(QMainWindow):
 
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
+
+            # Apply font family
+            font_family = plot_options.get("font_family", "serif")
+            import matplotlib.pyplot as plt
+            plt.rcParams['font.family'] = font_family
 
             # Process x-axis data (same logic as _apply_saved_plot)
             x_arr = col_data[x_name].ravel()
