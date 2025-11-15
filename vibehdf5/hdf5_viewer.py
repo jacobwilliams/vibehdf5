@@ -1349,7 +1349,7 @@ class CustomSplitter(QSplitter):
 class HDF5Viewer(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("HDF5 Viewer")
+        self.setWindowTitle("VibeHDF5")
         self.resize(900, 600)
         self._original_pixmap = None
         self._current_highlighter = None  # Track current syntax highlighter
