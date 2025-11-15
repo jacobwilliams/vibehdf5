@@ -2,16 +2,26 @@ from __future__ import annotations
 
 import binascii
 import gzip
+import json
 import os
 import posixpath
 import sys
+import tempfile
+import time
+import traceback
 from pathlib import Path
 
 import h5py
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from qtpy.QtCore import Qt
-from qtpy.QtGui import QAction, QColor, QDoubleValidator, QFont, QFontDatabase, QPixmap
+from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.dates import AutoDateLocator, DateFormatter
+from matplotlib.figure import Figure
+from qtpy.QtCore import QMimeData, QUrl, Qt
+from qtpy.QtGui import QAction, QColor, QDoubleValidator, QDrag, QFont, QFontDatabase, QPixmap
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -46,9 +56,6 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.figure import Figure
 
 from .hdf5_tree_model import HDF5TreeModel
 from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
@@ -81,10 +88,6 @@ class DraggablePlotListWidget(QListWidget):
 
         # Export the plot to a temporary file
         try:
-            import tempfile
-            from qtpy.QtCore import QUrl, QMimeData
-            from qtpy.QtGui import QDrag
-
             # Get plot configuration
             plot_config = self.parent_viewer._saved_plots[current_row]
             plot_name = plot_config.get("name", "plot")
@@ -114,7 +117,6 @@ class DraggablePlotListWidget(QListWidget):
             else:
                 QMessageBox.warning(self, "Export Failed", f"Failed to export plot for drag-and-drop.\n\nError: {error_msg}")
         except Exception as e:
-            import traceback
             tb = traceback.format_exc()
             QMessageBox.warning(self, "Export Error", f"Error exporting plot: {e}\n\n{tb}")
 
@@ -457,8 +459,6 @@ class PlotOptionsDialog(QDialog):
 
     # Get matplotlib's default color cycle
     try:
-        import matplotlib.pyplot as plt
-
         _prop_cycle = plt.rcParams["axes.prop_cycle"]
         COLORS = _prop_cycle.by_key()["color"]
     except Exception:
@@ -1748,7 +1748,6 @@ class HDF5Viewer(QMainWindow):
         target_group = self._get_target_group_path()
 
         # Get folder name from user
-        from qtpy.QtWidgets import QInputDialog
 
         folder_name, ok = QInputDialog.getText(
             self, "New Folder", f"Enter folder name to create in {target_group}:"
@@ -2998,8 +2997,6 @@ class HDF5Viewer(QMainWindow):
         # Prepare numeric data, align lengths
         try:
             # Coerce X to numeric
-            import pandas as _pd  # local alias
-
             x_arr = col_data[x_name]
             # Ensure 1-D
             x_arr = x_arr.ravel()
@@ -3021,15 +3018,14 @@ class HDF5Viewer(QMainWindow):
             if x_is_string:
                 try:
                     # Try to parse as datetime without explicit format (pandas will infer)
-                    x_data = _pd.to_datetime(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
                     # Check if parsing was successful (not all NaT/null)
                     valid_dates = x_data.notna()
                     if valid_dates.sum() > 0:
                         # Successfully parsed as dates - use datetime mode
                         # Convert to matplotlib date numbers using pandas
-                        import matplotlib.dates as mdates
                         # Convert pandas datetime to matplotlib float dates
-                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan
+                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan
                                          for d in x_data])
                         xaxis_datetime = True
                     else:
@@ -3044,7 +3040,7 @@ class HDF5Viewer(QMainWindow):
             else:
                 # Try numeric conversion
                 x_num = (
-                    _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce")
                     .astype(float)
                     .to_numpy()
                 )
@@ -3063,10 +3059,9 @@ class HDF5Viewer(QMainWindow):
                 if y_name not in col_data:
                     continue
                 y_arr = col_data[y_name].ravel()[:min_len]
-                y_num = _pd.to_numeric(_pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
-                import numpy as _np
+                y_num = pd.to_numeric(pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
 
-                valid = _np.isfinite(x_num) & _np.isfinite(y_num)
+                valid = np.isfinite(x_num) & np.isfinite(y_num)
                 if valid.any():
                     ax.plot(x_num[valid], y_num[valid], label=y_name)
                     any_plotted = True
@@ -3100,7 +3095,6 @@ class HDF5Viewer(QMainWindow):
 
             # Format datetime x-axis if dates were detected
             if xaxis_datetime:
-                from matplotlib.dates import AutoDateLocator
                 # Use automatic date formatting
                 ax.xaxis.set_major_locator(AutoDateLocator())
                 # Rotate labels for better readability
@@ -3157,7 +3151,6 @@ class HDF5Viewer(QMainWindow):
             return
 
         try:
-            import json
 
             with h5py.File(self.model.filepath, "r+") as h5:
                 if self._current_csv_group_path in h5:
@@ -3190,7 +3183,6 @@ class HDF5Viewer(QMainWindow):
         """
         try:
             if "csv_filters" in grp.attrs:
-                import json
 
                 filters_json = grp.attrs["csv_filters"]
                 if isinstance(filters_json, bytes):
@@ -3406,7 +3398,6 @@ class HDF5Viewer(QMainWindow):
             end_row = max_rows - 1 if max_rows > 0 else 0
 
         # Create plot configuration dictionary
-        import time
 
         # Get column names
         column_names = [
@@ -3452,7 +3443,6 @@ class HDF5Viewer(QMainWindow):
             return
 
         try:
-            import json
 
             with h5py.File(self.model.filepath, "r+") as h5:
                 if self._current_csv_group_path in h5:
@@ -3477,7 +3467,6 @@ class HDF5Viewer(QMainWindow):
         """
         try:
             if "saved_plots" in grp.attrs:
-                import json
 
                 plots_json = grp.attrs["saved_plots"]
                 if isinstance(plots_json, bytes):
@@ -3608,7 +3597,6 @@ class HDF5Viewer(QMainWindow):
 
         # Plot the data
         try:
-            import pandas as _pd
 
             x_arr = col_data[x_name].ravel()
             min_len = min(len(x_arr), *(len(col_data.get(n, [])) for n in y_names if n in col_data))
@@ -3636,15 +3624,14 @@ class HDF5Viewer(QMainWindow):
                 # Datetime mode enabled but no format specified - use auto-detection
                 try:
                     # Try to parse as datetime without explicit format (pandas will infer)
-                    x_data = _pd.to_datetime(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
                     # Check if parsing was successful (not all NaT/null)
                     valid_dates = x_data.notna()
                     if valid_dates.sum() > 0:
                         # Successfully parsed as dates - use datetime mode
                         # Convert to matplotlib date numbers using pandas
-                        import matplotlib.dates as mdates
                         # Convert pandas datetime to numpy datetime64, then to matplotlib float dates
-                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan
+                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan
                                          for d in x_data])
                         # Auto-detect worked, proceed with datetime
                     else:
@@ -3660,15 +3647,14 @@ class HDF5Viewer(QMainWindow):
                 # Auto-detect dates even when checkbox not checked
                 try:
                     # Try to parse as datetime without explicit format (pandas will infer)
-                    x_data = _pd.to_datetime(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
                     # Check if parsing was successful (not all NaT/null)
                     valid_dates = x_data.notna()
                     if valid_dates.sum() > 0:
                         # Successfully parsed as dates - use datetime mode
                         # Convert to matplotlib date numbers using pandas
-                        import matplotlib.dates as mdates
                         # Convert pandas datetime to numpy datetime64, then to matplotlib float dates
-                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan
+                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan
                                          for d in x_data])
                         xaxis_datetime = True
                         # Auto-detect worked, proceed with datetime
@@ -3684,22 +3670,21 @@ class HDF5Viewer(QMainWindow):
             elif xaxis_datetime and datetime_format:
                 # Parse as datetime with explicit format
                 try:
-                    x_data = _pd.to_datetime(
-                        _pd.Series(x_arr[:min_len]),
+                    x_data = pd.to_datetime(
+                        pd.Series(x_arr[:min_len]),
                         format=datetime_format,
                         errors="coerce"
                     )
                     # Convert to matplotlib dates
-                    import matplotlib.dates as mdates
                     valid_dates = x_data.notna()
                     if valid_dates.sum() > 0:
                         # Convert pandas datetime to matplotlib numbers
-                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan
+                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan
                                          for d in x_data])
                     else:
                         # No valid dates - fall back to numeric
                         x_num = (
-                            _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce")
+                            pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce")
                             .astype(float)
                             .to_numpy()
                         )
@@ -3707,7 +3692,7 @@ class HDF5Viewer(QMainWindow):
                 except Exception:
                     # Fall back to numeric if datetime parsing fails
                     x_num = (
-                        _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce")
+                        pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce")
                         .astype(float)
                         .to_numpy()
                     )
@@ -3715,7 +3700,7 @@ class HDF5Viewer(QMainWindow):
             else:
                 # Process as numeric
                 x_num = (
-                    _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce")
                     .astype(float)
                     .to_numpy()
                 )
@@ -3736,7 +3721,7 @@ class HDF5Viewer(QMainWindow):
                 if y_name not in col_data:
                     continue
                 y_arr = col_data[y_name].ravel()[:min_len]
-                y_num = _pd.to_numeric(_pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
+                y_num = pd.to_numeric(pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
                 valid = np.isfinite(x_num) & np.isfinite(y_num)
                 if valid.any():
                     # Get series-specific styling options
@@ -3779,7 +3764,7 @@ class HDF5Viewer(QMainWindow):
                             # Apply moving average smoothing
                             window = max(2, int(smooth_window))
                             # Use pandas rolling mean for smoothing
-                            y_series = _pd.Series(y_num[valid])
+                            y_series = pd.Series(y_num[valid])
                             y_smooth = y_series.rolling(window=window, center=True, min_periods=1).mean().to_numpy()
 
                             smooth_kwargs = {"label": f"{label} (MA-{window})" if smooth_mode == "both" else label}
@@ -3894,7 +3879,6 @@ class HDF5Viewer(QMainWindow):
 
             # Format datetime x-axis if enabled
             if xaxis_datetime:
-                from matplotlib.dates import DateFormatter, AutoDateLocator
                 datetime_display_format = plot_options.get("datetime_display_format", "").strip()
                 if datetime_display_format:
                     # Use custom format
@@ -3993,9 +3977,6 @@ class HDF5Viewer(QMainWindow):
             tuple: (success: bool, error_msg: str) - True and empty string if successful, False and error message otherwise
         """
         try:
-            import matplotlib.pyplot as plt
-            from matplotlib.figure import Figure
-            import pandas as _pd
 
             # Get group path and column names from plot config
             # Support backward compatibility: use current CSV group if not in config
@@ -4069,11 +4050,10 @@ class HDF5Viewer(QMainWindow):
             # Date parsing logic (same as _apply_saved_plot)
             if x_is_string and xaxis_datetime and not datetime_format:
                 try:
-                    x_data = _pd.to_datetime(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
                     valid_dates = x_data.notna()
                     if valid_dates.sum() > 0:
-                        import matplotlib.dates as mdates
-                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan for d in x_data])
+                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan for d in x_data])
                     else:
                         x_num = np.arange(min_len, dtype=float)
                         xaxis_datetime = False
@@ -4082,11 +4062,10 @@ class HDF5Viewer(QMainWindow):
                     xaxis_datetime = False
             elif x_is_string and not xaxis_datetime:
                 try:
-                    x_data = _pd.to_datetime(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
                     valid_dates = x_data.notna()
                     if valid_dates.sum() > 0:
-                        import matplotlib.dates as mdates
-                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan for d in x_data])
+                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan for d in x_data])
                         xaxis_datetime = True
                     else:
                         x_num = np.arange(min_len, dtype=float)
@@ -4096,19 +4075,18 @@ class HDF5Viewer(QMainWindow):
                     xaxis_datetime = False
             elif xaxis_datetime and datetime_format:
                 try:
-                    x_data = _pd.to_datetime(_pd.Series(x_arr[:min_len]), format=datetime_format, errors="coerce")
-                    import matplotlib.dates as mdates
+                    x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), format=datetime_format, errors="coerce")
                     valid_dates = x_data.notna()
                     if valid_dates.sum() > 0:
-                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan for d in x_data])
+                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan for d in x_data])
                     else:
-                        x_num = _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+                        x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
                         xaxis_datetime = False
                 except Exception:
-                    x_num = _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+                    x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
                     xaxis_datetime = False
             else:
-                x_num = _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+                x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
 
             # Plot series with smoothing support
             series_styles = plot_options.get("series", {})
@@ -4118,7 +4096,7 @@ class HDF5Viewer(QMainWindow):
                 if y_name not in col_data:
                     continue
                 y_arr = col_data[y_name].ravel()[:min_len]
-                y_num = _pd.to_numeric(_pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
+                y_num = pd.to_numeric(pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
                 valid = np.isfinite(x_num) & np.isfinite(y_num)
                 if valid.any():
                     series_opts = series_styles.get(y_name, {})
@@ -4154,7 +4132,7 @@ class HDF5Viewer(QMainWindow):
                     if apply_smooth and smooth_mode in ("smoothed", "both"):
                         try:
                             window = max(2, int(smooth_window))
-                            y_series = _pd.Series(y_num[valid])
+                            y_series = pd.Series(y_num[valid])
                             y_smooth = y_series.rolling(window=window, center=True, min_periods=1).mean().to_numpy()
 
                             smooth_kwargs = {"label": f"{label} (MA-{window})" if smooth_mode == "both" else label}
@@ -4268,7 +4246,6 @@ class HDF5Viewer(QMainWindow):
 
             # Date formatting
             if xaxis_datetime:
-                from matplotlib.dates import DateFormatter, AutoDateLocator
                 display_format = plot_options.get("datetime_display_format", "").strip()
                 if display_format:
                     ax.xaxis.set_major_formatter(DateFormatter(display_format))
@@ -4310,7 +4287,6 @@ class HDF5Viewer(QMainWindow):
         except Exception as e:
             error_msg = f"Error exporting plot: {e}"
             print(error_msg)
-            import traceback
             traceback.print_exc()
             return False, str(e)
 

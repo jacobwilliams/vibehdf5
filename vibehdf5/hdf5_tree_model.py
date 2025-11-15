@@ -6,6 +6,7 @@ import shutil
 import tempfile
 import h5py
 import numpy as np
+import csv
 from qtpy.QtCore import QMimeData, Qt, QUrl
 from qtpy.QtGui import QStandardItem, QStandardItemModel
 from qtpy.QtWidgets import QApplication, QStyle
@@ -377,8 +378,6 @@ class HDF5TreeModel(QStandardItemModel):
                 export_indices = np.arange(max_len)
 
             # Write CSV
-            import csv
-
             with open(temp_path, "w", newline="", encoding="utf-8") as fout:
                 writer = csv.writer(fout)
                 writer.writerow(col_names)
