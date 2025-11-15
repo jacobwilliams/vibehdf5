@@ -46,6 +46,9 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.figure import Figure
 
 from .hdf5_tree_model import HDF5TreeModel
 from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
@@ -1504,28 +1507,13 @@ class HDF5Viewer(QMainWindow):
         plot_layout = QVBoxLayout(plot_widget)
         plot_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Import matplotlib components for embedding
-        try:
-            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-            from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToolbar
-            from matplotlib.figure import Figure
+        self.plot_figure = Figure(figsize=(8, 6))
+        self.plot_canvas = FigureCanvas(self.plot_figure)
+        self.plot_toolbar = NavigationToolbar(self.plot_canvas, plot_widget)
 
-            self.plot_figure = Figure(figsize=(8, 6))
-            self.plot_canvas = FigureCanvas(self.plot_figure)
-            self.plot_toolbar = NavigationToolbar(self.plot_canvas, plot_widget)
-
-            # Add toolbar first, then canvas
-            plot_layout.addWidget(self.plot_toolbar)
-            plot_layout.addWidget(self.plot_canvas)
-            self._matplotlib_available = True
-        except ImportError:
-            # Matplotlib not available
-            no_plot_label = QLabel("Matplotlib not installed. Install it to enable plotting.")
-            no_plot_label.setAlignment(Qt.AlignCenter)
-            plot_layout.addWidget(no_plot_label)
-            self.plot_figure = None
-            self.plot_canvas = None
-            self._matplotlib_available = False
+        # Add toolbar first, then canvas
+        plot_layout.addWidget(self.plot_toolbar)
+        plot_layout.addWidget(self.plot_canvas)
 
         self.bottom_tabs.addTab(plot_widget, "Plot")
 
@@ -2959,15 +2947,6 @@ class HDF5Viewer(QMainWindow):
             QMessageBox.information(self, "Plot", "No CSV table is active to plot.")
             return
 
-        # Check if matplotlib is available
-        if not self._matplotlib_available:
-            QMessageBox.critical(
-                self,
-                "Matplotlib not available",
-                "Matplotlib is not available. Please install it to use plotting features.",
-            )
-            return
-
         # Determine selected columns and their order
         sel_cols = self._get_selected_column_indices()
         if len(sel_cols) < 2:
@@ -3585,15 +3564,6 @@ class HDF5Viewer(QMainWindow):
             QMessageBox.information(self, "No Data", "CSV data is not loaded.")
             return
 
-        # Check matplotlib availability
-        if not self._matplotlib_available:
-            QMessageBox.critical(
-                self,
-                "Matplotlib not available",
-                "Matplotlib is not available. Please install it to use plotting features.",
-            )
-            return
-
         # Get column names
         headers = [
             self.preview_table.horizontalHeaderItem(i).text()
@@ -3756,11 +3726,6 @@ class HDF5Viewer(QMainWindow):
 
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
-
-            # Apply font family
-            font_family = plot_options.get("font_family", "serif")
-            import matplotlib.pyplot as plt
-            plt.rcParams['font.family'] = font_family
 
             # Get plot options from configuration
             plot_options = plot_config.get("plot_options", {})
@@ -4083,11 +4048,6 @@ class HDF5Viewer(QMainWindow):
 
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
-
-            # Apply font family
-            font_family = plot_options.get("font_family", "serif")
-            import matplotlib.pyplot as plt
-            plt.rcParams['font.family'] = font_family
 
             # Process x-axis data (same logic as _apply_saved_plot)
             x_arr = col_data[x_name].ravel()
