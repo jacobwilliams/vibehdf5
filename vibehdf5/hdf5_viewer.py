@@ -3105,6 +3105,7 @@ class HDF5Viewer(QMainWindow):
             ax.set_xlabel(x_name)
             ax.set_ylabel(", ".join(y_names))
             ax.legend()
+            ax.grid(True)
 
             # Format datetime x-axis if dates were detected
             if xaxis_datetime:
@@ -3889,17 +3890,26 @@ class HDF5Viewer(QMainWindow):
                 if start_row > 0 or end_row < len(self._csv_data_dict.get(x_name, [])) - 1:
                     title += f" (rows {start_row}-{end_row})"
 
-            # Apply labels and title with font sizes
-            ax.set_title(title, fontsize=plot_options.get("title_fontsize", 12))
-            ax.set_xlabel(xlabel, fontsize=plot_options.get("axis_label_fontsize", 10))
-            ax.set_ylabel(ylabel, fontsize=plot_options.get("axis_label_fontsize", 10))
+            # Apply font family if specified
+            font_family = plot_options.get("font_family", "serif")
+
+            # Apply labels and title with font sizes and family
+            ax.set_title(title, fontsize=plot_options.get("title_fontsize", 12), family=font_family)
+            ax.set_xlabel(xlabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
+            ax.set_ylabel(ylabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
             ax.tick_params(axis='both', which='major', labelsize=plot_options.get("tick_fontsize", 9))
+            # Apply font family to tick labels
+            for label in ax.get_xticklabels() + ax.get_yticklabels():
+                label.set_fontfamily(font_family)
 
             # Apply grid and legend options
             if plot_options.get("grid", True):
                 ax.grid(True)
             if plot_options.get("legend", True):
-                ax.legend(fontsize=plot_options.get("legend_fontsize", 9))
+                legend = ax.legend(fontsize=plot_options.get("legend_fontsize", 9))
+                # Apply font family to legend text
+                for text in legend.get_texts():
+                    text.set_fontfamily(font_family)
 
             # Format datetime x-axis if enabled
             if xaxis_datetime:
@@ -4261,17 +4271,26 @@ class HDF5Viewer(QMainWindow):
             custom_title = plot_options.get("title", "").strip()
             title_text = custom_title if custom_title else plot_config.get("name", "Plot")
 
-            # Apply labels with font sizes
-            ax.set_title(title_text, fontsize=plot_options.get("title_fontsize", 12))
-            ax.set_xlabel(xlabel, fontsize=plot_options.get("axis_label_fontsize", 10))
-            ax.set_ylabel(ylabel, fontsize=plot_options.get("axis_label_fontsize", 10))
+            # Apply font family if specified
+            font_family = plot_options.get("font_family", "serif")
+
+            # Apply labels with font sizes and family
+            ax.set_title(title_text, fontsize=plot_options.get("title_fontsize", 12), family=font_family)
+            ax.set_xlabel(xlabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
+            ax.set_ylabel(ylabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
             ax.tick_params(axis='both', which='major', labelsize=plot_options.get("tick_fontsize", 9))
+            # Apply font family to tick labels
+            for label in ax.get_xticklabels() + ax.get_yticklabels():
+                label.set_fontfamily(font_family)
 
             # Apply grid and legend
             if plot_options.get("grid", True):
                 ax.grid(True, alpha=0.3)
             if plot_options.get("legend", True):
-                ax.legend(fontsize=plot_options.get("legend_fontsize", 9))
+                legend = ax.legend(fontsize=plot_options.get("legend_fontsize", 9))
+                # Apply font family to legend text
+                for text in legend.get_texts():
+                    text.set_fontfamily(font_family)
 
             # Apply axis limits
             xlim_min = plot_options.get("xlim_min")
