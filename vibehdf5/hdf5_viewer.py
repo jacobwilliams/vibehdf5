@@ -3505,8 +3505,42 @@ class HDF5Viewer(QMainWindow):
                         elif operator == "<=":
                             return col_numeric <= value_num
                 except (ValueError, TypeError):
-                    # Fall back to string comparison
-                    pass
+                    # Not numeric, try date/time comparison for string columns
+                    if operator in ["==", "!=", ">", ">=", "<", "<="]:
+                        try:
+                            # Convert to string array first
+                            if isinstance(col_data, np.ndarray):
+                                str_array = np.array(
+                                    [
+                                        str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace")
+                                        for v in col_data
+                                    ]
+                                )
+                            else:
+                                str_array = np.array([str(v) for v in col_data])
+
+                            # Try to parse as datetime
+                            col_dates = pd.to_datetime(pd.Series(str_array), errors="coerce")
+                            value_date = pd.to_datetime(value_str, errors="coerce")
+
+                            # Check if parsing was successful (not all NaT and value is not NaT)
+                            if not pd.isna(value_date) and not col_dates.isna().all():
+                                # Use datetime comparison
+                                if operator == "==":
+                                    return col_dates == value_date
+                                elif operator == "!=":
+                                    return col_dates != value_date
+                                elif operator == ">":
+                                    return col_dates > value_date
+                                elif operator == ">=":
+                                    return col_dates >= value_date
+                                elif operator == "<":
+                                    return col_dates < value_date
+                                elif operator == "<=":
+                                    return col_dates <= value_date
+                        except (ValueError, TypeError):
+                            # Fall back to string comparison
+                            pass
 
             # String-based operations
             if isinstance(col_data, np.ndarray):
