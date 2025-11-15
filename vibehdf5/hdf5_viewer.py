@@ -1485,7 +1485,14 @@ class HDF5Viewer(QMainWindow):
         self.preview_table.setSelectionBehavior(QAbstractItemView.SelectColumns)
         self.preview_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.preview_table.itemSelectionChanged.connect(self._update_plot_action_enabled)
+        # Connect scrollbar for lazy loading
+        self.preview_table.verticalScrollBar().valueChanged.connect(self._on_table_scroll)
         content_layout.addWidget(self.preview_table)
+
+        # Lazy loading state variables
+        self._table_batch_size = 1000  # Load rows in batches
+        self._table_loaded_rows = 0  # Track how many rows are loaded
+        self._table_is_loading = False  # Prevent concurrent loads
 
         # Image preview label (hidden by default)
         self.preview_image = ScaledImageLabel(self, rescale_callback=self._show_scaled_image)
@@ -2813,15 +2820,10 @@ class HDF5Viewer(QMainWindow):
                 self._set_preview_text("(No datasets found in CSV group)")
                 return
 
-            # Store full data for filtering
+            # Store full data for filtering and lazy loading
             self._csv_data_dict = data_dict
             self._csv_column_names = col_names
-
-            # Limit display to avoid performance issues
-            MAX_DISPLAY_ROWS = 10000
-            # display_rows = min(max_rows, MAX_DISPLAY_ROWS)
-            display_rows = max_rows
-            is_truncated = max_rows > MAX_DISPLAY_ROWS
+            self._csv_total_rows = max_rows
 
             # Setup table - disable updates for performance
             progress.setLabelText("Setting up table...")
@@ -2831,64 +2833,20 @@ class HDF5Viewer(QMainWindow):
             self.preview_table.setUpdatesEnabled(False)
             self.preview_table.setSortingEnabled(False)
             self.preview_table.clear()
-            self.preview_table.setRowCount(display_rows)
+            self.preview_table.setRowCount(max_rows)  # Set full row count for scrollbar
             self.preview_table.setColumnCount(len(col_names))
             self.preview_table.setHorizontalHeaderLabels(col_names)
 
-            # Populate table
-            progress.setLabelText(f"Populating table with {display_rows} rows...")
+            # Initially load only first batch of rows for performance
+            initial_batch = min(self._table_batch_size, max_rows)
+            progress.setLabelText(f"Loading initial {initial_batch} rows...")
             progress.setValue(80)
             QApplication.processEvents()
 
-            for col_idx, col_name in enumerate(col_names):
-                if progress.wasCanceled():
-                    progress.close()
-                    self.preview_table.setUpdatesEnabled(True)
-                    self._set_preview_text("(CSV display cancelled)")
-                    return
+            self._populate_table_rows(0, initial_batch, data_dict, col_names)
+            self._table_loaded_rows = initial_batch
 
-                # Update progress (80-95% range for populating table)
-                if col_idx % 10 == 0:  # Update every 10 columns to avoid too many updates
-                    progress_val = 80 + int((col_idx / len(col_names)) * 15)
-                    progress.setValue(progress_val)
-                    QApplication.processEvents()
-
-                if col_name in data_dict:
-                    col_data = data_dict[col_name]
-                    # Convert entire column to strings at once (much faster)
-                    if isinstance(col_data, np.ndarray):
-                        # Handle different data types
-                        if col_data.dtype.kind == "S":
-                            # Byte strings - decode to UTF-8
-                            str_data = [
-                                v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
-                                for v in col_data[:display_rows]
-                            ]
-                        elif col_data.dtype.kind == "U":
-                            # Unicode strings - already strings, just convert
-                            str_data = [str(v) for v in col_data[:display_rows]]
-                        elif col_data.dtype.kind == "O":
-                            # Object dtype - could be mixed, handle bytes if present
-                            str_data = [
-                                v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
-                                for v in col_data[:display_rows]
-                            ]
-                        else:
-                            # Numeric or other types - use numpy's string conversion
-                            str_data = np.char.mod("%s", col_data[:display_rows])
-                    else:
-                        # Handle bytes in non-array data
-                        if isinstance(col_data, bytes):
-                            str_data = [col_data.decode("utf-8", errors="replace")]
-                        else:
-                            str_data = [str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace") for v in col_data[:display_rows]]
-
-                    # Set items in batch
-                    for row_idx, value_str in enumerate(str_data):
-                        item = QTableWidgetItem(value_str)
-                        self.preview_table.setItem(row_idx, col_idx, item)
-
-            # Resize columns to content
+            # Resize columns to content based on initial batch
             progress.setLabelText("Resizing columns...")
             progress.setValue(95)
             QApplication.processEvents()
@@ -2911,10 +2869,10 @@ class HDF5Viewer(QMainWindow):
             # Show attributes for the CSV group
             self._show_attributes(grp)
 
-            # Show message if data was truncated
-            if is_truncated:
+            # Show message about lazy loading
+            if max_rows > initial_batch:
                 self.statusBar().showMessage(
-                    f"Displaying first {display_rows:,} of {max_rows:,} rows", 8000
+                    f"Loaded {initial_batch:,} of {max_rows:,} rows (more will load as you scroll)", 8000
                 )
 
             # Enable/disable plotting action depending on visibility/selection
@@ -2953,6 +2911,116 @@ class HDF5Viewer(QMainWindow):
             self.preview_edit.setVisible(True)
             self.preview_image.setVisible(False)
             self._hide_attributes()
+
+    def _populate_table_rows(self, start_row: int, end_row: int, data_dict: dict, col_names: list[str]) -> None:
+        """Populate table rows from start_row to end_row (exclusive)."""
+        for col_idx, col_name in enumerate(col_names):
+            if col_name in data_dict:
+                col_data = data_dict[col_name]
+                # Convert column slice to strings
+                if isinstance(col_data, np.ndarray):
+                    # Handle different data types
+                    if col_data.dtype.kind == "S":
+                        # Byte strings - decode to UTF-8
+                        str_data = [
+                            v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
+                            for v in col_data[start_row:end_row]
+                        ]
+                    elif col_data.dtype.kind == "U":
+                        # Unicode strings - already strings, just convert
+                        str_data = [str(v) for v in col_data[start_row:end_row]]
+                    elif col_data.dtype.kind == "O":
+                        # Object dtype - could be mixed, handle bytes if present
+                        str_data = [
+                            v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
+                            for v in col_data[start_row:end_row]
+                        ]
+                    else:
+                        # Numeric or other types - use numpy's string conversion
+                        str_data = np.char.mod("%s", col_data[start_row:end_row])
+                else:
+                    # Handle bytes in non-array data
+                    if isinstance(col_data, bytes):
+                        str_data = [col_data.decode("utf-8", errors="replace")]
+                    else:
+                        str_data = [str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace") for v in col_data[start_row:end_row]]
+
+                # Set items in table
+                for i, value_str in enumerate(str_data):
+                    row_idx = start_row + i
+                    item = QTableWidgetItem(value_str)
+                    self.preview_table.setItem(row_idx, col_idx, item)
+
+    def _on_table_scroll(self, value: int) -> None:
+        """Handle table scroll events to load more rows as needed."""
+        if self._table_is_loading:
+            return  # Already loading, skip
+
+        if not hasattr(self, '_csv_total_rows') or not hasattr(self, '_csv_data_dict'):
+            return  # No CSV data loaded
+
+        # Check if we need to load more rows
+        if self._table_loaded_rows >= self._csv_total_rows:
+            return  # All rows already loaded
+
+        # Get visible range
+        scrollbar = self.preview_table.verticalScrollBar()
+        max_value = scrollbar.maximum()
+        if max_value == 0:
+            return
+
+        # Calculate approximate visible row based on scroll position
+        scroll_ratio = value / max_value
+        approx_visible_row = int(scroll_ratio * self._csv_total_rows)
+
+        # Add buffer rows above and below visible area
+        buffer_rows = 500
+        target_row = min(approx_visible_row + buffer_rows, self._csv_total_rows)
+
+        # If the target row is beyond what we've loaded, load up to that point
+        if target_row > self._table_loaded_rows:
+            self._load_rows_up_to(target_row)
+
+    def _load_rows_up_to(self, target_row: int) -> None:
+        """Load all rows from current position up to target_row."""
+        if self._table_is_loading:
+            return
+
+        if self._table_loaded_rows >= target_row:
+            return
+
+        self._table_is_loading = True
+
+        try:
+            # Load all rows from current position to target in one go
+            start_row = self._table_loaded_rows
+            end_row = min(target_row, self._csv_total_rows)
+
+            # Disable updates during batch load for better performance
+            self.preview_table.setUpdatesEnabled(False)
+
+            # Populate all rows up to target
+            self._populate_table_rows(start_row, end_row, self._csv_data_dict, self._csv_column_names)
+
+            # Update loaded count
+            self._table_loaded_rows = end_row
+
+            # Re-enable updates
+            self.preview_table.setUpdatesEnabled(True)
+
+            # Update status bar
+            if self._table_loaded_rows < self._csv_total_rows:
+                self.statusBar().showMessage(
+                    f"Loaded {self._table_loaded_rows:,} of {self._csv_total_rows:,} rows", 2000
+                )
+            else:
+                self.statusBar().showMessage(
+                    f"All {self._csv_total_rows:,} rows loaded", 3000
+                )
+        except Exception as exc:
+            self.statusBar().showMessage(f"Error loading rows: {exc}", 5000)
+        finally:
+            self._table_is_loading = False
 
     def _get_selected_column_indices(self) -> list[int]:
         try:
