@@ -728,6 +728,52 @@ class PlotOptionsDialog(QDialog):
         export_format_layout.addStretch()
         general_layout.addLayout(export_format_layout)
 
+        # Font size options
+        font_size_label = QLabel("<b>Font Sizes:</b>")
+        general_layout.addWidget(font_size_label)
+
+        font_size_layout = QHBoxLayout()
+        font_size_layout.setContentsMargins(0, 5, 0, 10)
+
+        font_size_layout.addWidget(QLabel("Title:"))
+        self.title_fontsize_spin = QSpinBox()
+        self.title_fontsize_spin.setRange(6, 72)
+        self.title_fontsize_spin.setValue(self.plot_config.get("plot_options", {}).get("title_fontsize", 12))
+        self.title_fontsize_spin.setSuffix(" pt")
+        self.title_fontsize_spin.setToolTip("Font size for plot title")
+        self.title_fontsize_spin.setMinimumWidth(80)
+        font_size_layout.addWidget(self.title_fontsize_spin)
+
+        font_size_layout.addWidget(QLabel("Axis Labels:"))
+        self.axis_label_fontsize_spin = QSpinBox()
+        self.axis_label_fontsize_spin.setRange(6, 72)
+        self.axis_label_fontsize_spin.setValue(self.plot_config.get("plot_options", {}).get("axis_label_fontsize", 10))
+        self.axis_label_fontsize_spin.setSuffix(" pt")
+        self.axis_label_fontsize_spin.setToolTip("Font size for axis labels")
+        self.axis_label_fontsize_spin.setMinimumWidth(80)
+        font_size_layout.addWidget(self.axis_label_fontsize_spin)
+
+        font_size_layout.addWidget(QLabel("Tick Labels:"))
+        self.tick_fontsize_spin = QSpinBox()
+        self.tick_fontsize_spin.setRange(6, 72)
+        self.tick_fontsize_spin.setValue(self.plot_config.get("plot_options", {}).get("tick_fontsize", 9))
+        self.tick_fontsize_spin.setSuffix(" pt")
+        self.tick_fontsize_spin.setToolTip("Font size for axis tick labels")
+        self.tick_fontsize_spin.setMinimumWidth(80)
+        font_size_layout.addWidget(self.tick_fontsize_spin)
+
+        font_size_layout.addWidget(QLabel("Legend:"))
+        self.legend_fontsize_spin = QSpinBox()
+        self.legend_fontsize_spin.setRange(6, 72)
+        self.legend_fontsize_spin.setValue(self.plot_config.get("plot_options", {}).get("legend_fontsize", 9))
+        self.legend_fontsize_spin.setSuffix(" pt")
+        self.legend_fontsize_spin.setToolTip("Font size for legend text")
+        self.legend_fontsize_spin.setMinimumWidth(80)
+        font_size_layout.addWidget(self.legend_fontsize_spin)
+
+        font_size_layout.addStretch()
+        general_layout.addLayout(font_size_layout)
+
         general_layout.addStretch()
         tabs.addTab(general_tab, "General")
 
@@ -1136,6 +1182,12 @@ class PlotOptionsDialog(QDialog):
         plot_opts["figheight"] = self.figheight_spin.value()
         plot_opts["dpi"] = self.dpi_spin.value()
         plot_opts["export_format"] = self.export_format_combo.currentText()
+
+        # Save font size options
+        plot_opts["title_fontsize"] = self.title_fontsize_spin.value()
+        plot_opts["axis_label_fontsize"] = self.axis_label_fontsize_spin.value()
+        plot_opts["tick_fontsize"] = self.tick_fontsize_spin.value()
+        plot_opts["legend_fontsize"] = self.legend_fontsize_spin.value()
 
         # Save reference lines
         ref_lines = []
@@ -2966,6 +3018,9 @@ class HDF5Viewer(QMainWindow):
             # Create a subplot
             ax = self.plot_figure.add_subplot(111)
 
+            # Disable offset notation on axes
+            ax.ticklabel_format(useOffset=False)
+
             any_plotted = False
             for y_name in y_names:
                 if y_name not in col_data:
@@ -3002,6 +3057,8 @@ class HDF5Viewer(QMainWindow):
             except Exception:
                 pass
 
+            ax.set_xlabel(x_name)
+            ax.set_ylabel(", ".join(y_names))
             ax.legend()
 
             # Format datetime x-axis if dates were detected
@@ -3639,6 +3696,9 @@ class HDF5Viewer(QMainWindow):
             self.plot_figure.clear()
             ax = self.plot_figure.add_subplot(111)
 
+            # Disable offset notation on axes
+            ax.ticklabel_format(useOffset=False)
+
             # Get plot options from configuration
             plot_options = plot_config.get("plot_options", {})
             series_styles = plot_options.get("series", {})
@@ -3738,8 +3798,6 @@ class HDF5Viewer(QMainWindow):
             # Apply custom labels or use defaults
             xlabel = plot_options.get("xlabel", "").strip() or x_name
             ylabel = plot_options.get("ylabel", "").strip() or ", ".join(y_names)
-            ax.set_xlabel(xlabel)
-            ax.set_ylabel(ylabel)
 
             # Set title with plot name and row range info
             custom_title = plot_options.get("title", "").strip()
@@ -3749,13 +3807,18 @@ class HDF5Viewer(QMainWindow):
                 title = plot_config.get("name", "Plot")
                 if start_row > 0 or end_row < len(self._csv_data_dict.get(x_name, [])) - 1:
                     title += f" (rows {start_row}-{end_row})"
-            ax.set_title(title)
+
+            # Apply labels and title with font sizes
+            ax.set_title(title, fontsize=plot_options.get("title_fontsize", 12))
+            ax.set_xlabel(xlabel, fontsize=plot_options.get("axis_label_fontsize", 10))
+            ax.set_ylabel(ylabel, fontsize=plot_options.get("axis_label_fontsize", 10))
+            ax.tick_params(axis='both', which='major', labelsize=plot_options.get("tick_fontsize", 9))
 
             # Apply grid and legend options
             if plot_options.get("grid", True):
                 ax.grid(True)
             if plot_options.get("legend", True):
-                ax.legend()
+                ax.legend(fontsize=plot_options.get("legend_fontsize", 9))
 
             # Format datetime x-axis if enabled
             if xaxis_datetime:
@@ -3911,6 +3974,9 @@ class HDF5Viewer(QMainWindow):
             fig = Figure(figsize=(figwidth, figheight), dpi=dpi)
             ax = fig.add_subplot(111)
 
+            # Disable offset notation on axes
+            ax.ticklabel_format(useOffset=False)
+
             # Process x-axis data (same logic as _apply_saved_plot)
             x_arr = col_data[x_name].ravel()
             min_len = min(len(x_arr), *(len(col_data.get(n, [])) for n in y_names if n in col_data))
@@ -4043,20 +4109,20 @@ class HDF5Viewer(QMainWindow):
             # Apply labels and formatting
             xlabel = plot_options.get("xlabel", "").strip() or x_name
             ylabel = plot_options.get("ylabel", "").strip() or ", ".join(y_names)
-            ax.set_xlabel(xlabel)
-            ax.set_ylabel(ylabel)
-
             custom_title = plot_options.get("title", "").strip()
-            if custom_title:
-                ax.set_title(custom_title)
-            else:
-                ax.set_title(plot_config.get("name", "Plot"))
+            title_text = custom_title if custom_title else plot_config.get("name", "Plot")
+
+            # Apply labels with font sizes
+            ax.set_title(title_text, fontsize=plot_options.get("title_fontsize", 12))
+            ax.set_xlabel(xlabel, fontsize=plot_options.get("axis_label_fontsize", 10))
+            ax.set_ylabel(ylabel, fontsize=plot_options.get("axis_label_fontsize", 10))
+            ax.tick_params(axis='both', which='major', labelsize=plot_options.get("tick_fontsize", 9))
 
             # Apply grid and legend
             if plot_options.get("grid", True):
                 ax.grid(True, alpha=0.3)
             if plot_options.get("legend", True):
-                ax.legend()
+                ax.legend(fontsize=plot_options.get("legend_fontsize", 9))
 
             # Apply axis limits
             xlim_min = plot_options.get("xlim_min")
