@@ -35,6 +35,7 @@ from qtpy.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QSplitter,
     QStatusBar,
     QTableWidget,
@@ -49,6 +50,70 @@ from qtpy.QtWidgets import (
 from .hdf5_tree_model import HDF5TreeModel
 from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
 from .utilities import excluded_dirs, excluded_files
+
+
+class DraggablePlotListWidget(QListWidget):
+    """QListWidget that supports drag-and-drop to export plots to filesystem."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragOnly)
+        self.parent_viewer = parent
+
+    def mimeData(self, items):
+        """Create mime data for drag operation."""
+        mime_data = super().mimeData(items)
+        if items and self.parent_viewer:
+            # Store the row index in the mime data
+            row = self.row(items[0])
+            mime_data.setText(str(row))
+        return mime_data
+
+    def startDrag(self, supportedActions):
+        """Start drag operation and export plot to temporary file."""
+        current_row = self.currentRow()
+        if current_row < 0 or not self.parent_viewer:
+            return
+
+        # Export the plot to a temporary file
+        try:
+            import tempfile
+            from qtpy.QtCore import QUrl, QMimeData
+            from qtpy.QtGui import QDrag
+
+            # Get plot configuration
+            plot_config = self.parent_viewer._saved_plots[current_row]
+            plot_name = plot_config.get("name", "plot")
+            export_format = plot_config.get("plot_options", {}).get("export_format", "png")
+
+            # Sanitize filename
+            safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in plot_name)
+            filename = f"{safe_name}.{export_format}"
+
+            # Create temporary file
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, filename)
+
+            # Export the plot
+            success, error_msg = self.parent_viewer._export_plot_to_file(plot_config, temp_path)
+
+            if success:
+                # Create drag with file URL
+                drag = QDrag(self)
+                mime_data = QMimeData()
+                mime_data.setUrls([QUrl.fromLocalFile(temp_path)])
+                mime_data.setText(filename)
+                drag.setMimeData(mime_data)
+
+                # Execute drag operation
+                drag.exec_(Qt.CopyAction)
+            else:
+                QMessageBox.warning(self, "Export Failed", f"Failed to export plot for drag-and-drop.\n\nError: {error_msg}")
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            QMessageBox.warning(self, "Export Error", f"Error exporting plot: {e}\n\n{tb}")
 
 
 # Helpers (placed before main/class so they are defined at runtime)
@@ -611,6 +676,58 @@ class PlotOptionsDialog(QDialog):
 
         general_layout.addLayout(datetime_layout)
 
+        # Figure size and export options
+        export_label = QLabel("<b>Figure Size & Export:</b>")
+        general_layout.addWidget(export_label)
+
+        figsize_layout = QHBoxLayout()
+        figsize_layout.setContentsMargins(0, 5, 0, 10)
+
+        figsize_layout.addWidget(QLabel("Width:"))
+        self.figwidth_spin = QDoubleSpinBox()
+        self.figwidth_spin.setRange(1.0, 50.0)
+        self.figwidth_spin.setSingleStep(0.5)
+        self.figwidth_spin.setValue(self.plot_config.get("plot_options", {}).get("figwidth", 8.0))
+        self.figwidth_spin.setSuffix(" in")
+        self.figwidth_spin.setToolTip("Figure width in inches")
+        self.figwidth_spin.setMinimumWidth(100)
+        figsize_layout.addWidget(self.figwidth_spin)
+
+        figsize_layout.addWidget(QLabel("Height:"))
+        self.figheight_spin = QDoubleSpinBox()
+        self.figheight_spin.setRange(1.0, 50.0)
+        self.figheight_spin.setSingleStep(0.5)
+        self.figheight_spin.setValue(self.plot_config.get("plot_options", {}).get("figheight", 6.0))
+        self.figheight_spin.setSuffix(" in")
+        self.figheight_spin.setToolTip("Figure height in inches")
+        self.figheight_spin.setMinimumWidth(100)
+        figsize_layout.addWidget(self.figheight_spin)
+
+        figsize_layout.addWidget(QLabel("DPI:"))
+        self.dpi_spin = QSpinBox()
+        self.dpi_spin.setRange(50, 600)
+        self.dpi_spin.setSingleStep(50)
+        self.dpi_spin.setValue(self.plot_config.get("plot_options", {}).get("dpi", 100))
+        self.dpi_spin.setToolTip("Dots per inch for export")
+        self.dpi_spin.setMinimumWidth(100)
+        figsize_layout.addWidget(self.dpi_spin)
+
+        figsize_layout.addStretch()
+        general_layout.addLayout(figsize_layout)
+
+        export_format_layout = QHBoxLayout()
+        export_format_layout.addWidget(QLabel("Export Format:"))
+        self.export_format_combo = QComboBox()
+        self.export_format_combo.addItems(["png", "pdf", "svg", "jpg", "eps"])
+        current_format = self.plot_config.get("plot_options", {}).get("export_format", "png")
+        format_idx = self.export_format_combo.findText(current_format)
+        if format_idx >= 0:
+            self.export_format_combo.setCurrentIndex(format_idx)
+        self.export_format_combo.setToolTip("File format for drag-and-drop export")
+        export_format_layout.addWidget(self.export_format_combo)
+        export_format_layout.addStretch()
+        general_layout.addLayout(export_format_layout)
+
         general_layout.addStretch()
         tabs.addTab(general_tab, "General")
 
@@ -810,6 +927,36 @@ class PlotOptionsDialog(QDialog):
         label_layout.addWidget(label_edit)
         layout.addLayout(label_layout)
 
+        # Smoothing options
+        smooth_layout = QVBoxLayout()
+        smooth_checkbox = QCheckBox("Apply Moving Average Smoothing")
+        smooth_checkbox.setChecked(series_options.get("smooth", False))
+        smooth_layout.addWidget(smooth_checkbox)
+
+        smooth_params_layout = QHBoxLayout()
+        smooth_params_layout.addWidget(QLabel("Window Size:"))
+        smooth_window_spin = QSpinBox()
+        smooth_window_spin.setRange(2, 1000)
+        smooth_window_spin.setValue(series_options.get("smooth_window", 5))
+        smooth_window_spin.setToolTip("Number of points to average (must be odd for centered averaging)")
+        smooth_window_spin.setMinimumWidth(80)
+        smooth_params_layout.addWidget(smooth_window_spin)
+
+        smooth_params_layout.addWidget(QLabel("Show:"))
+        smooth_mode_combo = QComboBox()
+        smooth_mode_combo.addItem("Smoothed Only", "smoothed")
+        smooth_mode_combo.addItem("Original + Smoothed", "both")
+        smooth_mode_combo.addItem("Original Only (Smoothing Off)", "original")
+        current_mode = series_options.get("smooth_mode", "smoothed")
+        mode_idx = 0 if current_mode == "smoothed" else (1 if current_mode == "both" else 2)
+        smooth_mode_combo.setCurrentIndex(mode_idx)
+        smooth_mode_combo.setMinimumWidth(150)
+        smooth_params_layout.addWidget(smooth_mode_combo)
+
+        smooth_params_layout.addStretch()
+        smooth_layout.addLayout(smooth_params_layout)
+        layout.addLayout(smooth_layout)
+
         # Store references
         widget._color_button = color_button
         widget._linestyle_combo = linestyle_combo
@@ -817,6 +964,9 @@ class PlotOptionsDialog(QDialog):
         widget._width_spin = width_spin
         widget._markersize_spin = markersize_spin
         widget._label_edit = label_edit
+        widget._smooth_checkbox = smooth_checkbox
+        widget._smooth_window_spin = smooth_window_spin
+        widget._smooth_mode_combo = smooth_mode_combo
 
         return widget
 
@@ -981,6 +1131,12 @@ class PlotOptionsDialog(QDialog):
         plot_opts["datetime_format"] = self.datetime_format_edit.text().strip()
         plot_opts["datetime_display_format"] = self.datetime_display_format_edit.text().strip()
 
+        # Save figure size and export options
+        plot_opts["figwidth"] = self.figwidth_spin.value()
+        plot_opts["figheight"] = self.figheight_spin.value()
+        plot_opts["dpi"] = self.dpi_spin.value()
+        plot_opts["export_format"] = self.export_format_combo.currentText()
+
         # Save reference lines
         ref_lines = []
         for widget in self.refline_widgets:
@@ -1012,6 +1168,9 @@ class PlotOptionsDialog(QDialog):
                 "marker": widget._marker_combo.currentData(),
                 "linewidth": widget._width_spin.value(),
                 "markersize": widget._markersize_spin.value(),
+                "smooth": widget._smooth_checkbox.isChecked(),
+                "smooth_window": widget._smooth_window_spin.value(),
+                "smooth_mode": widget._smooth_mode_combo.currentData(),
             }
         plot_opts["series"] = series_opts
 
@@ -1085,10 +1244,11 @@ class HDF5Viewer(QMainWindow):
         saved_plots_label.setStyleSheet("font-weight: bold; padding: 4px;")
         left_layout.addWidget(saved_plots_label)
 
-        self.saved_plots_list = QListWidget()
+        self.saved_plots_list = DraggablePlotListWidget(self)
         self.saved_plots_list.setMaximumHeight(150)
         self.saved_plots_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.saved_plots_list.customContextMenuRequested.connect(self._on_saved_plots_context_menu)
+        self.saved_plots_list.setToolTip("Drag and drop to filesystem to export plot")
         left_layout.addWidget(self.saved_plots_list)
 
         # Buttons for plot management
@@ -3154,8 +3314,18 @@ class HDF5Viewer(QMainWindow):
         # Create plot configuration dictionary
         import time
 
+        # Get column names
+        column_names = [
+            self.preview_table.horizontalHeaderItem(i).text()
+            if self.preview_table.horizontalHeaderItem(i) is not None
+            else f"col_{i}"
+            for i in range(self.preview_table.columnCount())
+        ]
+
         plot_config = {
             "name": plot_name,
+            "csv_group_path": self._current_csv_group_path,
+            "column_names": column_names,
             "x_col_idx": x_idx,
             "y_col_idxs": y_idxs,
             "start_row": start_row,
@@ -3486,21 +3656,80 @@ class HDF5Viewer(QMainWindow):
 
                     # Use custom label if provided, otherwise use column name
                     label = series_opts.get("label", "").strip() or y_name
-                    plot_kwargs = {"label": label}
 
-                    if "color" in series_opts and series_opts["color"]:
-                        plot_kwargs["color"] = series_opts["color"]
-                    if "linestyle" in series_opts and series_opts["linestyle"]:
-                        plot_kwargs["linestyle"] = series_opts["linestyle"]
-                    if "marker" in series_opts and series_opts["marker"]:
-                        plot_kwargs["marker"] = series_opts["marker"]
-                    if "linewidth" in series_opts:
-                        plot_kwargs["linewidth"] = series_opts["linewidth"]
-                    if "markersize" in series_opts:
-                        plot_kwargs["markersize"] = series_opts["markersize"]
+                    # Check if smoothing is enabled
+                    apply_smooth = series_opts.get("smooth", False)
+                    smooth_mode = series_opts.get("smooth_mode", "smoothed")
+                    smooth_window = series_opts.get("smooth_window", 5)
 
-                    ax.plot(x_num[valid], y_num[valid], **plot_kwargs)
-                    any_plotted = True
+                    # Plot original line if requested
+                    if not apply_smooth or smooth_mode in ("original", "both"):
+                        plot_kwargs = {"label": label if not (apply_smooth and smooth_mode == "both") else f"{label} (original)"}
+
+                        if "color" in series_opts and series_opts["color"]:
+                            plot_kwargs["color"] = series_opts["color"]
+                        if "linestyle" in series_opts and series_opts["linestyle"]:
+                            plot_kwargs["linestyle"] = series_opts["linestyle"]
+                        if "marker" in series_opts and series_opts["marker"]:
+                            plot_kwargs["marker"] = series_opts["marker"]
+                        if "linewidth" in series_opts:
+                            plot_kwargs["linewidth"] = series_opts["linewidth"]
+                        if "markersize" in series_opts:
+                            plot_kwargs["markersize"] = series_opts["markersize"]
+
+                        # Make original line lighter/thinner if showing both
+                        if apply_smooth and smooth_mode == "both":
+                            plot_kwargs["alpha"] = 0.3
+                            plot_kwargs["linewidth"] = plot_kwargs.get("linewidth", 1.5) * 0.7
+
+                        ax.plot(x_num[valid], y_num[valid], **plot_kwargs)
+                        any_plotted = True
+
+                    # Plot smoothed line if requested
+                    if apply_smooth and smooth_mode in ("smoothed", "both"):
+                        try:
+                            # Apply moving average smoothing
+                            window = max(2, int(smooth_window))
+                            # Use pandas rolling mean for smoothing
+                            y_series = _pd.Series(y_num[valid])
+                            y_smooth = y_series.rolling(window=window, center=True, min_periods=1).mean().to_numpy()
+
+                            smooth_kwargs = {"label": f"{label} (MA-{window})" if smooth_mode == "both" else label}
+
+                            if "color" in series_opts and series_opts["color"]:
+                                smooth_kwargs["color"] = series_opts["color"]
+                            if "linestyle" in series_opts and series_opts["linestyle"]:
+                                smooth_kwargs["linestyle"] = series_opts["linestyle"]
+                            else:
+                                smooth_kwargs["linestyle"] = "-"  # Default to solid for smoothed
+                            if "marker" in series_opts and series_opts["marker"] and smooth_mode != "both":
+                                smooth_kwargs["marker"] = series_opts["marker"]
+                            if "linewidth" in series_opts:
+                                smooth_kwargs["linewidth"] = series_opts["linewidth"]
+                            else:
+                                smooth_kwargs["linewidth"] = 2.0  # Slightly thicker for smoothed
+                            if "markersize" in series_opts and smooth_mode != "both":
+                                smooth_kwargs["markersize"] = series_opts["markersize"]
+
+                            ax.plot(x_num[valid], y_smooth, **smooth_kwargs)
+                            any_plotted = True
+                        except Exception as e:
+                            # If smoothing fails, fall back to original data
+                            print(f"Smoothing failed for {y_name}: {e}")
+                            if not (smooth_mode == "both"):  # Only plot if we haven't already
+                                plot_kwargs = {"label": label}
+                                if "color" in series_opts and series_opts["color"]:
+                                    plot_kwargs["color"] = series_opts["color"]
+                                if "linestyle" in series_opts and series_opts["linestyle"]:
+                                    plot_kwargs["linestyle"] = series_opts["linestyle"]
+                                if "marker" in series_opts and series_opts["marker"]:
+                                    plot_kwargs["marker"] = series_opts["marker"]
+                                if "linewidth" in series_opts:
+                                    plot_kwargs["linewidth"] = series_opts["linewidth"]
+                                if "markersize" in series_opts:
+                                    plot_kwargs["markersize"] = series_opts["markersize"]
+                                ax.plot(x_num[valid], y_num[valid], **plot_kwargs)
+                                any_plotted = True
 
             if not any_plotted:
                 QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
@@ -3617,6 +3846,292 @@ class HDF5Viewer(QMainWindow):
 
         except Exception as exc:
             QMessageBox.critical(self, "Plot Error", f"Failed to plot data:\n{exc}")
+
+    def _export_plot_to_file(self, plot_config, filepath):
+        """Export a plot configuration to a file.
+
+        Args:
+            plot_config: Plot configuration dictionary
+            filepath: Target file path for export
+
+        Returns:
+            tuple: (success: bool, error_msg: str) - True and empty string if successful, False and error message otherwise
+        """
+        try:
+            import matplotlib.pyplot as plt
+            from matplotlib.figure import Figure
+            import pandas as _pd
+
+            # Get group path and column names from plot config
+            # Support backward compatibility: use current CSV group if not in config
+            group_path = plot_config.get("csv_group_path")
+            if not group_path:
+                # Fallback to current CSV group path (for older configs)
+                group_path = self._current_csv_group_path
+                if not group_path:
+                    return False, "No CSV group path available (load CSV data first)"
+
+            x_idx = plot_config.get("x_col_idx")
+            y_idxs = plot_config.get("y_col_idxs", [])
+
+            # Get column names from the config or current table
+            stored_columns = plot_config.get("column_names", [])
+            if stored_columns:
+                headers = stored_columns
+            else:
+                # Fallback to current table headers (for older configs)
+                headers = [
+                    self.preview_table.horizontalHeaderItem(i).text()
+                    if self.preview_table.horizontalHeaderItem(i) is not None
+                    else f"col_{i}"
+                    for i in range(self.preview_table.columnCount())
+                ]
+
+            if x_idx >= len(headers) or not all(idx < len(headers) for idx in y_idxs):
+                return False, "Invalid column indices"
+
+            x_name = headers[x_idx]
+            y_names = [headers[i] for i in y_idxs]
+
+            # Read column data
+            col_data = self._read_csv_columns(group_path, headers)
+            if not col_data:
+                return False, "Failed to read column data"
+
+            if x_name not in col_data or not any(name in col_data for name in y_names):
+                return False, "Column data not found"
+
+            # Get plot options
+            plot_options = plot_config.get("plot_options", {})
+            figwidth = plot_options.get("figwidth", 8.0)
+            figheight = plot_options.get("figheight", 6.0)
+            dpi = plot_options.get("dpi", 100)
+
+            # Create figure with specified size
+            fig = Figure(figsize=(figwidth, figheight), dpi=dpi)
+            ax = fig.add_subplot(111)
+
+            # Process x-axis data (same logic as _apply_saved_plot)
+            x_arr = col_data[x_name].ravel()
+            min_len = min(len(x_arr), *(len(col_data.get(n, [])) for n in y_names if n in col_data))
+            if min_len <= 0:
+                return False, "No data to plot"
+
+            xaxis_datetime = plot_options.get("xaxis_datetime", False)
+            datetime_format = plot_options.get("datetime_format", "").strip()
+
+            # Check if x_arr contains strings
+            x_is_string = False
+            if len(x_arr) > 0:
+                first_val = x_arr[0]
+                x_is_string = isinstance(first_val, str) or (
+                    hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
+                )
+
+            # Date parsing logic (same as _apply_saved_plot)
+            if x_is_string and xaxis_datetime and not datetime_format:
+                try:
+                    x_data = _pd.to_datetime(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    valid_dates = x_data.notna()
+                    if valid_dates.sum() > 0:
+                        import matplotlib.dates as mdates
+                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan for d in x_data])
+                    else:
+                        x_num = np.arange(min_len, dtype=float)
+                        xaxis_datetime = False
+                except Exception:
+                    x_num = np.arange(min_len, dtype=float)
+                    xaxis_datetime = False
+            elif x_is_string and not xaxis_datetime:
+                try:
+                    x_data = _pd.to_datetime(_pd.Series(x_arr[:min_len]), errors="coerce")
+                    valid_dates = x_data.notna()
+                    if valid_dates.sum() > 0:
+                        import matplotlib.dates as mdates
+                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan for d in x_data])
+                        xaxis_datetime = True
+                    else:
+                        x_num = np.arange(min_len, dtype=float)
+                        xaxis_datetime = False
+                except Exception:
+                    x_num = np.arange(min_len, dtype=float)
+                    xaxis_datetime = False
+            elif xaxis_datetime and datetime_format:
+                try:
+                    x_data = _pd.to_datetime(_pd.Series(x_arr[:min_len]), format=datetime_format, errors="coerce")
+                    import matplotlib.dates as mdates
+                    valid_dates = x_data.notna()
+                    if valid_dates.sum() > 0:
+                        x_num = np.array([mdates.date2num(d) if _pd.notna(d) else np.nan for d in x_data])
+                    else:
+                        x_num = _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+                        xaxis_datetime = False
+                except Exception:
+                    x_num = _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+                    xaxis_datetime = False
+            else:
+                x_num = _pd.to_numeric(_pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+
+            # Plot series with smoothing support
+            series_styles = plot_options.get("series", {})
+            any_plotted = False
+
+            for y_name in y_names:
+                if y_name not in col_data:
+                    continue
+                y_arr = col_data[y_name].ravel()[:min_len]
+                y_num = _pd.to_numeric(_pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
+                valid = np.isfinite(x_num) & np.isfinite(y_num)
+                if valid.any():
+                    series_opts = series_styles.get(y_name, {})
+                    label = series_opts.get("label", "").strip() or y_name
+
+                    # Smoothing logic
+                    apply_smooth = series_opts.get("smooth", False)
+                    smooth_mode = series_opts.get("smooth_mode", "smoothed")
+                    smooth_window = series_opts.get("smooth_window", 5)
+
+                    # Plot original if requested
+                    if not apply_smooth or smooth_mode in ("original", "both"):
+                        plot_kwargs = {"label": label if not (apply_smooth and smooth_mode == "both") else f"{label} (original)"}
+                        if "color" in series_opts and series_opts["color"]:
+                            plot_kwargs["color"] = series_opts["color"]
+                        if "linestyle" in series_opts and series_opts["linestyle"]:
+                            plot_kwargs["linestyle"] = series_opts["linestyle"]
+                        if "marker" in series_opts and series_opts["marker"]:
+                            plot_kwargs["marker"] = series_opts["marker"]
+                        if "linewidth" in series_opts:
+                            plot_kwargs["linewidth"] = series_opts["linewidth"]
+                        if "markersize" in series_opts:
+                            plot_kwargs["markersize"] = series_opts["markersize"]
+
+                        if apply_smooth and smooth_mode == "both":
+                            plot_kwargs["alpha"] = 0.3
+                            plot_kwargs["linewidth"] = plot_kwargs.get("linewidth", 1.5) * 0.7
+
+                        ax.plot(x_num[valid], y_num[valid], **plot_kwargs)
+                        any_plotted = True
+
+                    # Plot smoothed if requested
+                    if apply_smooth and smooth_mode in ("smoothed", "both"):
+                        try:
+                            window = max(2, int(smooth_window))
+                            y_series = _pd.Series(y_num[valid])
+                            y_smooth = y_series.rolling(window=window, center=True, min_periods=1).mean().to_numpy()
+
+                            smooth_kwargs = {"label": f"{label} (MA-{window})" if smooth_mode == "both" else label}
+                            if "color" in series_opts and series_opts["color"]:
+                                smooth_kwargs["color"] = series_opts["color"]
+                            if "linestyle" in series_opts and series_opts["linestyle"]:
+                                smooth_kwargs["linestyle"] = series_opts["linestyle"]
+                            else:
+                                smooth_kwargs["linestyle"] = "-"
+                            if "linewidth" in series_opts:
+                                smooth_kwargs["linewidth"] = series_opts["linewidth"]
+                            else:
+                                smooth_kwargs["linewidth"] = 2.0
+
+                            ax.plot(x_num[valid], y_smooth, **smooth_kwargs)
+                            any_plotted = True
+                        except Exception:
+                            # Smoothing failed, already plotted original if needed
+                            pass
+
+            if not any_plotted:
+                return False, "No valid numeric data to plot"
+
+            # Apply labels and formatting
+            xlabel = plot_options.get("xlabel", "").strip() or x_name
+            ylabel = plot_options.get("ylabel", "").strip() or ", ".join(y_names)
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+
+            custom_title = plot_options.get("title", "").strip()
+            if custom_title:
+                ax.set_title(custom_title)
+            else:
+                ax.set_title(plot_config.get("name", "Plot"))
+
+            # Apply grid and legend
+            if plot_options.get("grid", True):
+                ax.grid(True, alpha=0.3)
+            if plot_options.get("legend", True):
+                ax.legend()
+
+            # Apply axis limits
+            xlim_min = plot_options.get("xlim_min")
+            xlim_max = plot_options.get("xlim_max")
+            if xlim_min is not None or xlim_max is not None:
+                current_xlim = ax.get_xlim()
+                new_xlim = (
+                    xlim_min if xlim_min is not None else current_xlim[0],
+                    xlim_max if xlim_max is not None else current_xlim[1]
+                )
+                ax.set_xlim(new_xlim)
+
+            ylim_min = plot_options.get("ylim_min")
+            ylim_max = plot_options.get("ylim_max")
+            if ylim_min is not None or ylim_max is not None:
+                current_ylim = ax.get_ylim()
+                new_ylim = (
+                    ylim_min if ylim_min is not None else current_ylim[0],
+                    ylim_max if ylim_max is not None else current_ylim[1]
+                )
+                ax.set_ylim(new_ylim)
+
+            # Apply log scale
+            if plot_options.get("xlog", False):
+                ax.set_xscale("log")
+            if plot_options.get("ylog", False):
+                ax.set_yscale("log")
+
+            # Date formatting
+            if xaxis_datetime:
+                from matplotlib.dates import DateFormatter, AutoDateLocator
+                display_format = plot_options.get("datetime_display_format", "").strip()
+                if display_format:
+                    ax.xaxis.set_major_formatter(DateFormatter(display_format))
+                else:
+                    ax.xaxis.set_major_locator(AutoDateLocator())
+                fig.autofmt_xdate()
+
+            # Reference lines
+            ref_lines = plot_options.get("reference_lines", [])
+            for refline in ref_lines:
+                try:
+                    if refline.get("type") == "horizontal":
+                        ax.axhline(
+                            y=refline.get("value", 0),
+                            color=refline.get("color", "red"),
+                            linestyle=refline.get("linestyle", "--"),
+                            linewidth=refline.get("linewidth", 1.0),
+                            label=refline.get("label")
+                        )
+                    elif refline.get("type") == "vertical":
+                        ax.axvline(
+                            x=refline.get("value", 0),
+                            color=refline.get("color", "red"),
+                            linestyle=refline.get("linestyle", "--"),
+                            linewidth=refline.get("linewidth", 1.0),
+                            label=refline.get("label")
+                        )
+                except Exception:
+                    pass
+
+            fig.tight_layout()
+
+            # Save to file
+            fig.savefig(filepath, dpi=dpi, bbox_inches='tight')
+            plt.close(fig)
+
+            return True, ""
+
+        except Exception as e:
+            error_msg = f"Error exporting plot: {e}"
+            print(error_msg)
+            import traceback
+            traceback.print_exc()
+            return False, str(e)
 
     def _delete_plot_config(self):
         """Delete the selected plot configuration."""
