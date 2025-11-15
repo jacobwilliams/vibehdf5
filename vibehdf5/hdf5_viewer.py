@@ -2100,8 +2100,13 @@ class HDF5Viewer(QMainWindow):
                 try:
                     # Convert to Python strings
                     str_list = [str(x) for x in col_data.values]
+                    # Use gzip compression for string columns
                     grp.create_dataset(
-                        ds_name, data=str_list, dtype=h5py.string_dtype(encoding="utf-8")
+                        ds_name,
+                        data=str_list,
+                        dtype=h5py.string_dtype(encoding="utf-8"),
+                        compression="gzip",
+                        compression_opts=4  # Compression level 1-9 (4 is good balance)
                     )
                 except Exception:  # noqa: BLE001
                     # Fallback: convert to bytes
@@ -2110,8 +2115,16 @@ class HDF5Viewer(QMainWindow):
                         ds_name, data=str_list, dtype=h5py.string_dtype(encoding="utf-8")
                     )
             else:
-                # Numeric or other numpy-supported dtypes
-                grp.create_dataset(ds_name, data=col_data.values)
+                # Numeric or other numpy-supported dtypes with compression
+                # Use chunking to enable compression and improve I/O for partial reads
+                chunk_size = min(10000, len(col_data))  # Reasonable chunk size
+                grp.create_dataset(
+                    ds_name,
+                    data=col_data.values,
+                    compression="gzip",
+                    compression_opts=4,  # Compression level 1-9 (4 is good balance)
+                    chunks=(chunk_size,) if len(col_data) > 1000 else None
+                )
 
         # Persist the actual dataset names used for each column (same order as column_names)
         progress.setLabelText("Finalizing CSV import...")
