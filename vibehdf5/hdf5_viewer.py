@@ -680,9 +680,16 @@ class PlotOptionsDialog(QDialog):
 
         general_layout.addLayout(datetime_layout)
 
-        # Figure size and export options
-        export_label = QLabel("<b>Figure Size & Export:</b>")
-        general_layout.addWidget(export_label)
+        general_layout.addStretch()
+        tabs.addTab(general_tab, "General")
+
+        # Tab 2: Figure Size & Export
+        export_tab = QWidget()
+        export_layout = QVBoxLayout(export_tab)
+
+        # Figure size options
+        figsize_label = QLabel("<b>Figure Size:</b>")
+        export_layout.addWidget(figsize_label)
 
         figsize_layout = QHBoxLayout()
         figsize_layout.setContentsMargins(0, 5, 0, 10)
@@ -717,10 +724,15 @@ class PlotOptionsDialog(QDialog):
         figsize_layout.addWidget(self.dpi_spin)
 
         figsize_layout.addStretch()
-        general_layout.addLayout(figsize_layout)
+        export_layout.addLayout(figsize_layout)
+
+        # Export format options
+        export_format_label = QLabel("<b>Export Format:</b>")
+        export_layout.addWidget(export_format_label)
 
         export_format_layout = QHBoxLayout()
-        export_format_layout.addWidget(QLabel("Export Format:"))
+        export_format_layout.setContentsMargins(0, 5, 0, 10)
+        export_format_layout.addWidget(QLabel("File Format:"))
         self.export_format_combo = QComboBox()
         self.export_format_combo.addItems(["png", "pdf", "svg", "jpg", "eps"])
         current_format = self.plot_config.get("plot_options", {}).get("export_format", "png")
@@ -728,13 +740,21 @@ class PlotOptionsDialog(QDialog):
         if format_idx >= 0:
             self.export_format_combo.setCurrentIndex(format_idx)
         self.export_format_combo.setToolTip("File format for drag-and-drop export")
+        self.export_format_combo.setMinimumWidth(100)
         export_format_layout.addWidget(self.export_format_combo)
         export_format_layout.addStretch()
-        general_layout.addLayout(export_format_layout)
+        export_layout.addLayout(export_format_layout)
 
-        # Font size options
+        export_layout.addStretch()
+        tabs.addTab(export_tab, "Figure & Export")
+
+        # Tab 3: Fonts
+        fonts_tab = QWidget()
+        fonts_layout = QVBoxLayout(fonts_tab)
+
+        # Font sizes
         font_size_label = QLabel("<b>Font Sizes:</b>")
-        general_layout.addWidget(font_size_label)
+        fonts_layout.addWidget(font_size_label)
 
         font_size_layout = QHBoxLayout()
         font_size_layout.setContentsMargins(0, 5, 0, 10)
@@ -776,12 +796,15 @@ class PlotOptionsDialog(QDialog):
         font_size_layout.addWidget(self.legend_fontsize_spin)
 
         font_size_layout.addStretch()
-        general_layout.addLayout(font_size_layout)
+        fonts_layout.addLayout(font_size_layout)
 
-        # Font family option
+        # Font family
+        font_family_label = QLabel("<b>Font Family:</b>")
+        fonts_layout.addWidget(font_family_label)
+
         font_family_layout = QHBoxLayout()
         font_family_layout.setContentsMargins(0, 5, 0, 10)
-        font_family_layout.addWidget(QLabel("Font Family:"))
+        font_family_layout.addWidget(QLabel("Family:"))
         self.font_family_combo = QComboBox()
         self.font_family_combo.addItems(["serif", "sans-serif", "monospace", "cursive", "fantasy"])
         current_family = self.plot_config.get("plot_options", {}).get("font_family", "serif")
@@ -792,12 +815,12 @@ class PlotOptionsDialog(QDialog):
         self.font_family_combo.setMinimumWidth(150)
         font_family_layout.addWidget(self.font_family_combo)
         font_family_layout.addStretch()
-        general_layout.addLayout(font_family_layout)
+        fonts_layout.addLayout(font_family_layout)
 
-        general_layout.addStretch()
-        tabs.addTab(general_tab, "General")
+        fonts_layout.addStretch()
+        tabs.addTab(fonts_tab, "Fonts")
 
-        # Tab 2: Series styles
+        # Tab 4: Series styles
         series_tab = QWidget()
         series_layout = QVBoxLayout(series_tab)
 
