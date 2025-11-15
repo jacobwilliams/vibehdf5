@@ -3836,7 +3836,7 @@ class HDF5Viewer(QMainWindow):
                         try:
                             trend_type = series_opts.get("trendline_type", "linear")
                             trend_mode = series_opts.get("trendline_mode", "both")
-                            
+
                             # Calculate trend line using numpy polyfit
                             if trend_type == "linear":
                                 degree = 1
@@ -3848,18 +3848,18 @@ class HDF5Viewer(QMainWindow):
                                 degree = 4
                             else:
                                 degree = 1
-                            
+
                             # Fit polynomial to the data
                             coeffs = np.polyfit(x_num[valid], y_num[valid], degree)
                             poly = np.poly1d(coeffs)
                             y_trend = poly(x_num[valid])
-                            
+
                             # Prepare trend line label
                             if degree == 1:
                                 trend_label = f"{label} (linear trend)"
                             else:
                                 trend_label = f"{label} (poly{degree} trend)"
-                            
+
                             # Plot trend line
                             trend_kwargs = {"label": trend_label}
                             if "color" in series_opts and series_opts["color"]:
@@ -3867,7 +3867,7 @@ class HDF5Viewer(QMainWindow):
                             trend_kwargs["linestyle"] = "--"  # Dashed for trend lines
                             trend_kwargs["linewidth"] = 2.0
                             trend_kwargs["alpha"] = 0.8
-                            
+
                             ax.plot(x_num[valid], y_trend, **trend_kwargs)
                             any_plotted = True
                         except Exception as e:
@@ -4191,7 +4191,7 @@ class HDF5Viewer(QMainWindow):
                     if apply_trend:
                         try:
                             trend_type = series_opts.get("trendline_type", "linear")
-                            
+
                             # Calculate trend line using numpy polyfit
                             if trend_type == "linear":
                                 degree = 1
@@ -4203,18 +4203,18 @@ class HDF5Viewer(QMainWindow):
                                 degree = 4
                             else:
                                 degree = 1
-                            
+
                             # Fit polynomial to the data
                             coeffs = np.polyfit(x_num[valid], y_num[valid], degree)
                             poly = np.poly1d(coeffs)
                             y_trend = poly(x_num[valid])
-                            
+
                             # Prepare trend line label
                             if degree == 1:
                                 trend_label = f"{label} (linear trend)"
                             else:
                                 trend_label = f"{label} (poly{degree} trend)"
-                            
+
                             # Plot trend line
                             trend_kwargs = {"label": trend_label}
                             if "color" in series_opts and series_opts["color"]:
@@ -4222,7 +4222,7 @@ class HDF5Viewer(QMainWindow):
                             trend_kwargs["linestyle"] = "--"
                             trend_kwargs["linewidth"] = 2.0
                             trend_kwargs["alpha"] = 0.8
-                            
+
                             ax.plot(x_num[valid], y_trend, **trend_kwargs)
                             any_plotted = True
                         except Exception:
