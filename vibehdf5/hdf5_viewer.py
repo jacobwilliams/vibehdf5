@@ -1003,6 +1003,39 @@ class PlotOptionsDialog(QDialog):
         smooth_layout.addLayout(smooth_params_layout)
         layout.addLayout(smooth_layout)
 
+        # Trend line options
+        trend_layout = QVBoxLayout()
+        trend_checkbox = QCheckBox("Add Trend Line")
+        trend_checkbox.setChecked(series_options.get("trendline", False))
+        trend_layout.addWidget(trend_checkbox)
+
+        trend_params_layout = QHBoxLayout()
+        trend_params_layout.addWidget(QLabel("Type:"))
+        trend_type_combo = QComboBox()
+        trend_type_combo.addItem("Linear", "linear")
+        trend_type_combo.addItem("Polynomial (degree 2)", "poly2")
+        trend_type_combo.addItem("Polynomial (degree 3)", "poly3")
+        trend_type_combo.addItem("Polynomial (degree 4)", "poly4")
+        current_trend_type = series_options.get("trendline_type", "linear")
+        trend_type_idx = 0 if current_trend_type == "linear" else (1 if current_trend_type == "poly2" else (2 if current_trend_type == "poly3" else 3))
+        trend_type_combo.setCurrentIndex(trend_type_idx)
+        trend_type_combo.setMinimumWidth(150)
+        trend_params_layout.addWidget(trend_type_combo)
+
+        trend_params_layout.addWidget(QLabel("Show:"))
+        trend_mode_combo = QComboBox()
+        trend_mode_combo.addItem("Trend Only", "trend")
+        trend_mode_combo.addItem("Original + Trend", "both")
+        current_trend_mode = series_options.get("trendline_mode", "both")
+        trend_mode_idx = 0 if current_trend_mode == "trend" else 1
+        trend_mode_combo.setCurrentIndex(trend_mode_idx)
+        trend_mode_combo.setMinimumWidth(150)
+        trend_params_layout.addWidget(trend_mode_combo)
+
+        trend_params_layout.addStretch()
+        trend_layout.addLayout(trend_params_layout)
+        layout.addLayout(trend_layout)
+
         # Store references
         widget._color_button = color_button
         widget._linestyle_combo = linestyle_combo
@@ -1013,6 +1046,9 @@ class PlotOptionsDialog(QDialog):
         widget._smooth_checkbox = smooth_checkbox
         widget._smooth_window_spin = smooth_window_spin
         widget._smooth_mode_combo = smooth_mode_combo
+        widget._trend_checkbox = trend_checkbox
+        widget._trend_type_combo = trend_type_combo
+        widget._trend_mode_combo = trend_mode_combo
 
         return widget
 
@@ -1223,6 +1259,9 @@ class PlotOptionsDialog(QDialog):
                 "smooth": widget._smooth_checkbox.isChecked(),
                 "smooth_window": widget._smooth_window_spin.value(),
                 "smooth_mode": widget._smooth_mode_combo.currentData(),
+                "trendline": widget._trend_checkbox.isChecked(),
+                "trendline_type": widget._trend_type_combo.currentData(),
+                "trendline_mode": widget._trend_mode_combo.currentData(),
             }
         plot_opts["series"] = series_opts
 
@@ -3791,6 +3830,50 @@ class HDF5Viewer(QMainWindow):
                                 ax.plot(x_num[valid], y_num[valid], **plot_kwargs)
                                 any_plotted = True
 
+                    # Plot trend line if requested
+                    apply_trend = series_opts.get("trendline", False)
+                    if apply_trend:
+                        try:
+                            trend_type = series_opts.get("trendline_type", "linear")
+                            trend_mode = series_opts.get("trendline_mode", "both")
+                            
+                            # Calculate trend line using numpy polyfit
+                            if trend_type == "linear":
+                                degree = 1
+                            elif trend_type == "poly2":
+                                degree = 2
+                            elif trend_type == "poly3":
+                                degree = 3
+                            elif trend_type == "poly4":
+                                degree = 4
+                            else:
+                                degree = 1
+                            
+                            # Fit polynomial to the data
+                            coeffs = np.polyfit(x_num[valid], y_num[valid], degree)
+                            poly = np.poly1d(coeffs)
+                            y_trend = poly(x_num[valid])
+                            
+                            # Prepare trend line label
+                            if degree == 1:
+                                trend_label = f"{label} (linear trend)"
+                            else:
+                                trend_label = f"{label} (poly{degree} trend)"
+                            
+                            # Plot trend line
+                            trend_kwargs = {"label": trend_label}
+                            if "color" in series_opts and series_opts["color"]:
+                                trend_kwargs["color"] = series_opts["color"]
+                            trend_kwargs["linestyle"] = "--"  # Dashed for trend lines
+                            trend_kwargs["linewidth"] = 2.0
+                            trend_kwargs["alpha"] = 0.8
+                            
+                            ax.plot(x_num[valid], y_trend, **trend_kwargs)
+                            any_plotted = True
+                        except Exception as e:
+                            # If trend line calculation fails, silently continue
+                            print(f"Trend line calculation failed for {y_name}: {e}")
+
             if not any_plotted:
                 QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
                 return
@@ -4101,6 +4184,49 @@ class HDF5Viewer(QMainWindow):
                             any_plotted = True
                         except Exception:
                             # Smoothing failed, already plotted original if needed
+                            pass
+
+                    # Plot trend line if requested
+                    apply_trend = series_opts.get("trendline", False)
+                    if apply_trend:
+                        try:
+                            trend_type = series_opts.get("trendline_type", "linear")
+                            
+                            # Calculate trend line using numpy polyfit
+                            if trend_type == "linear":
+                                degree = 1
+                            elif trend_type == "poly2":
+                                degree = 2
+                            elif trend_type == "poly3":
+                                degree = 3
+                            elif trend_type == "poly4":
+                                degree = 4
+                            else:
+                                degree = 1
+                            
+                            # Fit polynomial to the data
+                            coeffs = np.polyfit(x_num[valid], y_num[valid], degree)
+                            poly = np.poly1d(coeffs)
+                            y_trend = poly(x_num[valid])
+                            
+                            # Prepare trend line label
+                            if degree == 1:
+                                trend_label = f"{label} (linear trend)"
+                            else:
+                                trend_label = f"{label} (poly{degree} trend)"
+                            
+                            # Plot trend line
+                            trend_kwargs = {"label": trend_label}
+                            if "color" in series_opts and series_opts["color"]:
+                                trend_kwargs["color"] = series_opts["color"]
+                            trend_kwargs["linestyle"] = "--"
+                            trend_kwargs["linewidth"] = 2.0
+                            trend_kwargs["alpha"] = 0.8
+                            
+                            ax.plot(x_num[valid], y_trend, **trend_kwargs)
+                            any_plotted = True
+                        except Exception:
+                            # Trend line calculation failed, silently continue
                             pass
 
             if not any_plotted:
