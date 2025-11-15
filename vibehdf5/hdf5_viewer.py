@@ -3396,8 +3396,10 @@ class HDF5Viewer(QMainWindow):
         if not ok or not plot_name:
             return
 
-        # Get filtered row range (start and end indices in the full dataset)
+        # Store the complete filtered indices array to properly handle non-contiguous filtering
         if self._csv_filtered_indices is not None and len(self._csv_filtered_indices) > 0:
+            # Store as a list for JSON serialization
+            filtered_indices = self._csv_filtered_indices.tolist()
             start_row = int(self._csv_filtered_indices[0])
             end_row = int(self._csv_filtered_indices[-1])
         else:
@@ -3407,6 +3409,7 @@ class HDF5Viewer(QMainWindow):
                 if self._csv_data_dict
                 else 0
             )
+            filtered_indices = None
             start_row = 0
             end_row = max_rows - 1 if max_rows > 0 else 0
 
@@ -3426,8 +3429,9 @@ class HDF5Viewer(QMainWindow):
             "column_names": column_names,
             "x_col_idx": x_idx,
             "y_col_idxs": y_idxs,
-            "start_row": start_row,
-            "end_row": end_row,
+            "filtered_indices": filtered_indices,  # Store actual filtered row indices
+            "start_row": start_row,  # Keep for backward compatibility
+            "end_row": end_row,  # Keep for backward compatibility
             "timestamp": time.time(),
             "plot_options": {
                 "title": "",
@@ -3552,6 +3556,7 @@ class HDF5Viewer(QMainWindow):
         # Extract configuration
         x_idx = plot_config.get("x_col_idx")
         y_idxs = plot_config.get("y_col_idxs", [])
+        filtered_indices = plot_config.get("filtered_indices")
         start_row = plot_config.get("start_row", 0)
         end_row = plot_config.get("end_row", -1)
 
@@ -3590,14 +3595,20 @@ class HDF5Viewer(QMainWindow):
             )
             return
 
-        # Get the data for the specified row range
+        # Get the data with filtering applied
         col_data = {}
         for name in [x_name] + y_names:
             if name in self._csv_data_dict:
                 full_data = self._csv_data_dict[name]
-                # Apply row range
+
                 if isinstance(full_data, np.ndarray):
-                    if end_row >= 0 and end_row < len(full_data):
+                    # Use filtered_indices if available, otherwise fall back to start_row/end_row
+                    if filtered_indices is not None:
+                        # Use the stored filtered indices (handles non-contiguous filtering)
+                        filtered_indices_array = np.array(filtered_indices, dtype=int)
+                        col_data[name] = full_data[filtered_indices_array]
+                    elif end_row >= 0 and end_row < len(full_data):
+                        # Backward compatibility: use row range
                         col_data[name] = full_data[start_row : end_row + 1]
                     else:
                         col_data[name] = full_data[start_row:]
@@ -4029,6 +4040,38 @@ class HDF5Viewer(QMainWindow):
 
             if x_name not in col_data or not any(name in col_data for name in y_names):
                 return False, "Column data not found"
+
+            # Apply filtering if specified in plot config
+            # This ensures filtered data is used during export (respects filters from when plot was saved)
+            filtered_indices = plot_config.get("filtered_indices")
+
+            if filtered_indices is not None:
+                # Use the stored filtered indices array (handles non-contiguous filtering)
+                filtered_indices_array = np.array(filtered_indices, dtype=int)
+                filtered_col_data = {}
+                for col_name, col_array in col_data.items():
+                    if isinstance(col_array, np.ndarray) and len(col_array) > 0:
+                        # Apply filtering using the saved indices
+                        filtered_col_data[col_name] = col_array[filtered_indices_array]
+                    else:
+                        filtered_col_data[col_name] = col_array
+                col_data = filtered_col_data
+            else:
+                # Backward compatibility: use start_row/end_row if filtered_indices not available
+                start_row = plot_config.get("start_row", 0)
+                end_row = plot_config.get("end_row")
+
+                if end_row is not None and end_row >= start_row:
+                    # Filter all columns to the saved row range
+                    filtered_col_data = {}
+                    for col_name, col_array in col_data.items():
+                        if isinstance(col_array, np.ndarray) and len(col_array) > 0:
+                            # Apply slice [start_row:end_row+1] to get inclusive range
+                            actual_end = min(end_row + 1, len(col_array))
+                            filtered_col_data[col_name] = col_array[start_row:actual_end]
+                        else:
+                            filtered_col_data[col_name] = col_array
+                    col_data = filtered_col_data
 
             # Get plot options
             plot_options = plot_config.get("plot_options", {})
