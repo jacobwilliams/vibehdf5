@@ -1202,6 +1202,21 @@ class PlotOptionsDialog(QDialog):
         name_label = QLabel(f"<b>{series_name}</b>")
         layout.addWidget(name_label)
 
+        # Plot type selection
+        plot_type_layout = QHBoxLayout()
+        plot_type_layout.addWidget(QLabel("Plot Type:"))
+        plot_type_combo = QComboBox()
+        plot_type_combo.addItem("Line", "line")
+        plot_type_combo.addItem("Bar", "bar")
+        current_plot_type = series_options.get("plot_type", "line")
+        plot_type_idx = 0 if current_plot_type == "line" else 1
+        plot_type_combo.setCurrentIndex(plot_type_idx)
+        plot_type_combo.setToolTip("Choose between line plot or bar chart")
+        plot_type_combo.setMinimumWidth(100)
+        plot_type_layout.addWidget(plot_type_combo)
+        plot_type_layout.addStretch()
+        layout.addLayout(plot_type_layout)
+
         # Color, line style, and marker in one row
         style_layout = QHBoxLayout()
 
@@ -1360,6 +1375,7 @@ class PlotOptionsDialog(QDialog):
         layout.addLayout(trend_layout)
 
         # Store references
+        widget._plot_type_combo = plot_type_combo
         widget._color_button = color_button
         widget._linestyle_combo = linestyle_combo
         widget._marker_combo = marker_combo
@@ -1579,6 +1595,7 @@ class PlotOptionsDialog(QDialog):
         series_opts = {}
         for series_name, widget in self.series_widgets:
             series_opts[series_name] = {
+                "plot_type": widget._plot_type_combo.currentData(),
                 "label": widget._label_edit.text(),
                 "color": widget._color_button._color.name(),  # Get hex color from QColor
                 "linestyle": widget._linestyle_combo.currentData(),
@@ -2053,6 +2070,7 @@ class HDF5Viewer(QMainWindow):
             Updated any_plotted flag
         """
         label = series_opts.get("label", "").strip() or y_name
+        plot_type = series_opts.get("plot_type", "line")
 
         # Smoothing logic
         apply_smooth = series_opts.get("smooth", False)
@@ -2079,7 +2097,17 @@ class HDF5Viewer(QMainWindow):
                 plot_kwargs["alpha"] = 0.3
                 plot_kwargs["linewidth"] = plot_kwargs.get("linewidth", 1.5) * 0.7
 
-            ax.plot(x_num[valid], y_num[valid], **plot_kwargs)
+            # Use bar or plot depending on plot_type
+            if plot_type == "bar":
+                # For bar charts, remove line/marker specific options
+                bar_kwargs = {"label": plot_kwargs.get("label")}
+                if "color" in plot_kwargs:
+                    bar_kwargs["color"] = plot_kwargs["color"]
+                if "alpha" in plot_kwargs:
+                    bar_kwargs["alpha"] = plot_kwargs["alpha"]
+                ax.bar(x_num[valid], y_num[valid], **bar_kwargs)
+            else:
+                ax.plot(x_num[valid], y_num[valid], **plot_kwargs)
             any_plotted = True
 
         # Plot smoothed if requested
@@ -2101,7 +2129,14 @@ class HDF5Viewer(QMainWindow):
                 else:
                     smooth_kwargs["linewidth"] = 2.0
 
-                ax.plot(x_num[valid], y_smooth, **smooth_kwargs)
+                # Use bar or plot depending on plot_type
+                if plot_type == "bar":
+                    bar_kwargs = {"label": smooth_kwargs.get("label")}
+                    if "color" in smooth_kwargs:
+                        bar_kwargs["color"] = smooth_kwargs["color"]
+                    ax.bar(x_num[valid], y_smooth, **bar_kwargs)
+                else:
+                    ax.plot(x_num[valid], y_smooth, **smooth_kwargs)
                 any_plotted = True
             except Exception:
                 # Smoothing failed, already plotted original if needed
