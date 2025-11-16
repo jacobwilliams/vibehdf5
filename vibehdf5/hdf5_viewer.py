@@ -1107,6 +1107,9 @@ class PlotOptionsDialog(QDialog):
 
         # Get Y column indices and names
         y_idxs = self.plot_config.get("y_col_idxs", [])
+        # Ensure y_idxs is a list (handle legacy configs where it might be an integer)
+        if isinstance(y_idxs, int):
+            y_idxs = [y_idxs]
         series_options = self.plot_config.get("plot_options", {}).get("series", {})
 
         self.series_widgets = []
@@ -1937,7 +1940,7 @@ class HDF5Viewer(QMainWindow):
         # Plotting action for CSV tables
         self.act_plot_selected = QAction("Plot Selected Columns", self)
         self.act_plot_selected.setToolTip(
-            "Plot selected table columns (first selection is X, others are Y)"
+            "Plot selected table columns (1 column: Y vs point count; 2+ columns: first is X, others are Y)"
         )
         self.act_plot_selected.triggered.connect(self.plot_selected_columns)
         self.act_plot_selected.setEnabled(False)
@@ -3375,10 +3378,10 @@ class HDF5Viewer(QMainWindow):
             return []
 
     def _update_plot_action_enabled(self) -> None:
-        # Enable plotting when a CSV group is active and >= 2 columns are selected
+        # Enable plotting when a CSV group is active and >= 1 column is selected
         is_csv = self._current_csv_group_path is not None and self.preview_table.isVisible()
         sel_cols = self._get_selected_column_indices() if is_csv else []
-        self.act_plot_selected.setEnabled(is_csv and len(sel_cols) >= 2)
+        self.act_plot_selected.setEnabled(is_csv and len(sel_cols) >= 1)
 
         # Also update plot management buttons
         self._update_plot_buttons_state()
@@ -3464,8 +3467,8 @@ class HDF5Viewer(QMainWindow):
     def plot_selected_columns(self) -> None:
         """Plot selected columns from the current CSV table using matplotlib.
 
-        - First selected (or current) column is X
-        - Subsequent selected columns are Y series
+        - If 1 column selected: Y-axis is that column, X-axis is point count (0, 1, 2, ...)
+        - If 2+ columns: First selected (or current) column is X, others are Y series
         - Adds legend and shows plot in embedded canvas
         """
         if self._current_csv_group_path is None or not self.preview_table.isVisible():
@@ -3474,17 +3477,27 @@ class HDF5Viewer(QMainWindow):
 
         # Determine selected columns and their order
         sel_cols = self._get_selected_column_indices()
-        if len(sel_cols) < 2:
+        if len(sel_cols) < 1:
             QMessageBox.information(
                 self,
                 "Plot",
-                "Select at least two columns (first is X, others are Y).",
+                "Select at least one column to plot.",
             )
             return
-        # Use current column as X if part of selection; else use the leftmost selected
-        current_col = self.preview_table.currentColumn()
-        x_idx = current_col if current_col in sel_cols else min(sel_cols)
-        y_idxs = [c for c in sel_cols if c != x_idx]
+
+        # Handle single column selection: use point count as x-axis
+        if len(sel_cols) == 1:
+            x_idx = None  # No x column - use point count
+            y_idxs = sel_cols
+        else:
+            # Use current column as X if part of selection; else use the leftmost selected
+            current_col = self.preview_table.currentColumn()
+            x_idx = current_col if current_col in sel_cols else min(sel_cols)
+            y_idxs = [c for c in sel_cols if c != x_idx]
+
+        # Ensure y_idxs is a list (defensive check - do this BEFORE any operations on it)
+        if isinstance(y_idxs, int):
+            y_idxs = [y_idxs]
 
         # Column names from headers
         headers = [
@@ -3494,10 +3507,10 @@ class HDF5Viewer(QMainWindow):
             for i in range(self.preview_table.columnCount())
         ]
         try:
-            x_name = headers[x_idx]
+            x_name = headers[x_idx] if x_idx is not None else "Point"
             y_names = [headers[i] for i in y_idxs]
-        except Exception:
-            QMessageBox.warning(self, "Plot", "Failed to resolve column headers for plotting.")
+        except Exception as e:
+            QMessageBox.warning(self, "Plot", f"Failed to resolve column headers for plotting.\n\nError: {e}\ny_idxs type: {type(y_idxs)}, value: {y_idxs}")
             return
 
         # Use filtered data from the table instead of reading from HDF5
@@ -3507,7 +3520,8 @@ class HDF5Viewer(QMainWindow):
             return
 
         col_data = {}
-        for name in [x_name] + y_names:
+        columns_to_load = y_names if x_idx is None else [x_name] + y_names
+        for name in columns_to_load:
             if name in self._csv_data_dict:
                 # Get only the filtered rows
                 full_data = self._csv_data_dict[name]
@@ -3516,32 +3530,46 @@ class HDF5Viewer(QMainWindow):
                 else:
                     col_data[name] = np.array([full_data[i] for i in self._csv_filtered_indices])
 
-        if x_name not in col_data or not any(name in col_data for name in y_names):
+        if not any(name in col_data for name in y_names):
             QMessageBox.warning(self, "Plot", "Failed to get selected columns for plotting.")
             return
 
         # Prepare numeric data, align lengths
         try:
-            # Coerce X to numeric
-            x_arr = col_data[x_name]
-            # Ensure 1-D
-            x_arr = x_arr.ravel()
-            min_len = min(len(x_arr), *(len(col_data.get(n, [])) for n in y_names if n in col_data))
+            # Determine minimum length from Y columns
+            min_len = min(len(col_data.get(n, [])) for n in y_names if n in col_data)
             if min_len <= 0:
                 QMessageBox.warning(self, "Plot", "No data to plot.")
                 return
 
-            # Check if x_arr contains strings (automatic date detection)
-            x_is_string = False
-            xaxis_datetime = False
-            if len(x_arr) > 0:
-                first_val = x_arr[0]
-                x_is_string = isinstance(first_val, str) or (
-                    hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
-                )
+            # Handle X-axis data
+            if x_idx is None:
+                # Single column mode: use point count as x-axis
+                x_arr = np.arange(min_len)
+                x_num = x_arr.astype(float)
+                x_is_string = False
+                xaxis_datetime = False
+            else:
+                # Coerce X to numeric
+                x_arr = col_data[x_name]
+                # Ensure 1-D
+                x_arr = x_arr.ravel()
+                min_len = min(len(x_arr), min_len)
+                if min_len <= 0:
+                    QMessageBox.warning(self, "Plot", "No data to plot.")
+                    return
+
+                # Check if x_arr contains strings (automatic date detection)
+                x_is_string = False
+                xaxis_datetime = False
+                if len(x_arr) > 0:
+                    first_val = x_arr[0]
+                    x_is_string = isinstance(first_val, str) or (
+                        hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
+                    )
 
             # If x-axis is strings, try auto-parsing as dates
-            if x_is_string:
+            if x_idx is not None and x_is_string:
                 try:
                     # Try to parse as datetime without explicit format (pandas will infer)
                     x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
@@ -3563,8 +3591,8 @@ class HDF5Viewer(QMainWindow):
                     # If auto-parsing fails, use integer indices
                     x_num = np.arange(min_len, dtype=float)
                     xaxis_datetime = False
-            else:
-                # Try numeric conversion
+            elif x_idx is not None:
+                # Try numeric conversion for non-string x data
                 x_num = (
                     pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce")
                     .astype(float)
@@ -3650,7 +3678,9 @@ class HDF5Viewer(QMainWindow):
             self.bottom_tabs.setCurrentIndex(1)
 
         except Exception as exc:  # noqa: BLE001
-            QMessageBox.critical(self, "Plot error", f"Failed to plot data:\n{exc}")
+            import traceback
+            tb_str = traceback.format_exc()
+            QMessageBox.critical(self, "Plot error", f"Failed to plot data:\n{exc}\n\nTraceback:\n{tb_str}")
 
     def _configure_filters_dialog(self):
         """Open dialog to configure column filters."""
@@ -4053,18 +4083,22 @@ class HDF5Viewer(QMainWindow):
 
         # Get currently selected columns
         sel_cols = self._get_selected_column_indices()
-        if len(sel_cols) < 2:
+        if len(sel_cols) < 1:
             QMessageBox.information(
                 self,
                 "No Plot Selection",
-                "Select at least two columns (X and Y) before saving a plot configuration.",
+                "Select at least one column before saving a plot configuration.",
             )
             return
 
         # Determine X and Y columns (same logic as plot_selected_columns)
-        current_col = self.preview_table.currentColumn()
-        x_idx = current_col if current_col in sel_cols else min(sel_cols)
-        y_idxs = [c for c in sel_cols if c != x_idx]
+        if len(sel_cols) == 1:
+            x_idx = None  # Single column mode: use point count
+            y_idxs = sel_cols
+        else:
+            current_col = self.preview_table.currentColumn()
+            x_idx = current_col if current_col in sel_cols else min(sel_cols)
+            y_idxs = [c for c in sel_cols if c != x_idx]
 
         # Prompt for plot name
         plot_name, ok = QInputDialog.getText(
@@ -4200,7 +4234,7 @@ class HDF5Viewer(QMainWindow):
         # Enable Save Plot button if CSV is loaded and columns are selected
         csv_loaded = self._current_csv_group_path is not None and self.preview_table.isVisible()
         sel_cols = self._get_selected_column_indices() if csv_loaded else []
-        self.btn_save_plot.setEnabled(csv_loaded and len(sel_cols) >= 2)
+        self.btn_save_plot.setEnabled(csv_loaded and len(sel_cols) >= 1)
 
         # Enable Delete and Edit Options buttons if a plot is selected
         has_selection = self.saved_plots_list.currentRow() >= 0
@@ -4236,13 +4270,16 @@ class HDF5Viewer(QMainWindow):
         plot_config = self._saved_plots[row]
 
         # Extract configuration
-        x_idx = plot_config.get("x_col_idx")
+        x_idx = plot_config.get("x_col_idx")  # Can be None for single-column plots
         y_idxs = plot_config.get("y_col_idxs", [])
+        # Ensure y_idxs is a list (handle legacy configs where it might be an integer)
+        if isinstance(y_idxs, int):
+            y_idxs = [y_idxs]
         filtered_indices = plot_config.get("filtered_indices")
         start_row = plot_config.get("start_row", 0)
         end_row = plot_config.get("end_row", -1)
 
-        if x_idx is None or not y_idxs:
+        if not y_idxs:
             QMessageBox.warning(
                 self, "Invalid Configuration", "Plot configuration is missing column information."
             )
@@ -4262,14 +4299,14 @@ class HDF5Viewer(QMainWindow):
         ]
 
         # Validate column indices
-        if x_idx >= len(headers) or any(y_idx >= len(headers) for y_idx in y_idxs):
+        if (x_idx is not None and x_idx >= len(headers)) or any(y_idx >= len(headers) for y_idx in y_idxs):
             QMessageBox.warning(
                 self, "Invalid Columns", "Plot configuration references invalid column indices."
             )
             return
 
         try:
-            x_name = headers[x_idx]
+            x_name = headers[x_idx] if x_idx is not None else "Point"
             y_names = [headers[i] for i in y_idxs]
         except Exception:
             QMessageBox.warning(
@@ -4279,7 +4316,8 @@ class HDF5Viewer(QMainWindow):
 
         # Get the data with filtering applied
         col_data = {}
-        for name in [x_name] + y_names:
+        columns_to_load = y_names if x_idx is None else [x_name] + y_names
+        for name in columns_to_load:
             if name in self._csv_data_dict:
                 full_data = self._csv_data_dict[name]
 
@@ -4297,36 +4335,54 @@ class HDF5Viewer(QMainWindow):
                 else:
                     col_data[name] = np.array([full_data])
 
-        if x_name not in col_data or not any(name in col_data for name in y_names):
+        if not any(name in col_data for name in y_names):
             QMessageBox.warning(self, "Plot Error", "Failed to get column data for plotting.")
             return
 
         # Plot the data
         try:
-
-            x_arr = col_data[x_name].ravel()
-            min_len = min(len(x_arr), *(len(col_data.get(n, [])) for n in y_names if n in col_data))
+            # Determine minimum length from Y columns
+            min_len = min(len(col_data.get(n, [])) for n in y_names if n in col_data)
             if min_len <= 0:
                 QMessageBox.warning(self, "Plot Error", "No data to plot.")
                 return
 
+            # Handle X-axis data
+            if x_idx is None:
+                # Single column mode: use point count as x-axis
+                x_arr = np.arange(min_len)
+                x_num = x_arr.astype(float)
+                x_is_string = False
+                xaxis_datetime = False
+            else:
+                x_arr = col_data[x_name].ravel()
+                min_len = min(len(x_arr), min_len)
+                if min_len <= 0:
+                    QMessageBox.warning(self, "Plot Error", "No data to plot.")
+                    return
+
             # Get plot options from configuration
             plot_options = plot_config.get("plot_options", {})
 
-            # Process x-axis data - check if it's datetime
-            xaxis_datetime = plot_options.get("xaxis_datetime", False)
-            datetime_format = plot_options.get("datetime_format", "").strip()
+            # Process x-axis data - check if it's datetime (only for non-None x_idx)
+            if x_idx is not None:
+                xaxis_datetime = plot_options.get("xaxis_datetime", False)
+                datetime_format = plot_options.get("datetime_format", "").strip()
 
-            # Check if x_arr contains strings (automatic date detection)
-            x_is_string = False
-            if len(x_arr) > 0:
-                first_val = x_arr[0]
-                x_is_string = isinstance(first_val, str) or (
-                    hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
-                )
+                # Check if x_arr contains strings (automatic date detection)
+                x_is_string = False
+                if len(x_arr) > 0:
+                    first_val = x_arr[0]
+                    x_is_string = isinstance(first_val, str) or (
+                        hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
+                    )
+            else:
+                xaxis_datetime = False
+                datetime_format = ""
+                x_is_string = False
 
             # If x-axis is strings, try parsing as datetime
-            if x_is_string and xaxis_datetime and not datetime_format:
+            if x_idx is not None and x_is_string and xaxis_datetime and not datetime_format:
                 # Datetime mode enabled but no format specified - use auto-detection
                 try:
                     # Try to parse as datetime without explicit format (pandas will infer)
@@ -4704,6 +4760,9 @@ class HDF5Viewer(QMainWindow):
 
             x_idx = plot_config.get("x_col_idx")
             y_idxs = plot_config.get("y_col_idxs", [])
+            # Ensure y_idxs is a list (handle legacy configs)
+            if isinstance(y_idxs, int):
+                y_idxs = [y_idxs]
 
             # Get column names from the config or current table
             stored_columns = plot_config.get("column_names", [])
