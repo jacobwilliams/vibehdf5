@@ -459,6 +459,150 @@ class ColumnStatisticsDialog(QDialog):
         self.stats_table.resizeColumnsToContents()
 
 
+class ColumnSortDialog(QDialog):
+    """Dialog for configuring multi-column sorting."""
+
+    def __init__(self, column_names, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configure Column Sorting")
+        self.resize(500, 400)
+
+        self.column_names = column_names
+        self.sort_specs = []  # List of (column_name, ascending) tuples
+
+        layout = QVBoxLayout(self)
+
+        # Instructions
+        info_label = QLabel(
+            "Add columns to sort by. Rows will be sorted by the first column, "
+            "then by the second column (for equal values), and so on."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        # Scroll area for sort specifications
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.StyledPanel)
+
+        sort_container = QWidget()
+        self.sort_layout = QVBoxLayout(sort_container)
+        self.sort_layout.setContentsMargins(5, 5, 5, 5)
+        self.sort_layout.addStretch()
+
+        scroll.setWidget(sort_container)
+        layout.addWidget(scroll)
+
+        # Add sort button
+        add_btn = QPushButton("+ Add Sort Column")
+        add_btn.clicked.connect(self._add_sort_row)
+        layout.addWidget(add_btn)
+
+        # Dialog buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def _add_sort_row(self, col_name=None, ascending=True):
+        """Add a new sort row to the dialog."""
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Column dropdown
+        col_combo = QComboBox()
+        col_combo.addItems(self.column_names)
+        if col_name and col_name in self.column_names:
+            col_combo.setCurrentText(col_name)
+        col_combo.setMinimumWidth(200)
+
+        # Order dropdown
+        order_combo = QComboBox()
+        order_combo.addItems(["Ascending", "Descending"])
+        order_combo.setCurrentText("Ascending" if ascending else "Descending")
+        order_combo.setMinimumWidth(120)
+
+        # Move up button
+        up_btn = QPushButton("↑")
+        up_btn.setMaximumWidth(30)
+        up_btn.clicked.connect(lambda: self._move_sort_row(row_widget, -1))
+
+        # Move down button
+        down_btn = QPushButton("↓")
+        down_btn.setMaximumWidth(30)
+        down_btn.clicked.connect(lambda: self._move_sort_row(row_widget, 1))
+
+        # Remove button
+        remove_btn = QPushButton("Remove")
+        remove_btn.clicked.connect(lambda: self._remove_sort_row(row_widget))
+
+        row_layout.addWidget(QLabel("Column:"))
+        row_layout.addWidget(col_combo)
+        row_layout.addWidget(QLabel("Order:"))
+        row_layout.addWidget(order_combo)
+        row_layout.addWidget(up_btn)
+        row_layout.addWidget(down_btn)
+        row_layout.addWidget(remove_btn)
+        row_layout.addStretch()
+
+        # Store references for later retrieval
+        row_widget._col_combo = col_combo
+        row_widget._order_combo = order_combo
+
+        # Insert before the stretch
+        self.sort_layout.insertWidget(self.sort_layout.count() - 1, row_widget)
+
+    def _move_sort_row(self, row_widget, direction):
+        """Move a sort row up or down in the list."""
+        current_index = None
+        for i in range(self.sort_layout.count() - 1):  # -1 to skip stretch
+            if self.sort_layout.itemAt(i).widget() == row_widget:
+                current_index = i
+                break
+
+        if current_index is None:
+            return
+
+        new_index = current_index + direction
+        # Check bounds (can't move past first or last position before stretch)
+        if new_index < 0 or new_index >= self.sort_layout.count() - 1:
+            return
+
+        # Remove and re-insert at new position
+        self.sort_layout.removeWidget(row_widget)
+        self.sort_layout.insertWidget(new_index, row_widget)
+
+    def _remove_sort_row(self, row_widget):
+        """Remove a sort row from the dialog."""
+        self.sort_layout.removeWidget(row_widget)
+        row_widget.deleteLater()
+
+    def get_sort_specs(self):
+        """Return list of sort specifications as (column_name, ascending) tuples."""
+        sort_specs = []
+        for i in range(self.sort_layout.count() - 1):  # -1 to skip stretch
+            widget = self.sort_layout.itemAt(i).widget()
+            if widget and hasattr(widget, "_col_combo"):
+                col_name = widget._col_combo.currentText()
+                ascending = widget._order_combo.currentText() == "Ascending"
+                sort_specs.append((col_name, ascending))
+        return sort_specs
+
+    def set_sort_specs(self, sort_specs):
+        """Set the sort specifications to display in the dialog."""
+        # Clear existing rows
+        for i in reversed(range(self.sort_layout.count() - 1)):  # -1 to skip stretch
+            widget = self.sort_layout.itemAt(i).widget()
+            if widget:
+                self.sort_layout.removeWidget(widget)
+                widget.deleteLater()
+
+        # Add rows for each sort spec
+        for col_name, ascending in sort_specs:
+            self._add_sort_row(col_name, ascending)
+
+
 class ColumnFilterDialog(QDialog):
     """Dialog for configuring column filters."""
 
@@ -1615,6 +1759,15 @@ class HDF5Viewer(QMainWindow):
         self.btn_show_statistics = QPushButton("Statistics...")
         self.btn_show_statistics.clicked.connect(self._show_statistics_dialog)
         filter_panel_layout.addWidget(self.btn_show_statistics)
+
+        self.btn_configure_sort = QPushButton("Sort...")
+        self.btn_configure_sort.clicked.connect(self._configure_sort_dialog)
+        filter_panel_layout.addWidget(self.btn_configure_sort)
+
+        self.btn_clear_sort = QPushButton("Clear Sort")
+        self.btn_clear_sort.clicked.connect(self._clear_sort)
+        self.btn_clear_sort.setEnabled(False)
+        filter_panel_layout.addWidget(self.btn_clear_sort)
 
         filter_panel_layout.addStretch()
 
@@ -2969,6 +3122,7 @@ class HDF5Viewer(QMainWindow):
             self._csv_data_dict = data_dict
             self._csv_column_names = col_names
             self._csv_total_rows = max_rows
+            self._csv_sort_specs = []  # Initialize sort specs
 
             # Setup table - disable updates for performance
             progress.setLabelText("Setting up table...")
@@ -3031,6 +3185,15 @@ class HDF5Viewer(QMainWindow):
                 self._csv_filters = saved_filters
                 self.statusBar().showMessage(
                     f"Loaded {len(saved_filters)} saved filter(s) from HDF5 file", 5000
+                )
+
+            # Load saved sort from HDF5 group
+            saved_sort = self._load_sort_from_hdf5(grp)
+            if saved_sort:
+                self._csv_sort_specs = saved_sort
+                self.btn_clear_sort.setEnabled(True)
+                self.statusBar().showMessage(
+                    f"Loaded sort by {len(saved_sort)} column(s) from HDF5 file", 5000
                 )
 
             # Load saved plot configurations from HDF5 group
@@ -3499,6 +3662,72 @@ class HDF5Viewer(QMainWindow):
         self._save_filters_to_hdf5()
         self._apply_filters()
 
+    def _configure_sort_dialog(self):
+        """Open dialog to configure column sorting."""
+        if not self._csv_column_names:
+            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
+            return
+
+        dialog = ColumnSortDialog(self._csv_column_names, self)
+        dialog.set_sort_specs(self._csv_sort_specs)
+
+        if dialog.exec() == QDialog.Accepted:
+            self._csv_sort_specs = dialog.get_sort_specs()
+            self._save_sort_to_hdf5()
+            self._apply_sort()
+
+    def _clear_sort(self):
+        """Clear all sorting and display data in original order."""
+        self._csv_sort_specs = []
+        self._save_sort_to_hdf5()
+        self._apply_sort()
+
+    def _save_sort_to_hdf5(self):
+        """Save current sort specifications to the HDF5 file as a JSON attribute."""
+        if not self._current_csv_group_path or not self.model or not self.model.filepath:
+            return
+
+        try:
+            with h5py.File(self.model.filepath, "r+") as h5:
+                if self._current_csv_group_path in h5:
+                    grp = h5[self._current_csv_group_path]
+                    if isinstance(grp, h5py.Group):
+                        if self._csv_sort_specs:
+                            # Convert sort specs to JSON string
+                            # Format: list of [column_name, ascending]
+                            sort_json = json.dumps(self._csv_sort_specs)
+                            grp.attrs["csv_sort"] = sort_json
+                            self.statusBar().showMessage(
+                                f"Saved sort by {len(self._csv_sort_specs)} column(s) to HDF5 file", 3000
+                            )
+                        else:
+                            # Remove sort attribute if no sort specs
+                            if "csv_sort" in grp.attrs:
+                                del grp.attrs["csv_sort"]
+                            self.statusBar().showMessage("Cleared sort from HDF5 file", 3000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"Warning: Could not save sort to HDF5: {exc}")
+
+    def _load_sort_from_hdf5(self, grp: h5py.Group):
+        """Load sort specifications from the HDF5 group attributes."""
+        try:
+            if "csv_sort" in grp.attrs:
+                sort_json = grp.attrs["csv_sort"]
+                if isinstance(sort_json, bytes):
+                    sort_json = sort_json.decode("utf-8")
+                sort_specs = json.loads(sort_json)
+                # Validate format
+                if isinstance(sort_specs, list):
+                    # Ensure each spec is a 2-element list
+                    valid_specs = []
+                    for spec in sort_specs:
+                        if isinstance(spec, list) and len(spec) == 2:
+                            valid_specs.append((spec[0], spec[1]))
+                    return valid_specs
+        except Exception as exc:  # noqa: BLE001
+            print(f"Warning: Could not load sort from HDF5: {exc}")
+        return []
+
     def _save_filters_to_hdf5(self):
         """Save current filters to the HDF5 file as a JSON attribute."""
         if not self._current_csv_group_path or not self.model or not self.model.filepath:
@@ -3554,6 +3783,20 @@ class HDF5Viewer(QMainWindow):
             print(f"Warning: Could not load filters from HDF5: {exc}")
         return []
 
+    def _apply_sort(self):
+        """Apply current sort specifications to the CSV table."""
+        if not self._csv_data_dict or not self._csv_column_names:
+            return
+
+        # Update sort button state
+        if self._csv_sort_specs:
+            self.btn_clear_sort.setEnabled(True)
+        else:
+            self.btn_clear_sort.setEnabled(False)
+
+        # After changing sort, reapply filters to update display
+        self._apply_filters()
+
     def _apply_filters(self):
         """Apply current filters to the CSV table."""
         if not self._csv_data_dict:
@@ -3587,6 +3830,43 @@ class HDF5Viewer(QMainWindow):
 
         # Get indices of valid rows
         filtered_indices = np.where(valid_rows)[0]
+
+        # Apply sorting if specified
+        if self._csv_sort_specs:
+            # Build list of columns and orders for sorting
+            sort_columns = []
+            sort_orders = []
+
+            for col_name, ascending in self._csv_sort_specs:
+                if col_name in self._csv_data_dict:
+                    sort_columns.append(col_name)
+                    sort_orders.append(ascending)
+
+            if sort_columns:
+                # Use pandas for multi-column sorting (handles mixed types better)
+                try:
+                    # Create a DataFrame from the filtered data
+                    sort_data = {}
+                    for col_name in sort_columns:
+                        col_data = self._csv_data_dict[col_name][filtered_indices]
+                        sort_data[col_name] = col_data
+
+                    df = pd.DataFrame(sort_data)
+
+                    # Sort by multiple columns
+                    df_sorted = df.sort_values(
+                        by=sort_columns,
+                        ascending=sort_orders,
+                        na_position='last'
+                    )
+
+                    # Get the sorted indices and apply to filtered_indices
+                    sorted_positions = df_sorted.index.values
+                    filtered_indices = filtered_indices[sorted_positions]
+
+                except Exception as e:
+                    print(f"Warning: Could not sort data: {e}")
+                    # Continue with unsorted data
 
         # Store filtered indices for plotting
         self._csv_filtered_indices = filtered_indices

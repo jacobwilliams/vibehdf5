@@ -26,6 +26,9 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 - **Table Display**: View CSV data in an interactive table with column headers
 - **Column Filtering**: Apply multiple filters to CSV tables (==, !=, >, >=, <, <=, contains, startswith, endswith)
 - **Filter Persistence**: Filters are automatically saved in the HDF5 file and restored when reopening
+- **Multi-Column Sorting**: Sort CSV data by multiple columns with ascending/descending options
+- **Sort Persistence**: Sort configurations are saved in the HDF5 file and restored when reopening
+- **Column Statistics**: View statistical summaries (count, min, max, mean, median, std dev, sum, unique values) for filtered data
 - **Saved Plot Configurations**: Save multiple plot configurations per CSV group with customizable styling
 - **Interactive Plotting**: Embedded matplotlib plots with full navigation toolbar (zoom, pan, save)
 - **Plot Management**: Create, edit, delete, and instantly switch between saved plot configurations
@@ -34,7 +37,7 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 - **Plot Persistence**: All plot configurations stored in HDF5 and restored when reopening files
 - **Export Filtered Data**: Drag-and-drop CSV export includes only filtered rows
 - **Filter Management**: Configure, clear, and view active filters with real-time table updates
-- **Independent Settings**: Each CSV group maintains its own filters and plot configurations
+- **Independent Settings**: Each CSV group maintains its own filters, sort configurations, and plot configurations
 
 ### ✏️ **Content Management**
 - **Add Files**: Import individual files into the HDF5 archive via toolbar or drag-and-drop
@@ -195,8 +198,40 @@ python -m vibehdf5.hdf5_viewer [file.h5]
 - Each CSV group has independent filters
 - Numeric comparisons (>, >=, <, <=) automatically convert values
 - String operations (contains, startswith, endswith) for text data
+- Date/time comparisons for string columns (automatically detects date formats)
 - Real-time table updates when filters change
 - Status shows "X filter(s) applied" and filtered row count
+
+**Sorting CSV Data:**
+1. Click **Sort…** above the table
+2. Add sort columns in order of priority:
+   - Select column name
+   - Choose Ascending or Descending order
+   - Use up/down arrows to reorder sort priority
+3. First column is primary sort, second breaks ties, etc.
+4. Sort configurations are **automatically saved** to the HDF5 file
+5. Click **Clear Sort** to restore original row order
+
+**Sort Features:**
+- Multi-column sorting with configurable priority
+- Independent sort order (ascending/descending) per column
+- Sort persists when closing and reopening files
+- Each CSV group has its own sort configuration
+- Sorting respects active filters (sorts filtered data)
+- Works with numeric, string, and mixed-type columns
+
+**Column Statistics:**
+1. Click **Statistics…** above the table to view column summaries
+2. Statistics computed for filtered data only
+3. Shows for each column:
+   - **Count**: Number of valid values
+   - **Min/Max**: Minimum and maximum values
+   - **Mean**: Average (numeric columns only)
+   - **Median**: Middle value (numeric columns only)
+   - **Std Dev**: Standard deviation (numeric columns only)
+   - **Sum**: Total (numeric columns only)
+   - **Unique Values**: Count of distinct values
+4. String columns show Count, Min, Max, and Unique Values only
 
 **Plotting Filtered Data:**
 1. Select 2 or more columns in the table (Ctrl/Cmd+Click)
