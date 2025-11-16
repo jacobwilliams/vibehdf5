@@ -2028,6 +2028,130 @@ class HDF5Viewer(QMainWindow):
             )
             ax.set_ylim(new_ylim)
 
+    def _plot_series_with_options(
+        self,
+        ax: Axes,
+        x_num: np.ndarray,
+        y_num: np.ndarray,
+        valid: np.ndarray,
+        y_name: str,
+        series_opts: dict,
+        any_plotted: bool,
+    ) -> bool:
+        """Plot a single series with smoothing and trendline options applied.
+
+        Args:
+            ax: Matplotlib axes to plot on
+            x_num: X-axis data (numeric)
+            y_num: Y-axis data (numeric)
+            valid: Boolean mask for valid data points
+            y_name: Name of the series
+            series_opts: Dictionary of series options (color, smoothing, trendlines, etc.)
+            any_plotted: Whether any data has been plotted yet
+
+        Returns:
+            Updated any_plotted flag
+        """
+        label = series_opts.get("label", "").strip() or y_name
+
+        # Smoothing logic
+        apply_smooth = series_opts.get("smooth", False)
+        smooth_mode = series_opts.get("smooth_mode", "smoothed")
+        smooth_window = series_opts.get("smooth_window", 5)
+
+        # Plot original if requested
+        if not apply_smooth or smooth_mode in ("original", "both"):
+            plot_kwargs = {
+                "label": label if not (apply_smooth and smooth_mode == "both") else f"{label} (original)"
+            }
+            if "color" in series_opts and series_opts["color"]:
+                plot_kwargs["color"] = series_opts["color"]
+            if "linestyle" in series_opts and series_opts["linestyle"]:
+                plot_kwargs["linestyle"] = series_opts["linestyle"]
+            if "marker" in series_opts and series_opts["marker"]:
+                plot_kwargs["marker"] = series_opts["marker"]
+            if "linewidth" in series_opts:
+                plot_kwargs["linewidth"] = series_opts["linewidth"]
+            if "markersize" in series_opts:
+                plot_kwargs["markersize"] = series_opts["markersize"]
+
+            if apply_smooth and smooth_mode == "both":
+                plot_kwargs["alpha"] = 0.3
+                plot_kwargs["linewidth"] = plot_kwargs.get("linewidth", 1.5) * 0.7
+
+            ax.plot(x_num[valid], y_num[valid], **plot_kwargs)
+            any_plotted = True
+
+        # Plot smoothed if requested
+        if apply_smooth and smooth_mode in ("smoothed", "both"):
+            try:
+                window = max(2, int(smooth_window))
+                y_series = pd.Series(y_num[valid])
+                y_smooth = y_series.rolling(window=window, center=True, min_periods=1).mean().to_numpy()
+
+                smooth_kwargs = {"label": f"{label} (MA-{window})" if smooth_mode == "both" else label}
+                if "color" in series_opts and series_opts["color"]:
+                    smooth_kwargs["color"] = series_opts["color"]
+                if "linestyle" in series_opts and series_opts["linestyle"]:
+                    smooth_kwargs["linestyle"] = series_opts["linestyle"]
+                else:
+                    smooth_kwargs["linestyle"] = "-"
+                if "linewidth" in series_opts:
+                    smooth_kwargs["linewidth"] = series_opts["linewidth"]
+                else:
+                    smooth_kwargs["linewidth"] = 2.0
+
+                ax.plot(x_num[valid], y_smooth, **smooth_kwargs)
+                any_plotted = True
+            except Exception:
+                # Smoothing failed, already plotted original if needed
+                pass
+
+        # Plot trend line if requested
+        apply_trend = series_opts.get("trendline", False)
+        if apply_trend:
+            try:
+                trend_type = series_opts.get("trendline_type", "linear")
+
+                # Calculate trend line using numpy polyfit
+                if trend_type == "linear":
+                    degree = 1
+                elif trend_type == "poly2":
+                    degree = 2
+                elif trend_type == "poly3":
+                    degree = 3
+                elif trend_type == "poly4":
+                    degree = 4
+                else:
+                    degree = 1
+
+                # Fit polynomial to the data
+                coeffs = np.polyfit(x_num[valid], y_num[valid], degree)
+                poly = np.poly1d(coeffs)
+                y_trend = poly(x_num[valid])
+
+                # Prepare trend line label
+                if degree == 1:
+                    trend_label = f"{label} (linear trend)"
+                else:
+                    trend_label = f"{label} (poly{degree} trend)"
+
+                # Plot trend line
+                trend_kwargs = {"label": trend_label}
+                if "color" in series_opts and series_opts["color"]:
+                    trend_kwargs["color"] = series_opts["color"]
+                trend_kwargs["linestyle"] = "--"
+                trend_kwargs["linewidth"] = 2.0
+                trend_kwargs["alpha"] = 0.8
+
+                ax.plot(x_num[valid], y_trend, **trend_kwargs)
+                any_plotted = True
+            except Exception:
+                # Trend line calculation failed, silently continue
+                pass
+
+        return any_plotted
+
     def _create_actions(self) -> None:
         self.act_new = QAction("New HDF5 File…", self)
         self.act_new.setShortcut("Ctrl+N")
@@ -4533,129 +4657,10 @@ class HDF5Viewer(QMainWindow):
                 y_num = pd.to_numeric(pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
                 valid = np.isfinite(x_num) & np.isfinite(y_num)
                 if valid.any():
-                    # Get series-specific styling options
                     series_opts = series_styles.get(y_name, {})
-
-                    # Use custom label if provided, otherwise use column name
-                    label = series_opts.get("label", "").strip() or y_name
-
-                    # Check if smoothing is enabled
-                    apply_smooth = series_opts.get("smooth", False)
-                    smooth_mode = series_opts.get("smooth_mode", "smoothed")
-                    smooth_window = series_opts.get("smooth_window", 5)
-
-                    # Plot original line if requested
-                    if not apply_smooth or smooth_mode in ("original", "both"):
-                        plot_kwargs = {"label": label if not (apply_smooth and smooth_mode == "both") else f"{label} (original)"}
-
-                        if "color" in series_opts and series_opts["color"]:
-                            plot_kwargs["color"] = series_opts["color"]
-                        if "linestyle" in series_opts and series_opts["linestyle"]:
-                            plot_kwargs["linestyle"] = series_opts["linestyle"]
-                        if "marker" in series_opts and series_opts["marker"]:
-                            plot_kwargs["marker"] = series_opts["marker"]
-                        if "linewidth" in series_opts:
-                            plot_kwargs["linewidth"] = series_opts["linewidth"]
-                        if "markersize" in series_opts:
-                            plot_kwargs["markersize"] = series_opts["markersize"]
-
-                        # Make original line lighter/thinner if showing both
-                        if apply_smooth and smooth_mode == "both":
-                            plot_kwargs["alpha"] = 0.3
-                            plot_kwargs["linewidth"] = plot_kwargs.get("linewidth", 1.5) * 0.7
-
-                        ax.plot(x_num[valid], y_num[valid], **plot_kwargs)
-                        any_plotted = True
-
-                    # Plot smoothed line if requested
-                    if apply_smooth and smooth_mode in ("smoothed", "both"):
-                        try:
-                            # Apply moving average smoothing
-                            window = max(2, int(smooth_window))
-                            # Use pandas rolling mean for smoothing
-                            y_series = pd.Series(y_num[valid])
-                            y_smooth = y_series.rolling(window=window, center=True, min_periods=1).mean().to_numpy()
-
-                            smooth_kwargs = {"label": f"{label} (MA-{window})" if smooth_mode == "both" else label}
-
-                            if "color" in series_opts and series_opts["color"]:
-                                smooth_kwargs["color"] = series_opts["color"]
-                            if "linestyle" in series_opts and series_opts["linestyle"]:
-                                smooth_kwargs["linestyle"] = series_opts["linestyle"]
-                            else:
-                                smooth_kwargs["linestyle"] = "-"  # Default to solid for smoothed
-                            if "marker" in series_opts and series_opts["marker"] and smooth_mode != "both":
-                                smooth_kwargs["marker"] = series_opts["marker"]
-                            if "linewidth" in series_opts:
-                                smooth_kwargs["linewidth"] = series_opts["linewidth"]
-                            else:
-                                smooth_kwargs["linewidth"] = 2.0  # Slightly thicker for smoothed
-                            if "markersize" in series_opts and smooth_mode != "both":
-                                smooth_kwargs["markersize"] = series_opts["markersize"]
-
-                            ax.plot(x_num[valid], y_smooth, **smooth_kwargs)
-                            any_plotted = True
-                        except Exception as e:
-                            # If smoothing fails, fall back to original data
-                            print(f"Smoothing failed for {y_name}: {e}")
-                            if not (smooth_mode == "both"):  # Only plot if we haven't already
-                                plot_kwargs = {"label": label}
-                                if "color" in series_opts and series_opts["color"]:
-                                    plot_kwargs["color"] = series_opts["color"]
-                                if "linestyle" in series_opts and series_opts["linestyle"]:
-                                    plot_kwargs["linestyle"] = series_opts["linestyle"]
-                                if "marker" in series_opts and series_opts["marker"]:
-                                    plot_kwargs["marker"] = series_opts["marker"]
-                                if "linewidth" in series_opts:
-                                    plot_kwargs["linewidth"] = series_opts["linewidth"]
-                                if "markersize" in series_opts:
-                                    plot_kwargs["markersize"] = series_opts["markersize"]
-                                ax.plot(x_num[valid], y_num[valid], **plot_kwargs)
-                                any_plotted = True
-
-                    # Plot trend line if requested
-                    apply_trend = series_opts.get("trendline", False)
-                    if apply_trend:
-                        try:
-                            trend_type = series_opts.get("trendline_type", "linear")
-                            trend_mode = series_opts.get("trendline_mode", "both")
-
-                            # Calculate trend line using numpy polyfit
-                            if trend_type == "linear":
-                                degree = 1
-                            elif trend_type == "poly2":
-                                degree = 2
-                            elif trend_type == "poly3":
-                                degree = 3
-                            elif trend_type == "poly4":
-                                degree = 4
-                            else:
-                                degree = 1
-
-                            # Fit polynomial to the data
-                            coeffs = np.polyfit(x_num[valid], y_num[valid], degree)
-                            poly = np.poly1d(coeffs)
-                            y_trend = poly(x_num[valid])
-
-                            # Prepare trend line label
-                            if degree == 1:
-                                trend_label = f"{label} (linear trend)"
-                            else:
-                                trend_label = f"{label} (poly{degree} trend)"
-
-                            # Plot trend line
-                            trend_kwargs = {"label": trend_label}
-                            if "color" in series_opts and series_opts["color"]:
-                                trend_kwargs["color"] = series_opts["color"]
-                            trend_kwargs["linestyle"] = "--"  # Dashed for trend lines
-                            trend_kwargs["linewidth"] = 2.0
-                            trend_kwargs["alpha"] = 0.8
-
-                            ax.plot(x_num[valid], y_trend, **trend_kwargs)
-                            any_plotted = True
-                        except Exception as e:
-                            # If trend line calculation fails, silently continue
-                            print(f"Trend line calculation failed for {y_name}: {e}")
+                    any_plotted = self._plot_series_with_options(
+                        ax, x_num, y_num, valid, y_name, series_opts, any_plotted
+                    )
 
             if not any_plotted:
                 QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
@@ -4917,101 +4922,9 @@ class HDF5Viewer(QMainWindow):
                 valid = np.isfinite(x_num) & np.isfinite(y_num)
                 if valid.any():
                     series_opts = series_styles.get(y_name, {})
-                    label = series_opts.get("label", "").strip() or y_name
-
-                    # Smoothing logic
-                    apply_smooth = series_opts.get("smooth", False)
-                    smooth_mode = series_opts.get("smooth_mode", "smoothed")
-                    smooth_window = series_opts.get("smooth_window", 5)
-
-                    # Plot original if requested
-                    if not apply_smooth or smooth_mode in ("original", "both"):
-                        plot_kwargs = {"label": label if not (apply_smooth and smooth_mode == "both") else f"{label} (original)"}
-                        if "color" in series_opts and series_opts["color"]:
-                            plot_kwargs["color"] = series_opts["color"]
-                        if "linestyle" in series_opts and series_opts["linestyle"]:
-                            plot_kwargs["linestyle"] = series_opts["linestyle"]
-                        if "marker" in series_opts and series_opts["marker"]:
-                            plot_kwargs["marker"] = series_opts["marker"]
-                        if "linewidth" in series_opts:
-                            plot_kwargs["linewidth"] = series_opts["linewidth"]
-                        if "markersize" in series_opts:
-                            plot_kwargs["markersize"] = series_opts["markersize"]
-
-                        if apply_smooth and smooth_mode == "both":
-                            plot_kwargs["alpha"] = 0.3
-                            plot_kwargs["linewidth"] = plot_kwargs.get("linewidth", 1.5) * 0.7
-
-                        ax.plot(x_num[valid], y_num[valid], **plot_kwargs)
-                        any_plotted = True
-
-                    # Plot smoothed if requested
-                    if apply_smooth and smooth_mode in ("smoothed", "both"):
-                        try:
-                            window = max(2, int(smooth_window))
-                            y_series = pd.Series(y_num[valid])
-                            y_smooth = y_series.rolling(window=window, center=True, min_periods=1).mean().to_numpy()
-
-                            smooth_kwargs = {"label": f"{label} (MA-{window})" if smooth_mode == "both" else label}
-                            if "color" in series_opts and series_opts["color"]:
-                                smooth_kwargs["color"] = series_opts["color"]
-                            if "linestyle" in series_opts and series_opts["linestyle"]:
-                                smooth_kwargs["linestyle"] = series_opts["linestyle"]
-                            else:
-                                smooth_kwargs["linestyle"] = "-"
-                            if "linewidth" in series_opts:
-                                smooth_kwargs["linewidth"] = series_opts["linewidth"]
-                            else:
-                                smooth_kwargs["linewidth"] = 2.0
-
-                            ax.plot(x_num[valid], y_smooth, **smooth_kwargs)
-                            any_plotted = True
-                        except Exception:
-                            # Smoothing failed, already plotted original if needed
-                            pass
-
-                    # Plot trend line if requested
-                    apply_trend = series_opts.get("trendline", False)
-                    if apply_trend:
-                        try:
-                            trend_type = series_opts.get("trendline_type", "linear")
-
-                            # Calculate trend line using numpy polyfit
-                            if trend_type == "linear":
-                                degree = 1
-                            elif trend_type == "poly2":
-                                degree = 2
-                            elif trend_type == "poly3":
-                                degree = 3
-                            elif trend_type == "poly4":
-                                degree = 4
-                            else:
-                                degree = 1
-
-                            # Fit polynomial to the data
-                            coeffs = np.polyfit(x_num[valid], y_num[valid], degree)
-                            poly = np.poly1d(coeffs)
-                            y_trend = poly(x_num[valid])
-
-                            # Prepare trend line label
-                            if degree == 1:
-                                trend_label = f"{label} (linear trend)"
-                            else:
-                                trend_label = f"{label} (poly{degree} trend)"
-
-                            # Plot trend line
-                            trend_kwargs = {"label": trend_label}
-                            if "color" in series_opts and series_opts["color"]:
-                                trend_kwargs["color"] = series_opts["color"]
-                            trend_kwargs["linestyle"] = "--"
-                            trend_kwargs["linewidth"] = 2.0
-                            trend_kwargs["alpha"] = 0.8
-
-                            ax.plot(x_num[valid], y_trend, **trend_kwargs)
-                            any_plotted = True
-                        except Exception:
-                            # Trend line calculation failed, silently continue
-                            pass
+                    any_plotted = self._plot_series_with_options(
+                        ax, x_num, y_num, valid, y_name, series_opts, any_plotted
+                    )
 
             if not any_plotted:
                 return False, "No valid numeric data to plot"
