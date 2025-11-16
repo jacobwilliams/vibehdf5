@@ -823,6 +823,12 @@ class PlotOptionsDialog(QDialog):
         )
         grid_layout.addWidget(self.legend_checkbox)
 
+        self.dark_background_checkbox = QCheckBox("Dark Background")
+        self.dark_background_checkbox.setChecked(
+            self.plot_config.get("plot_options", {}).get("dark_background", False)
+        )
+        grid_layout.addWidget(self.dark_background_checkbox)
+
         grid_layout.addStretch()
         general_layout.addWidget(grid_group)
 
@@ -1507,6 +1513,7 @@ class PlotOptionsDialog(QDialog):
         plot_opts["ylabel"] = self.ylabel_edit.text()
         plot_opts["grid"] = self.grid_checkbox.isChecked()
         plot_opts["legend"] = self.legend_checkbox.isChecked()
+        plot_opts["dark_background"] = self.dark_background_checkbox.isChecked()
 
         # Save axis limits (convert to float or None)
         def parse_limit(text):
@@ -3602,8 +3609,18 @@ class HDF5Viewer(QMainWindow):
             # Clear the previous plot
             self.plot_figure.clear()
 
-            # Create a subplot
-            ax = self.plot_figure.add_subplot(111)
+            # For immediate plotting (without saved config), use default light background
+            self.plot_figure.set_facecolor('white')
+            ax = self.plot_figure.add_subplot(111, facecolor='white')
+            # Set default colors for light mode
+            ax.spines['bottom'].set_color('black')
+            ax.spines['top'].set_color('black')
+            ax.spines['left'].set_color('black')
+            ax.spines['right'].set_color('black')
+            ax.xaxis.label.set_color('black')
+            ax.yaxis.label.set_color('black')
+            ax.tick_params(axis='x', colors='black')
+            ax.tick_params(axis='y', colors='black')
 
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
@@ -3639,7 +3656,8 @@ class HDF5Viewer(QMainWindow):
                         else 0
                     )
                     title += f" ({filtered_rows}/{total_rows} rows, filtered)"
-                ax.set_title(title)
+                title_obj = ax.set_title(title)
+                title_obj.set_color('black')
             except Exception:
                 pass
 
@@ -4364,6 +4382,13 @@ class HDF5Viewer(QMainWindow):
             # Get plot options from configuration
             plot_options = plot_config.get("plot_options", {})
 
+            # Apply dark background style if enabled
+            use_dark = plot_options.get("dark_background", False)
+            if use_dark:
+                plt.style.use('dark_background')
+            else:
+                plt.style.use('default')
+
             # Process x-axis data - check if it's datetime (only for non-None x_idx)
             if x_idx is not None:
                 xaxis_datetime = plot_options.get("xaxis_datetime", False)
@@ -4469,13 +4494,42 @@ class HDF5Viewer(QMainWindow):
 
             # Clear previous plot
             self.plot_figure.clear()
-            ax = self.plot_figure.add_subplot(111)
+
+            # Get plot options to check for dark background
+            plot_options = plot_config.get("plot_options", {})
+            use_dark = plot_options.get("dark_background", False)
+
+            # Apply appropriate style based on dark background setting
+            if use_dark:
+                self.plot_figure.set_facecolor('#1e1e1e')
+                ax = self.plot_figure.add_subplot(111, facecolor='#2e2e2e')
+                # Set default colors for dark mode
+                ax.spines['bottom'].set_color('white')
+                ax.spines['top'].set_color('white')
+                ax.spines['left'].set_color('white')
+                ax.spines['right'].set_color('white')
+                ax.xaxis.label.set_color('white')
+                ax.yaxis.label.set_color('white')
+                ax.tick_params(axis='x', colors='white')
+                ax.tick_params(axis='y', colors='white')
+            else:
+                # Reset to default light colors
+                self.plot_figure.set_facecolor('white')
+                ax = self.plot_figure.add_subplot(111, facecolor='white')
+                # Set default colors for light mode
+                ax.spines['bottom'].set_color('black')
+                ax.spines['top'].set_color('black')
+                ax.spines['left'].set_color('black')
+                ax.spines['right'].set_color('black')
+                ax.xaxis.label.set_color('black')
+                ax.yaxis.label.set_color('black')
+                ax.tick_params(axis='x', colors='black')
+                ax.tick_params(axis='y', colors='black')
 
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
 
-            # Get plot options from configuration
-            plot_options = plot_config.get("plot_options", {})
+            # Get series styling options
             series_styles = plot_options.get("series", {})
 
             any_plotted = False
@@ -4631,7 +4685,8 @@ class HDF5Viewer(QMainWindow):
             font_family = plot_options.get("font_family", "serif")
 
             # Apply labels and title with font sizes and family
-            ax.set_title(title, fontsize=plot_options.get("title_fontsize", 12), family=font_family)
+            title_obj = ax.set_title(title, fontsize=plot_options.get("title_fontsize", 12), family=font_family)
+            title_obj.set_color('white' if use_dark else 'black')
             ax.set_xlabel(xlabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
             ax.set_ylabel(ylabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
             ax.tick_params(axis='both', which='major', labelsize=plot_options.get("tick_fontsize", 9))
@@ -4828,10 +4883,37 @@ class HDF5Viewer(QMainWindow):
             figwidth = plot_options.get("figwidth", 8.0)
             figheight = plot_options.get("figheight", 6.0)
             dpi = plot_options.get("dpi", 100)
+            use_dark = plot_options.get("dark_background", False)
 
             # Create figure with specified size
             fig = Figure(figsize=(figwidth, figheight), dpi=dpi)
-            ax = fig.add_subplot(111)
+
+            # Apply appropriate style based on dark background setting
+            if use_dark:
+                fig.set_facecolor('#1e1e1e')
+                ax = fig.add_subplot(111, facecolor='#2e2e2e')
+                # Set default colors for dark mode
+                ax.spines['bottom'].set_color('white')
+                ax.spines['top'].set_color('white')
+                ax.spines['left'].set_color('white')
+                ax.spines['right'].set_color('white')
+                ax.xaxis.label.set_color('white')
+                ax.yaxis.label.set_color('white')
+                ax.tick_params(axis='x', colors='white')
+                ax.tick_params(axis='y', colors='white')
+            else:
+                # Use default light colors
+                fig.set_facecolor('white')
+                ax = fig.add_subplot(111, facecolor='white')
+                # Set default colors for light mode
+                ax.spines['bottom'].set_color('black')
+                ax.spines['top'].set_color('black')
+                ax.spines['left'].set_color('black')
+                ax.spines['right'].set_color('black')
+                ax.xaxis.label.set_color('black')
+                ax.yaxis.label.set_color('black')
+                ax.tick_params(axis='x', colors='black')
+                ax.tick_params(axis='y', colors='black')
 
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
@@ -5015,7 +5097,8 @@ class HDF5Viewer(QMainWindow):
             font_family = plot_options.get("font_family", "serif")
 
             # Apply labels with font sizes and family
-            ax.set_title(title_text, fontsize=plot_options.get("title_fontsize", 12), family=font_family)
+            title_obj = ax.set_title(title_text, fontsize=plot_options.get("title_fontsize", 12), family=font_family)
+            title_obj.set_color('white' if use_dark else 'black')
             ax.set_xlabel(xlabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
             ax.set_ylabel(ylabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
             ax.tick_params(axis='both', which='major', labelsize=plot_options.get("tick_fontsize", 9))
