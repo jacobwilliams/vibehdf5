@@ -1904,6 +1904,130 @@ class HDF5Viewer(QMainWindow):
         # Track current search pattern
         self._search_pattern: str = ""
 
+    def _apply_plot_style(self, fig_or_ax, ax, use_dark: bool) -> None:
+        """Apply dark or light background styling to a plot figure and axes.
+
+        Args:
+            fig_or_ax: Figure object (for setting figure background)
+            ax: Axes object (for setting axes colors)
+            use_dark: True for dark background, False for light background
+        """
+        if use_dark:
+            fig_or_ax.set_facecolor('#1e1e1e')
+            ax.set_facecolor('#2e2e2e')
+            color = 'white'
+        else:
+            fig_or_ax.set_facecolor('white')
+            ax.set_facecolor('white')
+            color = 'black'
+
+        # Set spine colors
+        for spine in ax.spines.values():
+            spine.set_color(color)
+
+        # Set label and tick colors
+        ax.xaxis.label.set_color(color)
+        ax.yaxis.label.set_color(color)
+        ax.tick_params(axis='x', colors=color)
+        ax.tick_params(axis='y', colors=color)
+
+    def _parse_datetime_column(self, x_arr: np.ndarray, min_len: int,
+                                datetime_format: str = "") -> tuple[np.ndarray, bool]:
+        """Parse a column as datetime and convert to matplotlib date numbers.
+
+        Args:
+            x_arr: Array of values to parse as dates
+            min_len: Maximum length to process
+            datetime_format: Optional strptime format string
+
+        Returns:
+            Tuple of (numeric_array, success_flag)
+        """
+        try:
+            if datetime_format:
+                x_data = pd.to_datetime(pd.Series(x_arr[:min_len]),
+                                       format=datetime_format, errors="coerce")
+            else:
+                x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
+
+            valid_dates = x_data.notna()
+            if valid_dates.sum() > 0:
+                x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan
+                                 for d in x_data])
+                return x_num, True
+        except Exception:
+            pass
+
+        return np.arange(min_len, dtype=float), False
+
+    def _format_xaxis(self, ax, fig, xaxis_datetime: bool, x_is_string: bool,
+                      x_arr: np.ndarray, min_len: int, plot_options: dict | None = None) -> None:
+        """Format x-axis for datetime or categorical string data.
+
+        Args:
+            ax: Matplotlib axes object
+            fig: Matplotlib figure object (for autofmt_xdate)
+            xaxis_datetime: True if x-axis contains datetime data
+            x_is_string: True if x-axis contains string data
+            x_arr: Original x-axis array (for string labels)
+            min_len: Length of data
+            plot_options: Optional plot options dict (for custom datetime format)
+        """
+        if xaxis_datetime:
+            # Format datetime x-axis
+            if plot_options:
+                datetime_display_format = plot_options.get("datetime_display_format", "").strip()
+                if datetime_display_format:
+                    ax.xaxis.set_major_formatter(DateFormatter(datetime_display_format))
+                else:
+                    ax.xaxis.set_major_locator(AutoDateLocator())
+            else:
+                ax.xaxis.set_major_locator(AutoDateLocator())
+            # Rotate labels for better readability
+            fig.autofmt_xdate()
+        elif x_is_string and not xaxis_datetime:
+            # X-axis is categorical strings - set string labels on integer positions
+            num_points = min(min_len, len(x_arr))
+            if num_points <= 50:
+                # Show all labels if not too many
+                ax.set_xticks(np.arange(num_points))
+                ax.set_xticklabels(x_arr[:num_points], rotation=45, ha="right")
+            else:
+                # Show subset of labels to avoid overcrowding
+                step = max(1, num_points // 20)  # Show ~20 labels
+                indices = np.arange(0, num_points, step)
+                ax.set_xticks(indices)
+                ax.set_xticklabels([x_arr[i] for i in indices], rotation=45, ha="right")
+
+    def _apply_axis_limits(self, ax, plot_options: dict) -> None:
+        """Apply axis limit settings from plot options.
+
+        Args:
+            ax: Matplotlib axes object
+            plot_options: Plot options dict containing xlim/ylim settings
+        """
+        # Apply x-axis limits
+        xlim_min = plot_options.get("xlim_min")
+        xlim_max = plot_options.get("xlim_max")
+        if xlim_min is not None or xlim_max is not None:
+            current_xlim = ax.get_xlim()
+            new_xlim = (
+                xlim_min if xlim_min is not None else current_xlim[0],
+                xlim_max if xlim_max is not None else current_xlim[1],
+            )
+            ax.set_xlim(new_xlim)
+
+        # Apply y-axis limits
+        ylim_min = plot_options.get("ylim_min")
+        ylim_max = plot_options.get("ylim_max")
+        if ylim_min is not None or ylim_max is not None:
+            current_ylim = ax.get_ylim()
+            new_ylim = (
+                ylim_min if ylim_min is not None else current_ylim[0],
+                ylim_max if ylim_max is not None else current_ylim[1],
+            )
+            ax.set_ylim(new_ylim)
+
     def _create_actions(self) -> None:
         self.act_new = QAction("New HDF5 File…", self)
         self.act_new.setShortcut("Ctrl+N")
@@ -3610,17 +3734,8 @@ class HDF5Viewer(QMainWindow):
             self.plot_figure.clear()
 
             # For immediate plotting (without saved config), use default light background
-            self.plot_figure.set_facecolor('white')
-            ax = self.plot_figure.add_subplot(111, facecolor='white')
-            # Set default colors for light mode
-            ax.spines['bottom'].set_color('black')
-            ax.spines['top'].set_color('black')
-            ax.spines['left'].set_color('black')
-            ax.spines['right'].set_color('black')
-            ax.xaxis.label.set_color('black')
-            ax.yaxis.label.set_color('black')
-            ax.tick_params(axis='x', colors='black')
-            ax.tick_params(axis='y', colors='black')
+            ax = self.plot_figure.add_subplot(111)
+            self._apply_plot_style(self.plot_figure, ax, use_dark=False)
 
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
@@ -3666,26 +3781,8 @@ class HDF5Viewer(QMainWindow):
             ax.legend()
             ax.grid(True)
 
-            # Format datetime x-axis if dates were detected
-            if xaxis_datetime:
-                # Use automatic date formatting
-                ax.xaxis.set_major_locator(AutoDateLocator())
-                # Rotate labels for better readability
-                self.plot_figure.autofmt_xdate()
-            elif x_is_string and not xaxis_datetime:
-                # X-axis is categorical strings - set string labels on integer positions
-                # Limit labels to avoid overcrowding
-                num_points = min(min_len, len(x_arr))
-                if num_points <= 50:
-                    # Show all labels if not too many
-                    ax.set_xticks(np.arange(num_points))
-                    ax.set_xticklabels(x_arr[:num_points], rotation=45, ha="right")
-                else:
-                    # Show subset of labels to avoid overcrowding
-                    step = max(1, num_points // 20)  # Show ~20 labels
-                    indices = np.arange(0, num_points, step)
-                    ax.set_xticks(indices)
-                    ax.set_xticklabels([x_arr[i] for i in indices], rotation=45, ha="right")
+            # Format x-axis (datetime or categorical strings)
+            self._format_xaxis(ax, self.plot_figure, xaxis_datetime, x_is_string, x_arr, min_len)
 
             self.plot_figure.tight_layout()
 
@@ -4382,13 +4479,6 @@ class HDF5Viewer(QMainWindow):
             # Get plot options from configuration
             plot_options = plot_config.get("plot_options", {})
 
-            # Apply dark background style if enabled
-            use_dark = plot_options.get("dark_background", False)
-            if use_dark:
-                plt.style.use('dark_background')
-            else:
-                plt.style.use('default')
-
             # Process x-axis data - check if it's datetime (only for non-None x_idx)
             if x_idx is not None:
                 xaxis_datetime = plot_options.get("xaxis_datetime", False)
@@ -4401,96 +4491,22 @@ class HDF5Viewer(QMainWindow):
                     x_is_string = isinstance(first_val, str) or (
                         hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
                     )
+
+                # Try datetime parsing if string data
+                if x_is_string:
+                    if xaxis_datetime or not datetime_format:
+                        # Try auto-detection or use format if provided
+                        x_num, xaxis_datetime = self._parse_datetime_column(x_arr, min_len, datetime_format)
+                    else:
+                        # String data but not datetime - use indices
+                        x_num = np.arange(min_len, dtype=float)
+                        xaxis_datetime = False
+                else:
+                    # Non-string data - convert to numeric
+                    x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
             else:
                 xaxis_datetime = False
-                datetime_format = ""
                 x_is_string = False
-
-            # If x-axis is strings, try parsing as datetime
-            if x_idx is not None and x_is_string and xaxis_datetime and not datetime_format:
-                # Datetime mode enabled but no format specified - use auto-detection
-                try:
-                    # Try to parse as datetime without explicit format (pandas will infer)
-                    x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
-                    # Check if parsing was successful (not all NaT/null)
-                    valid_dates = x_data.notna()
-                    if valid_dates.sum() > 0:
-                        # Successfully parsed as dates - use datetime mode
-                        # Convert to matplotlib date numbers using pandas
-                        # Convert pandas datetime to numpy datetime64, then to matplotlib float dates
-                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan
-                                         for d in x_data])
-                        # Auto-detect worked, proceed with datetime
-                    else:
-                        # Parsing failed - treat as categorical/text
-                        # Use integer indices for x-axis
-                        x_num = np.arange(min_len, dtype=float)
-                        xaxis_datetime = False
-                except Exception:
-                    # If auto-parsing fails, use integer indices
-                    x_num = np.arange(min_len, dtype=float)
-                    xaxis_datetime = False
-            elif x_is_string and not xaxis_datetime:
-                # Auto-detect dates even when checkbox not checked
-                try:
-                    # Try to parse as datetime without explicit format (pandas will infer)
-                    x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
-                    # Check if parsing was successful (not all NaT/null)
-                    valid_dates = x_data.notna()
-                    if valid_dates.sum() > 0:
-                        # Successfully parsed as dates - use datetime mode
-                        # Convert to matplotlib date numbers using pandas
-                        # Convert pandas datetime to numpy datetime64, then to matplotlib float dates
-                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan
-                                         for d in x_data])
-                        xaxis_datetime = True
-                        # Auto-detect worked, proceed with datetime
-                    else:
-                        # Parsing failed - treat as categorical/text
-                        # Use integer indices for x-axis
-                        x_num = np.arange(min_len, dtype=float)
-                        xaxis_datetime = False
-                except Exception:
-                    # If auto-parsing fails, use integer indices
-                    x_num = np.arange(min_len, dtype=float)
-                    xaxis_datetime = False
-            elif xaxis_datetime and datetime_format:
-                # Parse as datetime with explicit format
-                try:
-                    x_data = pd.to_datetime(
-                        pd.Series(x_arr[:min_len]),
-                        format=datetime_format,
-                        errors="coerce"
-                    )
-                    # Convert to matplotlib dates
-                    valid_dates = x_data.notna()
-                    if valid_dates.sum() > 0:
-                        # Convert pandas datetime to matplotlib numbers
-                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan
-                                         for d in x_data])
-                    else:
-                        # No valid dates - fall back to numeric
-                        x_num = (
-                            pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce")
-                            .astype(float)
-                            .to_numpy()
-                        )
-                        xaxis_datetime = False
-                except Exception:
-                    # Fall back to numeric if datetime parsing fails
-                    x_num = (
-                        pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce")
-                        .astype(float)
-                        .to_numpy()
-                    )
-                    xaxis_datetime = False  # Disable datetime formatting
-            else:
-                # Process as numeric
-                x_num = (
-                    pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce")
-                    .astype(float)
-                    .to_numpy()
-                )
 
             # Clear previous plot
             self.plot_figure.clear()
@@ -4499,32 +4515,9 @@ class HDF5Viewer(QMainWindow):
             plot_options = plot_config.get("plot_options", {})
             use_dark = plot_options.get("dark_background", False)
 
-            # Apply appropriate style based on dark background setting
-            if use_dark:
-                self.plot_figure.set_facecolor('#1e1e1e')
-                ax = self.plot_figure.add_subplot(111, facecolor='#2e2e2e')
-                # Set default colors for dark mode
-                ax.spines['bottom'].set_color('white')
-                ax.spines['top'].set_color('white')
-                ax.spines['left'].set_color('white')
-                ax.spines['right'].set_color('white')
-                ax.xaxis.label.set_color('white')
-                ax.yaxis.label.set_color('white')
-                ax.tick_params(axis='x', colors='white')
-                ax.tick_params(axis='y', colors='white')
-            else:
-                # Reset to default light colors
-                self.plot_figure.set_facecolor('white')
-                ax = self.plot_figure.add_subplot(111, facecolor='white')
-                # Set default colors for light mode
-                ax.spines['bottom'].set_color('black')
-                ax.spines['top'].set_color('black')
-                ax.spines['left'].set_color('black')
-                ax.spines['right'].set_color('black')
-                ax.xaxis.label.set_color('black')
-                ax.yaxis.label.set_color('black')
-                ax.tick_params(axis='x', colors='black')
-                ax.tick_params(axis='y', colors='black')
+            # Create subplot and apply style
+            ax = self.plot_figure.add_subplot(111)
+            self._apply_plot_style(self.plot_figure, ax, use_dark)
 
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
@@ -4703,52 +4696,11 @@ class HDF5Viewer(QMainWindow):
                 for text in legend.get_texts():
                     text.set_fontfamily(font_family)
 
-            # Format datetime x-axis if enabled
-            if xaxis_datetime:
-                datetime_display_format = plot_options.get("datetime_display_format", "").strip()
-                if datetime_display_format:
-                    # Use custom format
-                    ax.xaxis.set_major_formatter(DateFormatter(datetime_display_format))
-                else:
-                    # Use automatic date formatting
-                    ax.xaxis.set_major_locator(AutoDateLocator())
-                # Rotate labels for better readability
-                self.plot_figure.autofmt_xdate()
-            elif x_is_string and not xaxis_datetime:
-                # X-axis is categorical strings - set string labels on integer positions
-                # Limit labels to avoid overcrowding
-                num_points = min(min_len, len(x_arr))
-                if num_points <= 50:
-                    # Show all labels if not too many
-                    ax.set_xticks(np.arange(num_points))
-                    ax.set_xticklabels(x_arr[:num_points], rotation=45, ha="right")
-                else:
-                    # Show subset of labels to avoid overcrowding
-                    step = max(1, num_points // 20)  # Show ~20 labels
-                    indices = np.arange(0, num_points, step)
-                    ax.set_xticks(indices)
-                    ax.set_xticklabels([x_arr[i] for i in indices], rotation=45, ha="right")
+            # Format x-axis (datetime or categorical strings)
+            self._format_xaxis(ax, self.plot_figure, xaxis_datetime, x_is_string, x_arr, min_len, plot_options)
 
-            # Apply axis limits if specified
-            xlim_min = plot_options.get("xlim_min")
-            xlim_max = plot_options.get("xlim_max")
-            if xlim_min is not None or xlim_max is not None:
-                current_xlim = ax.get_xlim()
-                new_xlim = (
-                    xlim_min if xlim_min is not None else current_xlim[0],
-                    xlim_max if xlim_max is not None else current_xlim[1],
-                )
-                ax.set_xlim(new_xlim)
-
-            ylim_min = plot_options.get("ylim_min")
-            ylim_max = plot_options.get("ylim_max")
-            if ylim_min is not None or ylim_max is not None:
-                current_ylim = ax.get_ylim()
-                new_ylim = (
-                    ylim_min if ylim_min is not None else current_ylim[0],
-                    ylim_max if ylim_max is not None else current_ylim[1],
-                )
-                ax.set_ylim(new_ylim)
+            # Apply axis limits
+            self._apply_axis_limits(ax, plot_options)
 
             # Apply log scale if requested
             if plot_options.get("xlog", False):
@@ -4888,32 +4840,9 @@ class HDF5Viewer(QMainWindow):
             # Create figure with specified size
             fig = Figure(figsize=(figwidth, figheight), dpi=dpi)
 
-            # Apply appropriate style based on dark background setting
-            if use_dark:
-                fig.set_facecolor('#1e1e1e')
-                ax = fig.add_subplot(111, facecolor='#2e2e2e')
-                # Set default colors for dark mode
-                ax.spines['bottom'].set_color('white')
-                ax.spines['top'].set_color('white')
-                ax.spines['left'].set_color('white')
-                ax.spines['right'].set_color('white')
-                ax.xaxis.label.set_color('white')
-                ax.yaxis.label.set_color('white')
-                ax.tick_params(axis='x', colors='white')
-                ax.tick_params(axis='y', colors='white')
-            else:
-                # Use default light colors
-                fig.set_facecolor('white')
-                ax = fig.add_subplot(111, facecolor='white')
-                # Set default colors for light mode
-                ax.spines['bottom'].set_color('black')
-                ax.spines['top'].set_color('black')
-                ax.spines['left'].set_color('black')
-                ax.spines['right'].set_color('black')
-                ax.xaxis.label.set_color('black')
-                ax.yaxis.label.set_color('black')
-                ax.tick_params(axis='x', colors='black')
-                ax.tick_params(axis='y', colors='black')
+            # Create subplot and apply style
+            ax = fig.add_subplot(111)
+            self._apply_plot_style(fig, ax, use_dark)
 
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
@@ -5116,25 +5045,7 @@ class HDF5Viewer(QMainWindow):
                     text.set_fontfamily(font_family)
 
             # Apply axis limits
-            xlim_min = plot_options.get("xlim_min")
-            xlim_max = plot_options.get("xlim_max")
-            if xlim_min is not None or xlim_max is not None:
-                current_xlim = ax.get_xlim()
-                new_xlim = (
-                    xlim_min if xlim_min is not None else current_xlim[0],
-                    xlim_max if xlim_max is not None else current_xlim[1]
-                )
-                ax.set_xlim(new_xlim)
-
-            ylim_min = plot_options.get("ylim_min")
-            ylim_max = plot_options.get("ylim_max")
-            if ylim_min is not None or ylim_max is not None:
-                current_ylim = ax.get_ylim()
-                new_ylim = (
-                    ylim_min if ylim_min is not None else current_ylim[0],
-                    ylim_max if ylim_max is not None else current_ylim[1]
-                )
-                ax.set_ylim(new_ylim)
+            self._apply_axis_limits(ax, plot_options)
 
             # Apply log scale
             if plot_options.get("xlog", False):
