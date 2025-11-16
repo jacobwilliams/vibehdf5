@@ -2152,6 +2152,90 @@ class HDF5Viewer(QMainWindow):
 
         return any_plotted
 
+    def _apply_plot_labels_and_formatting(
+        self,
+        ax: "Axes",
+        fig,
+        x_name: str,
+        y_names: list,
+        plot_config: dict,
+        plot_options: dict,
+        use_dark: bool,
+    ) -> None:
+        """Apply labels, fonts, grid, legend, log scale, and reference lines to a plot.
+
+        Args:
+            ax: Matplotlib axes object
+            fig: Matplotlib figure object
+            x_name: Name of x-axis data
+            y_names: List of y-axis data names
+            plot_config: Plot configuration dictionary
+            plot_options: Plot options dictionary
+            use_dark: Whether dark background is enabled
+        """
+        # Apply custom labels or use defaults
+        xlabel = plot_options.get("xlabel", "").strip() or x_name
+        ylabel = plot_options.get("ylabel", "").strip() or ", ".join(y_names)
+        custom_title = plot_options.get("title", "").strip()
+        title_text = custom_title if custom_title else plot_config.get("name", "Plot")
+
+        # Apply font family if specified
+        font_family = plot_options.get("font_family", "serif")
+
+        # Apply labels with font sizes and family
+        title_obj = ax.set_title(title_text, fontsize=plot_options.get("title_fontsize", 12), family=font_family)
+        title_obj.set_color('white' if use_dark else 'black')
+        ax.set_xlabel(xlabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
+        ax.set_ylabel(ylabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
+        ax.tick_params(axis='both', which='major', labelsize=plot_options.get("tick_fontsize", 9))
+
+        # Apply font family to tick labels
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontfamily(font_family)
+
+        # Apply grid and legend
+        grid_alpha = 0.3 if plot_options.get("grid", True) else None
+        if grid_alpha:
+            ax.grid(True, alpha=grid_alpha)
+        if plot_options.get("legend", True):
+            legend = ax.legend(fontsize=plot_options.get("legend_fontsize", 9))
+            # Apply font family to legend text
+            for text in legend.get_texts():
+                text.set_fontfamily(font_family)
+
+        # Apply log scale
+        if plot_options.get("xlog", False):
+            ax.set_xscale("log")
+        if plot_options.get("ylog", False):
+            ax.set_yscale("log")
+
+        # Reference lines
+        ref_lines = plot_options.get("reference_lines", [])
+        for refline in ref_lines:
+            try:
+                line_type = refline.get("type")
+                value = refline.get("value")
+                if line_type == "horizontal" and value is not None:
+                    ax.axhline(
+                        y=value,
+                        color=refline.get("color", "red"),
+                        linestyle=refline.get("linestyle", "--"),
+                        linewidth=refline.get("linewidth", 1.0),
+                        label=refline.get("label")
+                    )
+                elif line_type == "vertical" and value is not None:
+                    ax.axvline(
+                        x=value,
+                        color=refline.get("color", "red"),
+                        linestyle=refline.get("linestyle", "--"),
+                        linewidth=refline.get("linewidth", 1.0),
+                        label=refline.get("label")
+                    )
+            except Exception:
+                pass
+
+        fig.tight_layout()
+
     def _create_actions(self) -> None:
         self.act_new = QAction("New HDF5 File…", self)
         self.act_new.setShortcut("Ctrl+N")
@@ -4666,40 +4750,15 @@ class HDF5Viewer(QMainWindow):
                 QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
                 return
 
-            # Apply custom labels or use defaults
-            xlabel = plot_options.get("xlabel", "").strip() or x_name
-            ylabel = plot_options.get("ylabel", "").strip() or ", ".join(y_names)
+            # Adjust title for row range if needed
+            title_suffix = ""
+            if start_row > 0 or end_row < len(self._csv_data_dict.get(x_name, [])) - 1:
+                title_suffix = f" (rows {start_row}-{end_row})"
 
-            # Set title with plot name and row range info
-            custom_title = plot_options.get("title", "").strip()
-            if custom_title:
-                title = custom_title
-            else:
-                title = plot_config.get("name", "Plot")
-                if start_row > 0 or end_row < len(self._csv_data_dict.get(x_name, [])) - 1:
-                    title += f" (rows {start_row}-{end_row})"
-
-            # Apply font family if specified
-            font_family = plot_options.get("font_family", "serif")
-
-            # Apply labels and title with font sizes and family
-            title_obj = ax.set_title(title, fontsize=plot_options.get("title_fontsize", 12), family=font_family)
-            title_obj.set_color('white' if use_dark else 'black')
-            ax.set_xlabel(xlabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
-            ax.set_ylabel(ylabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
-            ax.tick_params(axis='both', which='major', labelsize=plot_options.get("tick_fontsize", 9))
-            # Apply font family to tick labels
-            for label in ax.get_xticklabels() + ax.get_yticklabels():
-                label.set_fontfamily(font_family)
-
-            # Apply grid and legend options
-            if plot_options.get("grid", True):
-                ax.grid(True)
-            if plot_options.get("legend", True):
-                legend = ax.legend(fontsize=plot_options.get("legend_fontsize", 9))
-                # Apply font family to legend text
-                for text in legend.get_texts():
-                    text.set_fontfamily(font_family)
+            # Create modified plot_config with title suffix
+            modified_config = plot_config.copy()
+            if not plot_options.get("title", "").strip():
+                modified_config["name"] = plot_config.get("name", "Plot") + title_suffix
 
             # Format x-axis (datetime or categorical strings)
             self._format_xaxis(ax, self.plot_figure, xaxis_datetime, x_is_string, x_arr, min_len, plot_options)
@@ -4707,34 +4766,10 @@ class HDF5Viewer(QMainWindow):
             # Apply axis limits
             self._apply_axis_limits(ax, plot_options)
 
-            # Apply log scale if requested
-            if plot_options.get("xlog", False):
-                ax.set_xscale("log")
-            if plot_options.get("ylog", False):
-                ax.set_yscale("log")
-
-            # Draw reference lines
-            reference_lines = plot_options.get("reference_lines", [])
-            for refline in reference_lines:
-                try:
-                    line_type = refline.get("type")
-                    value = refline.get("value")
-                    color = refline.get("color", "black")
-                    linestyle = refline.get("linestyle", "solid")
-                    linewidth = refline.get("linewidth", 1.5)
-                    label = refline.get("label")
-
-                    if line_type == "horizontal" and value is not None:
-                        ax.axhline(y=value, color=color, linestyle=linestyle,
-                                   linewidth=linewidth, label=label)
-                    elif line_type == "vertical" and value is not None:
-                        ax.axvline(x=value, color=color, linestyle=linestyle,
-                                   linewidth=linewidth, label=label)
-                except Exception:
-                    # Skip invalid reference lines
-                    pass
-
-            self.plot_figure.tight_layout()
+            # Apply labels, fonts, grid, legend, log scale, and reference lines
+            self._apply_plot_labels_and_formatting(
+                ax, self.plot_figure, x_name, y_names, modified_config, plot_options, use_dark
+            )
 
             # Refresh canvas
             self.plot_canvas.draw()
@@ -4929,44 +4964,7 @@ class HDF5Viewer(QMainWindow):
             if not any_plotted:
                 return False, "No valid numeric data to plot"
 
-            # Apply labels and formatting
-            xlabel = plot_options.get("xlabel", "").strip() or x_name
-            ylabel = plot_options.get("ylabel", "").strip() or ", ".join(y_names)
-            custom_title = plot_options.get("title", "").strip()
-            title_text = custom_title if custom_title else plot_config.get("name", "Plot")
-
-            # Apply font family if specified
-            font_family = plot_options.get("font_family", "serif")
-
-            # Apply labels with font sizes and family
-            title_obj = ax.set_title(title_text, fontsize=plot_options.get("title_fontsize", 12), family=font_family)
-            title_obj.set_color('white' if use_dark else 'black')
-            ax.set_xlabel(xlabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
-            ax.set_ylabel(ylabel, fontsize=plot_options.get("axis_label_fontsize", 10), family=font_family)
-            ax.tick_params(axis='both', which='major', labelsize=plot_options.get("tick_fontsize", 9))
-            # Apply font family to tick labels
-            for label in ax.get_xticklabels() + ax.get_yticklabels():
-                label.set_fontfamily(font_family)
-
-            # Apply grid and legend
-            if plot_options.get("grid", True):
-                ax.grid(True, alpha=0.3)
-            if plot_options.get("legend", True):
-                legend = ax.legend(fontsize=plot_options.get("legend_fontsize", 9))
-                # Apply font family to legend text
-                for text in legend.get_texts():
-                    text.set_fontfamily(font_family)
-
-            # Apply axis limits
-            self._apply_axis_limits(ax, plot_options)
-
-            # Apply log scale
-            if plot_options.get("xlog", False):
-                ax.set_xscale("log")
-            if plot_options.get("ylog", False):
-                ax.set_yscale("log")
-
-            # Date formatting
+            # Date formatting (must be done before labels/formatting)
             if xaxis_datetime:
                 display_format = plot_options.get("datetime_display_format", "").strip()
                 if display_format:
@@ -4975,30 +4973,13 @@ class HDF5Viewer(QMainWindow):
                     ax.xaxis.set_major_locator(AutoDateLocator())
                 fig.autofmt_xdate()
 
-            # Reference lines
-            ref_lines = plot_options.get("reference_lines", [])
-            for refline in ref_lines:
-                try:
-                    if refline.get("type") == "horizontal":
-                        ax.axhline(
-                            y=refline.get("value", 0),
-                            color=refline.get("color", "red"),
-                            linestyle=refline.get("linestyle", "--"),
-                            linewidth=refline.get("linewidth", 1.0),
-                            label=refline.get("label")
-                        )
-                    elif refline.get("type") == "vertical":
-                        ax.axvline(
-                            x=refline.get("value", 0),
-                            color=refline.get("color", "red"),
-                            linestyle=refline.get("linestyle", "--"),
-                            linewidth=refline.get("linewidth", 1.0),
-                            label=refline.get("label")
-                        )
-                except Exception:
-                    pass
+            # Apply axis limits
+            self._apply_axis_limits(ax, plot_options)
 
-            fig.tight_layout()
+            # Apply labels, fonts, grid, legend, log scale, and reference lines
+            self._apply_plot_labels_and_formatting(
+                ax, fig, x_name, y_names, plot_config, plot_options, use_dark
+            )
 
             # Save to file
             fig.savefig(filepath, dpi=dpi, bbox_inches='tight')
