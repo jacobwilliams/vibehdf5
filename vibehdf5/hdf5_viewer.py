@@ -495,6 +495,7 @@ class ColumnSortDialog(QDialog):
 
         # Add sort button
         add_btn = QPushButton("+ Add Sort Column")
+        add_btn.setToolTip("Add a new column to sort by (columns are sorted in order from top to bottom)")
         add_btn.clicked.connect(self._add_sort_row)
         layout.addWidget(add_btn)
 
@@ -525,16 +526,19 @@ class ColumnSortDialog(QDialog):
 
         # Move up button
         up_btn = QPushButton("↑")
+        up_btn.setToolTip("Move this sort column up (higher priority)")
         up_btn.setMaximumWidth(30)
         up_btn.clicked.connect(lambda: self._move_sort_row(row_widget, -1))
 
         # Move down button
         down_btn = QPushButton("↓")
+        down_btn.setToolTip("Move this sort column down (lower priority)")
         down_btn.setMaximumWidth(30)
         down_btn.clicked.connect(lambda: self._move_sort_row(row_widget, 1))
 
         # Remove button
         remove_btn = QPushButton("Remove")
+        remove_btn.setToolTip("Remove this sort column")
         remove_btn.clicked.connect(lambda: self._remove_sort_row(row_widget))
 
         row_layout.addWidget(QLabel("Column:"))
@@ -635,6 +639,7 @@ class ColumnFilterDialog(QDialog):
 
         # Add filter button
         add_btn = QPushButton("+ Add Filter")
+        add_btn.setToolTip("Add a new filter condition (all filters are combined with AND logic)")
         add_btn.clicked.connect(self._add_filter_row)
         layout.addWidget(add_btn)
 
@@ -670,6 +675,7 @@ class ColumnFilterDialog(QDialog):
 
         # Remove button
         remove_btn = QPushButton("Remove")
+        remove_btn.setToolTip("Remove this filter condition")
         remove_btn.clicked.connect(lambda: self._remove_filter_row(row_widget))
 
         row_layout.addWidget(QLabel("Column:"))
@@ -1156,10 +1162,12 @@ class PlotOptionsDialog(QDialog):
         # Buttons to add reference lines
         reflines_buttons = QHBoxLayout()
         add_hline_btn = QPushButton("+ Add Horizontal Line")
+        add_hline_btn.setToolTip("Add a horizontal reference line at a specific Y value")
         add_hline_btn.clicked.connect(lambda: self._add_refline_widget("horizontal"))
         reflines_buttons.addWidget(add_hline_btn)
 
         add_vline_btn = QPushButton("+ Add Vertical Line")
+        add_vline_btn.setToolTip("Add a vertical reference line at a specific X value")
         add_vline_btn.clicked.connect(lambda: self._add_refline_widget("vertical"))
         reflines_buttons.addWidget(add_vline_btn)
 
@@ -1191,6 +1199,7 @@ class PlotOptionsDialog(QDialog):
         # Color picker button
         style_layout.addWidget(QLabel("Color:"))
         color_button = QPushButton()
+        color_button.setToolTip("Click to choose a custom color for this data series")
         color_button.setMaximumWidth(80)
         color_button.setMinimumHeight(25)
 
@@ -1380,6 +1389,7 @@ class PlotOptionsDialog(QDialog):
         header_layout.addStretch()
 
         remove_btn = QPushButton("Remove")
+        remove_btn.setToolTip("Remove this reference line from the plot")
         remove_btn.clicked.connect(lambda: self._remove_refline_widget(widget))
         header_layout.addWidget(remove_btn)
         layout.addLayout(header_layout)
@@ -1399,6 +1409,7 @@ class PlotOptionsDialog(QDialog):
 
         value_color_layout.addWidget(QLabel("Color:"))
         color_button = QPushButton()
+        color_button.setToolTip("Click to choose the color for this reference line")
         color_button.setMinimumWidth(60)
         color_button.setMaximumWidth(60)
         # Set initial color
@@ -1668,16 +1679,19 @@ class HDF5Viewer(QMainWindow):
         # Buttons for plot management
         plot_buttons_layout = QHBoxLayout()
         self.btn_save_plot = QPushButton("Save Plot")
+        self.btn_save_plot.setToolTip("Save current table column selection as a named plot configuration")
         self.btn_save_plot.clicked.connect(self._save_plot_config_dialog)
         self.btn_save_plot.setEnabled(False)
         plot_buttons_layout.addWidget(self.btn_save_plot)
 
         self.btn_edit_plot_options = QPushButton("Edit Options")
+        self.btn_edit_plot_options.setToolTip("Customize appearance, styling, and export settings for the selected plot")
         self.btn_edit_plot_options.clicked.connect(self._edit_plot_options_dialog)
         self.btn_edit_plot_options.setEnabled(False)
         plot_buttons_layout.addWidget(self.btn_edit_plot_options)
 
         self.btn_delete_plot = QPushButton("Delete")
+        self.btn_delete_plot.setToolTip("Delete the selected plot configuration permanently")
         self.btn_delete_plot.clicked.connect(self._delete_plot_config)
         self.btn_delete_plot.setEnabled(False)
         plot_buttons_layout.addWidget(self.btn_delete_plot)
@@ -1748,23 +1762,28 @@ class HDF5Viewer(QMainWindow):
         filter_panel_layout.addWidget(self.filter_status_label)
 
         self.btn_configure_filters = QPushButton("Configure Filters...")
+        self.btn_configure_filters.setToolTip("Add or modify filter conditions to show only specific rows (filters are saved with the file)")
         self.btn_configure_filters.clicked.connect(self._configure_filters_dialog)
         filter_panel_layout.addWidget(self.btn_configure_filters)
 
         self.btn_clear_filters = QPushButton("Clear Filters")
+        self.btn_clear_filters.setToolTip("Remove all active filters and show all rows")
         self.btn_clear_filters.clicked.connect(self._clear_filters)
         self.btn_clear_filters.setEnabled(False)
         filter_panel_layout.addWidget(self.btn_clear_filters)
 
         self.btn_show_statistics = QPushButton("Statistics...")
+        self.btn_show_statistics.setToolTip("View statistical summaries (min, max, mean, median, etc.) for each column using filtered data")
         self.btn_show_statistics.clicked.connect(self._show_statistics_dialog)
         filter_panel_layout.addWidget(self.btn_show_statistics)
 
         self.btn_configure_sort = QPushButton("Sort...")
+        self.btn_configure_sort.setToolTip("Configure multi-column sorting with ascending/descending order (sort settings are saved with the file)")
         self.btn_configure_sort.clicked.connect(self._configure_sort_dialog)
         filter_panel_layout.addWidget(self.btn_configure_sort)
 
         self.btn_clear_sort = QPushButton("Clear Sort")
+        self.btn_clear_sort.setToolTip("Remove all sorting and display rows in original order")
         self.btn_clear_sort.clicked.connect(self._clear_sort)
         self.btn_clear_sort.setEnabled(False)
         filter_panel_layout.addWidget(self.btn_clear_sort)
@@ -1878,33 +1897,41 @@ class HDF5Viewer(QMainWindow):
     def _create_actions(self) -> None:
         self.act_new = QAction("New HDF5 File…", self)
         self.act_new.setShortcut("Ctrl+N")
+        self.act_new.setToolTip("Create a new empty HDF5 file (Ctrl+N)")
         self.act_new.triggered.connect(self.new_file_dialog)
 
         self.act_open = QAction("Open HDF5…", self)
         self.act_open.setShortcut("Ctrl+O")
+        self.act_open.setToolTip("Open an existing HDF5 file for browsing and editing (Ctrl+O)")
         self.act_open.triggered.connect(self.open_file_dialog)
 
         # Add files/folder actions
         self.act_add_files = QAction("Add Files…", self)
         self.act_add_files.setShortcut("Ctrl+Shift+F")
+        self.act_add_files.setToolTip("Import one or more files into the HDF5 archive (Ctrl+Shift+F)")
         self.act_add_files.triggered.connect(self.add_files_dialog)
 
         self.act_add_folder = QAction("Add Folder…", self)
         self.act_add_folder.setShortcut("Ctrl+Shift+D")
+        self.act_add_folder.setToolTip("Import an entire folder structure recursively into the HDF5 archive (Ctrl+Shift+D)")
         self.act_add_folder.triggered.connect(self.add_folder_dialog)
 
         self.act_new_folder = QAction("New Folder…", self)
         self.act_new_folder.setShortcut("Ctrl+Shift+N")
+        self.act_new_folder.setToolTip("Create a new empty group (folder) in the selected location (Ctrl+Shift+N)")
         self.act_new_folder.triggered.connect(self.new_folder_dialog)
 
         self.act_expand = QAction("Expand All", self)
+        self.act_expand.setToolTip("Expand all groups in the tree view to show full hierarchy")
         self.act_expand.triggered.connect(self.tree.expandAll)
 
         self.act_collapse = QAction("Collapse All", self)
+        self.act_collapse.setToolTip("Collapse all groups in the tree view to show only top level")
         self.act_collapse.triggered.connect(self.tree.collapseAll)
 
         self.act_quit = QAction("Quit", self)
         self.act_quit.setShortcut("Ctrl+Q")
+        self.act_quit.setToolTip("Close the application (Ctrl+Q)")
         self.act_quit.triggered.connect(self.close)
 
         # Plotting action for CSV tables
