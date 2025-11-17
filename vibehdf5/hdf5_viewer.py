@@ -1824,7 +1824,7 @@ class HDF5Viewer(QMainWindow):
         self.preview_table = QTableWidget(self)
         self.preview_table.setVisible(False)
         self.preview_table.setAlternatingRowColors(True)
-        self.preview_table.horizontalHeader().setStretchLastSection(True)
+        self.preview_table.horizontalHeader().setStretchLastSection(False)
         # Enable selecting multiple columns for plotting
         self.preview_table.setSelectionBehavior(QAbstractItemView.SelectColumns)
         self.preview_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
