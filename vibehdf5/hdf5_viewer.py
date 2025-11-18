@@ -719,6 +719,98 @@ class ColumnFilterDialog(QDialog):
             self._add_filter_row(col_name, operator, value)
 
 
+class ColumnVisibilityDialog(QDialog):
+    """Dialog for selecting which columns to display in the CSV table."""
+
+    def __init__(self, column_names, visible_columns=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Columns to Display")
+        self.resize(400, 500)
+
+        self.column_names = column_names
+        self.visible_columns = visible_columns if visible_columns is not None else column_names.copy()
+
+        layout = QVBoxLayout(self)
+
+        # Instructions
+        info_label = QLabel("Select which columns to display in the table:")
+        layout.addWidget(info_label)
+
+        # Show all / Select specific radio buttons
+        radio_layout = QHBoxLayout()
+        self.radio_show_all = QCheckBox("Show All Columns")
+        self.radio_show_all.setChecked(len(self.visible_columns) == len(self.column_names))
+        self.radio_show_all.toggled.connect(self._on_show_all_toggled)
+        radio_layout.addWidget(self.radio_show_all)
+        radio_layout.addStretch()
+        layout.addLayout(radio_layout)
+
+        # Column list with checkboxes
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.StyledPanel)
+
+        list_container = QWidget()
+        self.list_layout = QVBoxLayout(list_container)
+        self.list_layout.setContentsMargins(5, 5, 5, 5)
+
+        self.column_checkboxes = []
+        for col_name in self.column_names:
+            checkbox = QCheckBox(col_name)
+            checkbox.setChecked(col_name in self.visible_columns)
+            checkbox.toggled.connect(self._on_checkbox_toggled)
+            self.column_checkboxes.append(checkbox)
+            self.list_layout.addWidget(checkbox)
+
+        self.list_layout.addStretch()
+        scroll.setWidget(list_container)
+        layout.addWidget(scroll)
+
+        # Select/Deselect buttons
+        button_layout = QHBoxLayout()
+        select_all_btn = QPushButton("Select All")
+        select_all_btn.clicked.connect(self._select_all)
+        button_layout.addWidget(select_all_btn)
+
+        deselect_all_btn = QPushButton("Deselect All")
+        deselect_all_btn.clicked.connect(self._deselect_all)
+        button_layout.addWidget(deselect_all_btn)
+
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+
+        # Dialog buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def _on_show_all_toggled(self, checked):
+        """Handle show all checkbox toggle."""
+        if checked:
+            for checkbox in self.column_checkboxes:
+                checkbox.setChecked(True)
+
+    def _on_checkbox_toggled(self):
+        """Update show all checkbox when individual checkboxes change."""
+        all_checked = all(cb.isChecked() for cb in self.column_checkboxes)
+        self.radio_show_all.setChecked(all_checked)
+
+    def _select_all(self):
+        """Select all columns."""
+        for checkbox in self.column_checkboxes:
+            checkbox.setChecked(True)
+
+    def _deselect_all(self):
+        """Deselect all columns."""
+        for checkbox in self.column_checkboxes:
+            checkbox.setChecked(False)
+
+    def get_visible_columns(self):
+        """Return list of selected column names."""
+        return [cb.text() for cb in self.column_checkboxes if cb.isChecked()]
+
+
 class PlotOptionsDialog(QDialog):
     """Dialog for configuring plot options (title, labels, line styles, etc.)."""
 
@@ -1815,6 +1907,11 @@ class HDF5Viewer(QMainWindow):
         self.btn_clear_sort.setEnabled(False)
         filter_panel_layout.addWidget(self.btn_clear_sort)
 
+        self.btn_configure_columns = QPushButton("Columns...")
+        self.btn_configure_columns.setToolTip("Select which columns to display in the table")
+        self.btn_configure_columns.clicked.connect(self._configure_columns_dialog)
+        filter_panel_layout.addWidget(self.btn_configure_columns)
+
         filter_panel_layout.addStretch()
 
         self.filter_panel.setVisible(False)
@@ -1911,6 +2008,7 @@ class HDF5Viewer(QMainWindow):
         self._csv_column_names: list[str] = []
         self._csv_filters: list[tuple[str, str, str]] = []  # (column, operator, value)
         self._csv_filtered_indices: np.ndarray | None = None  # Indices of visible rows
+        self._csv_visible_columns: list[str] = []  # Columns to show in table
 
         # Track saved plot configurations for current CSV group
         self._saved_plots: list[dict] = []  # List of plot config dictionaries
@@ -3600,6 +3698,18 @@ class HDF5Viewer(QMainWindow):
                     f"Loaded sort by {len(saved_sort)} column(s) from HDF5 file", 5000
                 )
 
+            # Load saved column visibility from HDF5 group
+            saved_visible_columns = self._load_visible_columns_from_hdf5(grp)
+            if saved_visible_columns:
+                self._csv_visible_columns = saved_visible_columns
+                self._apply_column_visibility()
+                self.statusBar().showMessage(
+                    f"Loaded column visibility ({len(saved_visible_columns)}/{len(col_names)} columns) from HDF5 file", 5000
+                )
+            else:
+                # Default to all columns visible
+                self._csv_visible_columns = col_names.copy()
+
             # Load saved plot configurations from HDF5 group
             self._load_plot_configs_from_hdf5(grp)
 
@@ -4142,6 +4252,72 @@ class HDF5Viewer(QMainWindow):
         except Exception as exc:  # noqa: BLE001
             print(f"Warning: Could not load sort from HDF5: {exc}")
         return []
+
+    def _configure_columns_dialog(self):
+        """Open dialog to select which columns to display."""
+        if not self._csv_column_names:
+            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
+            return
+
+        dialog = ColumnVisibilityDialog(
+            self._csv_column_names,
+            self._csv_visible_columns if self._csv_visible_columns else self._csv_column_names.copy(),
+            self
+        )
+
+        if dialog.exec() == QDialog.Accepted:
+            self._csv_visible_columns = dialog.get_visible_columns()
+            self._save_visible_columns_to_hdf5()
+            self._apply_column_visibility()
+
+    def _apply_column_visibility(self):
+        """Apply column visibility to the table."""
+        if not self._csv_column_names:
+            return
+
+        # Hide/show columns based on visibility list
+        for col_idx, col_name in enumerate(self._csv_column_names):
+            should_hide = col_name not in self._csv_visible_columns
+            self.preview_table.setColumnHidden(col_idx, should_hide)
+
+    def _save_visible_columns_to_hdf5(self):
+        """Save visible columns list to the HDF5 file as a JSON attribute."""
+        if not self._current_csv_group_path or not self.model or not self.model.filepath:
+            return
+
+        try:
+            with h5py.File(self.model.filepath, "r+") as h5:
+                if self._current_csv_group_path in h5:
+                    grp = h5[self._current_csv_group_path]
+                    if isinstance(grp, h5py.Group):
+                        if self._csv_visible_columns and len(self._csv_visible_columns) < len(self._csv_column_names):
+                            # Only save if not all columns are visible
+                            visible_json = json.dumps(self._csv_visible_columns)
+                            grp.attrs["csv_visible_columns"] = visible_json
+                            self.statusBar().showMessage(
+                                f"Saved column visibility ({len(self._csv_visible_columns)}/{len(self._csv_column_names)} columns) to HDF5 file", 3000
+                            )
+                        else:
+                            # Remove attribute if all columns are visible
+                            if "csv_visible_columns" in grp.attrs:
+                                del grp.attrs["csv_visible_columns"]
+                            self.statusBar().showMessage("All columns visible - removed saved visibility preference", 3000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"Warning: Could not save column visibility to HDF5: {exc}")
+
+    def _load_visible_columns_from_hdf5(self, grp: h5py.Group):
+        """Load visible columns list from the HDF5 group attributes."""
+        try:
+            if "csv_visible_columns" in grp.attrs:
+                visible_json = grp.attrs["csv_visible_columns"]
+                if isinstance(visible_json, bytes):
+                    visible_json = visible_json.decode("utf-8")
+                visible_columns = json.loads(visible_json)
+                if isinstance(visible_columns, list):
+                    return visible_columns
+        except Exception as exc:  # noqa: BLE001
+            print(f"Warning: Could not load visible columns from HDF5: {exc}")
+        return None
 
     def _save_filters_to_hdf5(self):
         """Save current filters to the HDF5 file as a JSON attribute."""
