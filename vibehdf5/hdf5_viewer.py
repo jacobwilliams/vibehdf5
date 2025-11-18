@@ -2004,7 +2004,8 @@ class HDF5Viewer(QMainWindow):
         self._current_csv_group_path: str | None = None
 
         # Track CSV data and filters
-        self._csv_data_dict: dict[str, np.ndarray] = {}  # Full unfiltered data
+        self._csv_data_dict: dict[str, np.ndarray] = {}  # Cached column data (lazy loaded)
+        self._csv_dataset_info: dict = {}  # Metadata for lazy loading (column -> (ds_key, th_grp_path, row_count, dtype))
         self._csv_column_names: list[str] = []
         self._csv_filters: list[tuple[str, str, str]] = []  # (column, operator, value)
         self._csv_filtered_indices: np.ndarray | None = None  # Indices of visible rows
@@ -3553,14 +3554,14 @@ class HDF5Viewer(QMainWindow):
             total_cols = len(col_names)
 
             # Create progress dialog
-            progress = QProgressDialog("Loading CSV data...", "Cancel", 0, 100, self)
+            progress = QProgressDialog("Loading CSV metadata...", "Cancel", 0, 100, self)
             progress.setWindowModality(Qt.WindowModal)
             progress.setMinimumDuration(500)  # Show after 500ms
             progress.setValue(0)
             QApplication.processEvents()
 
-            # Read all datasets
-            data_dict = {}
+            # First pass: only get metadata (dataset paths and row counts) - don't load data yet
+            dataset_info = {}  # Maps column name to (ds_key, th_grp_path, row_count, dtype)
             max_rows = 0
             for idx, col_name in enumerate(col_names):
                 if progress.wasCanceled():
@@ -3568,10 +3569,10 @@ class HDF5Viewer(QMainWindow):
                     self._set_preview_text("(CSV display cancelled)")
                     return
 
-                # Update progress (0-70% range for reading data)
-                progress_val = int((idx / total_cols) * 70)
+                # Update progress
+                progress_val = int((idx / total_cols) * 30)
                 progress.setValue(progress_val)
-                progress.setLabelText(f"Reading column {idx + 1}/{total_cols}: {col_name}")
+                progress.setLabelText(f"Reading metadata {idx + 1}/{total_cols}: {col_name}")
                 QApplication.processEvents()
 
                 # Resolve dataset key for this column
@@ -3590,45 +3591,32 @@ class HDF5Viewer(QMainWindow):
                 if ds_key and key_in_group:
                     ds = th_grp[ds_key]
                     if isinstance(ds, h5py.Dataset):
-                        # Read dataset data
-                        data = ds[()]
-                        if isinstance(data, np.ndarray):
-                            # Decode byte strings to UTF-8 strings for display
-                            if data.dtype.kind == "S":
-                                # Byte strings - decode to UTF-8
-                                data = np.array([
-                                    v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
-                                    for v in data
-                                ], dtype=object)
-                            elif data.dtype.kind == "O":
-                                # Object dtype - could be mixed, handle bytes if present
-                                data = np.array([
-                                    v.decode("utf-8", errors="replace") if isinstance(v, bytes) else v
-                                    for v in data
-                                ], dtype=object)
-                            data_dict[col_name] = data
-                            max_rows = max(max_rows, len(data))
+                        # Only get shape and dtype, don't load data
+                        if len(ds.shape) > 0:
+                            row_count = ds.shape[0]
                         else:
-                            # Scalar dataset - handle bytes
-                            if isinstance(data, bytes):
-                                data = data.decode("utf-8", errors="replace")
-                            data_dict[col_name] = [data]
-                            max_rows = max(max_rows, 1)
+                            row_count = 1
+                        # Store group path as string instead of group object
+                        th_grp_path = th_grp.name
+                        dataset_info[col_name] = (ds_key, th_grp_path, row_count, ds.dtype)
+                        max_rows = max(max_rows, row_count)
 
-            if not data_dict:
+            if not dataset_info:
                 progress.close()
                 self._set_preview_text("(No datasets found in CSV group)")
                 return
 
-            # Store full data for filtering and lazy loading
-            self._csv_data_dict = data_dict
+            # Store dataset info and metadata for lazy loading
+            self._csv_dataset_info = dataset_info  # For lazy loading
+            self._csv_data_dict = {}  # Will be populated on-demand
+
             self._csv_column_names = col_names
             self._csv_total_rows = max_rows
             self._csv_sort_specs = []  # Initialize sort specs
 
             # Setup table - disable updates for performance
             progress.setLabelText("Setting up table...")
-            progress.setValue(75)
+            progress.setValue(40)
             QApplication.processEvents()
 
             self.preview_table.setUpdatesEnabled(False)
@@ -3638,13 +3626,19 @@ class HDF5Viewer(QMainWindow):
             self.preview_table.setColumnCount(len(col_names))
             self.preview_table.setHorizontalHeaderLabels(col_names)
 
-            # Initially load only first batch of rows for performance
+            # Load only the data needed for first batch of rows
             initial_batch = min(self._table_batch_size, max_rows)
             progress.setLabelText(f"Loading initial {initial_batch} rows...")
-            progress.setValue(80)
+            progress.setValue(50)
             QApplication.processEvents()
 
-            self._populate_table_rows(0, initial_batch, data_dict, col_names)
+            # Lazy load columns as needed for initial batch
+            # Need to access file separately since grp is from outer context
+            fpath = self.model.filepath
+            if fpath:
+                with h5py.File(fpath, "r") as h5:
+                    self._lazy_load_columns(col_names, 0, initial_batch, h5)
+            self._populate_table_rows(0, initial_batch, self._csv_data_dict, col_names)
             self._table_loaded_rows = initial_batch
 
             # Resize columns to content based on initial batch
@@ -3738,6 +3732,134 @@ class HDF5Viewer(QMainWindow):
             self.preview_image.setVisible(False)
             self._hide_attributes()
 
+    def _ensure_all_data_loaded(self) -> None:
+        """Ensure all CSV data is loaded (used before filtering/sorting/plotting)."""
+        if not self._csv_dataset_info or not self._current_csv_group_path:
+            return
+
+        if not self.model or not self.model.filepath:
+            return
+
+        # Check if we need to load more data
+        total_rows = getattr(self, '_csv_total_rows', 0)
+        if total_rows == 0:
+            return
+
+        # Check if all columns are fully loaded
+        all_loaded = True
+        for col_name in self._csv_column_names:
+            if col_name not in self._csv_data_dict or len(self._csv_data_dict[col_name]) < total_rows:
+                all_loaded = False
+                break
+
+        if all_loaded:
+            return  # Already loaded
+
+        # Load remaining data with progress dialog
+        progress = QProgressDialog("Loading all CSV data for operation...", "Cancel", 0, 100, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(200)
+        progress.setValue(0)
+        QApplication.processEvents()
+
+        try:
+            with h5py.File(self.model.filepath, "r") as h5:
+                if self._current_csv_group_path in h5:
+                    grp = h5[self._current_csv_group_path]
+                    if isinstance(grp, h5py.Group):
+                        # Load all columns completely
+                        progress.setLabelText("Loading complete dataset...")
+                        progress.setValue(10)
+                        QApplication.processEvents()
+
+                        self._lazy_load_columns(self._csv_column_names, 0, total_rows, h5)
+
+                        progress.setValue(100)
+        except Exception as exc:
+            self.statusBar().showMessage(f"Error loading data: {exc}", 5000)
+        finally:
+            progress.close()
+
+    def _lazy_load_columns(self, col_names: list[str], start_row: int, end_row: int, h5: h5py.File) -> None:
+        """Lazy load only the columns and rows needed from HDF5.
+
+        Args:
+            col_names: List of column names to load
+            start_row: Starting row index
+            end_row: Ending row index (exclusive)
+            h5: Open HDF5 file object
+        """
+        for col_name in col_names:
+            # Check if we need to load or extend this column
+            if col_name in self._csv_data_dict:
+                existing_data = self._csv_data_dict[col_name]
+                # If already fully loaded for this range, skip
+                if len(existing_data) >= end_row:
+                    continue
+                # Otherwise we need to extend - adjust start_row
+                actual_start = len(existing_data)
+            else:
+                actual_start = 0  # Load from beginning
+
+            # Load this column's data for the requested range
+            if col_name in self._csv_dataset_info:
+                ds_key, th_grp_path, row_count, dtype = self._csv_dataset_info[col_name]
+                # Get the group from the file using the stored path
+                th_grp = h5[th_grp_path]
+                ds = th_grp[ds_key]
+
+                if isinstance(ds, h5py.Dataset):
+                    # Determine the actual slice to load
+                    load_start = max(actual_start, start_row)
+                    load_end = min(end_row, row_count)
+
+                    if load_start >= load_end:
+                        continue  # Nothing to load
+
+                    # Load only the slice we need
+                    if len(ds.shape) > 0:
+                        data = ds[load_start:load_end]
+                    else:
+                        data = ds[()]
+
+                    if isinstance(data, np.ndarray):
+                        # Decode byte strings to UTF-8 strings for display
+                        if data.dtype.kind == "S":
+                            # Byte strings - decode to UTF-8
+                            data = np.array([
+                                v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
+                                for v in data
+                            ], dtype=object)
+                        elif data.dtype.kind == "O":
+                            # Object dtype - could be mixed, handle bytes if present
+                            data = np.array([
+                                v.decode("utf-8", errors="replace") if isinstance(v, bytes) else v
+                                for v in data
+                            ], dtype=object)
+
+                        # Store or concatenate the data
+                        if col_name in self._csv_data_dict:
+                            existing_data = self._csv_data_dict[col_name]
+                            # If there's a gap between existing and new data, pad with empty strings
+                            if load_start > len(existing_data):
+                                gap = np.array([""] * (load_start - len(existing_data)), dtype=object)
+                                self._csv_data_dict[col_name] = np.concatenate([existing_data, gap, data])
+                            else:
+                                self._csv_data_dict[col_name] = np.concatenate([existing_data, data])
+                        else:
+                            # First load for this column
+                            if load_start > 0:
+                                # Need to pad the beginning if not starting from row 0
+                                padding = np.array([""] * load_start, dtype=object)
+                                self._csv_data_dict[col_name] = np.concatenate([padding, data])
+                            else:
+                                self._csv_data_dict[col_name] = data
+                    else:
+                        # Scalar dataset
+                        if isinstance(data, bytes):
+                            data = data.decode("utf-8", errors="replace")
+                        self._csv_data_dict[col_name] = np.array([data], dtype=object)
+
     def _populate_table_rows(self, start_row: int, end_row: int, data_dict: dict, col_names: list[str]) -> None:
         """Populate table rows from start_row to end_row (exclusive)."""
         for col_idx, col_name in enumerate(col_names):
@@ -3824,6 +3946,17 @@ class HDF5Viewer(QMainWindow):
 
             # Disable updates during batch load for better performance
             self.preview_table.setUpdatesEnabled(False)
+
+            # Lazy load the data for this range if needed
+            if self._current_csv_group_path and self.model and self.model.filepath:
+                try:
+                    with h5py.File(self.model.filepath, "r") as h5:
+                        if self._current_csv_group_path in h5:
+                            grp = h5[self._current_csv_group_path]
+                            if isinstance(grp, h5py.Group):
+                                self._lazy_load_columns(self._csv_column_names, start_row, end_row, h5)
+                except Exception as exc:
+                    self.statusBar().showMessage(f"Error loading data: {exc}", 5000)
 
             # Populate all rows up to target
             self._populate_table_rows(start_row, end_row, self._csv_data_dict, self._csv_column_names)
@@ -3963,6 +4096,9 @@ class HDF5Viewer(QMainWindow):
             QMessageBox.information(self, "Plot", "No CSV table is active to plot.")
             return
 
+        # Ensure all data is loaded before plotting
+        self._ensure_all_data_loaded()
+
         # Determine selected columns and their order
         sel_cols = self._get_selected_column_indices()
         if len(sel_cols) < 1:
@@ -4007,6 +4143,12 @@ class HDF5Viewer(QMainWindow):
             QMessageBox.warning(self, "Plot", "No CSV data available.")
             return
 
+        # Get the actual data length after loading
+        actual_data_len = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
+
+        # Filter indices to only valid range (in case of partial loading)
+        valid_filtered_indices = self._csv_filtered_indices[self._csv_filtered_indices < actual_data_len]
+
         col_data = {}
         columns_to_load = y_names if x_idx is None else [x_name] + y_names
         for name in columns_to_load:
@@ -4014,9 +4156,9 @@ class HDF5Viewer(QMainWindow):
                 # Get only the filtered rows
                 full_data = self._csv_data_dict[name]
                 if isinstance(full_data, np.ndarray):
-                    col_data[name] = full_data[self._csv_filtered_indices]
+                    col_data[name] = full_data[valid_filtered_indices]
                 else:
-                    col_data[name] = np.array([full_data[i] for i in self._csv_filtered_indices])
+                    col_data[name] = np.array([full_data[i] for i in valid_filtered_indices if i < len(full_data)])
 
         if not any(name in col_data for name in y_names):
             QMessageBox.warning(self, "Plot", "Failed to get selected columns for plotting.")
@@ -4170,9 +4312,12 @@ class HDF5Viewer(QMainWindow):
 
     def _show_statistics_dialog(self):
         """Open dialog to show statistics for CSV columns."""
-        if not self._csv_column_names or not self._csv_data_dict:
+        if not self._csv_column_names or (not self._csv_data_dict and not self._csv_dataset_info):
             QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
             return
+
+        # Ensure all data is loaded before calculating statistics
+        self._ensure_all_data_loaded()
 
         # Use filtered indices if available
         filtered_indices = self._csv_filtered_indices if hasattr(self, '_csv_filtered_indices') else None
@@ -4398,8 +4543,11 @@ class HDF5Viewer(QMainWindow):
 
     def _apply_filters(self):
         """Apply current filters to the CSV table."""
-        if not self._csv_data_dict:
+        if not self._csv_data_dict and not self._csv_dataset_info:
             return
+
+        # Ensure all data is loaded before filtering
+        self._ensure_all_data_loaded()
 
         # Update filter status label
         if self._csv_filters:
@@ -4411,7 +4559,10 @@ class HDF5Viewer(QMainWindow):
             self.btn_clear_filters.setEnabled(False)
 
         # Determine which rows pass all filters
-        max_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict)
+        max_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
+        if max_rows == 0:
+            return
+
         valid_rows = np.ones(max_rows, dtype=bool)
 
         for col_name, operator, value_str in self._csv_filters:
