@@ -811,6 +811,44 @@ class ColumnVisibilityDialog(QDialog):
         return [cb.text() for cb in self.column_checkboxes if cb.isChecked()]
 
 
+class UniqueValuesDialog(QDialog):
+    """Dialog for displaying unique values in a column."""
+
+    def __init__(self, column_name, unique_values, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Unique Values - {column_name}")
+        self.resize(400, 500)
+
+        layout = QVBoxLayout(self)
+
+        # Info label
+        info_label = QLabel(f"Unique values in column '{column_name}' ({len(unique_values)} unique):")
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        # Table to display unique values
+        self.table = QTableWidget()
+        self.table.setColumnCount(1)
+        self.table.setHorizontalHeaderLabels(["Value"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setAlternatingRowColors(True)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+
+        # Populate table with unique values
+        self.table.setRowCount(len(unique_values))
+        for i, value in enumerate(unique_values):
+            item = QTableWidgetItem(str(value))
+            self.table.setItem(i, 0, item)
+
+        layout.addWidget(self.table)
+
+        # Close button
+        button_box = QDialogButtonBox(QDialogButtonBox.Close)
+        button_box.rejected.connect(self.close)
+        layout.addWidget(button_box)
+
+
 class PlotOptionsDialog(QDialog):
     """Dialog for configuring plot options (title, labels, line styles, etc.)."""
 
@@ -1928,6 +1966,9 @@ class HDF5Viewer(QMainWindow):
         self.preview_table.itemSelectionChanged.connect(self._update_plot_action_enabled)
         # Connect scrollbar for lazy loading
         self.preview_table.verticalScrollBar().valueChanged.connect(self._on_table_scroll)
+        # Enable context menu on horizontal header
+        self.preview_table.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
+        self.preview_table.horizontalHeader().customContextMenuRequested.connect(self._on_column_header_context_menu)
         content_layout.addWidget(self.preview_table)
 
         # Lazy loading state variables
@@ -4432,6 +4473,63 @@ class HDF5Viewer(QMainWindow):
         for col_idx, col_name in enumerate(self._csv_column_names):
             should_hide = col_name not in self._csv_visible_columns
             self.preview_table.setColumnHidden(col_idx, should_hide)
+
+    def _on_column_header_context_menu(self, pos):
+        """Handle right-click context menu on column header."""
+        # Get the column index at the clicked position
+        header = self.preview_table.horizontalHeader()
+        col_idx = header.logicalIndexAt(pos)
+
+        if col_idx < 0 or col_idx >= len(self._csv_column_names):
+            return
+
+        col_name = self._csv_column_names[col_idx]
+
+        # Create context menu
+        menu = QMenu(self)
+        act_unique = menu.addAction(f"Show Unique Values in '{col_name}'")
+
+        # Show menu and handle selection
+        global_pos = header.mapToGlobal(pos)
+        chosen = menu.exec(global_pos)
+
+        if chosen == act_unique:
+            self._show_unique_values_dialog(col_name)
+
+    def _show_unique_values_dialog(self, col_name):
+        """Show dialog with unique values for a specific column."""
+        # Ensure all data is loaded for accurate unique value calculation
+        self._ensure_all_data_loaded()
+
+        if not self._csv_data_dict or col_name not in self._csv_data_dict:
+            QMessageBox.information(self, "No Data", f"Column '{col_name}' has no data loaded.")
+            return
+
+        # Get the column data
+        col_data = self._csv_data_dict[col_name]
+
+        # If filters are active, use only filtered rows
+        if hasattr(self, '_csv_filtered_indices') and self._csv_filtered_indices is not None:
+            # Ensure filtered indices are within bounds
+            actual_data_len = len(col_data)
+            valid_indices = self._csv_filtered_indices[self._csv_filtered_indices < actual_data_len]
+            # Filter the data to only include visible rows
+            filtered_data = col_data[valid_indices]
+        else:
+            filtered_data = col_data
+
+        # Get unique values and sort them
+        try:
+            unique_values = np.unique(filtered_data)
+            # Convert to list for display
+            unique_list = [str(val) for val in unique_values]
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to get unique values: {e}")
+            return
+
+        # Show dialog
+        dialog = UniqueValuesDialog(col_name, unique_list, self)
+        dialog.exec()
 
     def _save_visible_columns_to_hdf5(self):
         """Save visible columns list to the HDF5 file as a JSON attribute."""
