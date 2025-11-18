@@ -3710,6 +3710,10 @@ class HDF5Viewer(QMainWindow):
                 # Default to all columns visible
                 self._csv_visible_columns = col_names.copy()
 
+            # Update model with visible columns for drag-and-drop export
+            if self._current_csv_group_path and self.model:
+                self.model.set_csv_visible_columns(self._current_csv_group_path, self._csv_visible_columns)
+
             # Load saved plot configurations from HDF5 group
             self._load_plot_configs_from_hdf5(grp)
 
@@ -4269,6 +4273,10 @@ class HDF5Viewer(QMainWindow):
             self._csv_visible_columns = dialog.get_visible_columns()
             self._save_visible_columns_to_hdf5()
             self._apply_column_visibility()
+
+            # Update model so drag-and-drop exports only visible columns
+            if self._current_csv_group_path and self.model:
+                self.model.set_csv_visible_columns(self._current_csv_group_path, self._csv_visible_columns)
 
     def _apply_column_visibility(self):
         """Apply column visibility to the table."""

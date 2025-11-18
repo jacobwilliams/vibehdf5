@@ -34,6 +34,7 @@ class HDF5TreeModel(QStandardItemModel):
         self._style = QApplication.instance().style() if QApplication.instance() else None
         self._filepath: str | None = None
         self._csv_filtered_indices = {}  # Dict mapping CSV group path to filtered row indices
+        self._csv_visible_columns = {}  # Dict mapping CSV group path to list of visible column names
 
     def load_file(self, filepath: str) -> None:
         """Load the HDF5 file and populate the model."""
@@ -70,6 +71,29 @@ class HDF5TreeModel(QStandardItemModel):
             self._csv_filtered_indices.pop(csv_group_path, None)
         else:
             self._csv_filtered_indices[csv_group_path] = indices
+
+    def set_csv_visible_columns(self, csv_group_path: str, visible_columns: list[str] | None) -> None:
+        """Set the visible columns for a CSV group export.
+
+        Args:
+            csv_group_path: HDF5 path to the CSV group
+            visible_columns: list of column names to export, or None to export all columns
+        """
+        if visible_columns is None or not visible_columns:
+            self._csv_visible_columns.pop(csv_group_path, None)
+        else:
+            self._csv_visible_columns[csv_group_path] = visible_columns
+
+    def get_csv_visible_columns(self, csv_group_path: str) -> list[str] | None:
+        """Get the visible columns for a CSV group.
+
+        Args:
+            csv_group_path: HDF5 path to the CSV group
+
+        Returns:
+            List of visible column names, or None if all columns should be shown
+        """
+        return self._csv_visible_columns.get(csv_group_path)
 
     def get_csv_filtered_indices(self, csv_group_path: str) -> np.ndarray | None:
         """Get the filtered row indices for a CSV group.
@@ -316,6 +340,12 @@ class HDF5TreeModel(QStandardItemModel):
                 # Fallback to dataset keys
                 col_names = [name for name in group.keys() if isinstance(group[name], h5py.Dataset)]
                 col_names.sort()
+
+            # Filter to only visible columns if specified
+            visible_columns = self._csv_visible_columns.get(group_path)
+            if visible_columns:
+                # Keep only columns that are in the visible list (preserve order)
+                col_names = [col for col in col_names if col in visible_columns]
 
             # If present, use explicit mapping of column -> dataset name
             col_ds_names = None
