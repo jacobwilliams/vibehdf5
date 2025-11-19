@@ -38,7 +38,7 @@ jobs:
       - name: Build documentation
         run: |
           cd docs
-          pixi run -m ../env/pixi.toml make html
+          pixi run --manifest-path ../env/pixi.toml make html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
