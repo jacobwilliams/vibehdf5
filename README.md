@@ -76,6 +76,9 @@ pip install vibehdf5
 
 ### Documentation
 
+Full documentation is available online at:
+- **GitHub Pages**: https://jacobwilliams.github.io/vibehdf5/
+
 To build the documentation locally (using Sphinx) use `make html` in the `docs/` directory.
 
 ### From Source
