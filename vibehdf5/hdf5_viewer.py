@@ -4093,15 +4093,17 @@ class HDF5Viewer(QMainWindow):
 
             progress.close()
 
-            # Load saved filters from HDF5 group
+            # Load saved filters from HDF5 group (or clear if none exist)
             saved_filters = self._load_filters_from_hdf5(grp)
             if saved_filters:
                 self._csv_filters = saved_filters
                 self.statusBar().showMessage(
                     f"Loaded {len(saved_filters)} saved filter(s) from HDF5 file", 5000
                 )
+            else:
+                self._csv_filters = []
 
-            # Load saved sort from HDF5 group
+            # Load saved sort from HDF5 group (or clear if none exist)
             saved_sort = self._load_sort_from_hdf5(grp)
             if saved_sort:
                 self._csv_sort_specs = saved_sort
@@ -4109,6 +4111,9 @@ class HDF5Viewer(QMainWindow):
                 self.statusBar().showMessage(
                     f"Loaded sort by {len(saved_sort)} column(s) from HDF5 file", 5000
                 )
+            else:
+                self._csv_sort_specs = []
+                self.btn_clear_sort.setEnabled(False)
 
             # Load saved column visibility from HDF5 group
             saved_visible_columns = self._load_visible_columns_from_hdf5(grp)
