@@ -67,13 +67,25 @@ class DraggablePlotListWidget(QListWidget):
     """QListWidget that supports drag-and-drop to export plots to filesystem."""
 
     def __init__(self, parent=None):
+        """Initialize the draggable list widget.
+
+        Args:
+            parent: Parent widget (should be the HDF5Viewer instance)
+        """
         super().__init__(parent)
         self.setDragEnabled(True)
         self.setDragDropMode(QAbstractItemView.DragOnly)
         self.parent_viewer = parent
 
     def mimeData(self, items):
-        """Create mime data for drag operation."""
+        """Create mime data for drag operation.
+
+        Args:
+            items: List of QListWidgetItem objects being dragged
+
+        Returns:
+            QMimeData object for the drag operation
+        """
         mime_data = super().mimeData(items)
         if items and self.parent_viewer:
             # Store the row index in the mime data
@@ -82,7 +94,11 @@ class DraggablePlotListWidget(QListWidget):
         return mime_data
 
     def startDrag(self, supportedActions):
-        """Start drag operation and export plot to temporary file."""
+        """Start drag operation and export plot to temporary file.
+
+        Args:
+            supportedActions: Qt.DropActions flags indicating supported drop actions
+        """
         current_row = self.currentRow()
         if current_row < 0 or not self.parent_viewer:
             return
@@ -251,10 +267,21 @@ def _bytes_to_text(
 
 class ScaledImageLabel(QLabel):
     def __init__(self, parent=None, rescale_callback=None):
+        """Initialize the resizable label.
+
+        Args:
+            parent: Parent widget
+            rescale_callback: Callback function to execute on resize events
+        """
         super().__init__(parent)
         self._rescale_callback = rescale_callback
 
     def resizeEvent(self, event):
+        """Handle resize events and trigger rescale callback.
+
+        Args:
+            event: QResizeEvent object
+        """
         if self._rescale_callback:
             self._rescale_callback()
         super().resizeEvent(event)
@@ -264,11 +291,22 @@ class DropTreeView(QTreeView):
     """TreeView that accepts external file/folder drops and forwards to the viewer."""
 
     def __init__(self, parent=None, viewer=None):
+        """Initialize the tree view with drag-and-drop support.
+
+        Args:
+            parent: Parent widget
+            viewer: HDF5Viewer instance to forward drag-and-drop operations to
+        """
         super().__init__(parent)
         self.viewer = viewer
         self.setAcceptDrops(True)
 
     def dragEnterEvent(self, event):
+        """Handle drag enter events for file/folder drops.
+
+        Args:
+            event: QDragEnterEvent object
+        """
         md = event.mimeData()
         if md and md.hasUrls():
             event.acceptProposedAction()
@@ -276,6 +314,11 @@ class DropTreeView(QTreeView):
             super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event):
+        """Handle drag move events for file/folder drops.
+
+        Args:
+            event: QDragMoveEvent object
+        """
         md = event.mimeData()
         if md and md.hasUrls():
             event.acceptProposedAction()
@@ -283,6 +326,11 @@ class DropTreeView(QTreeView):
             super().dragMoveEvent(event)
 
     def dropEvent(self, event):
+        """Handle drop events for file/folder drops and internal HDF5 moves.
+
+        Args:
+            event: QDropEvent object
+        """
         md = event.mimeData()
         if not (self.viewer and md):
             return super().dropEvent(event)
@@ -345,6 +393,14 @@ class ColumnStatisticsDialog(QDialog):
     """Dialog for displaying column statistics."""
 
     def __init__(self, column_names, data_dict, filtered_indices, parent=None):
+        """Initialize the column statistics dialog.
+
+        Args:
+            column_names: List of column names to display statistics for
+            data_dict: Dictionary mapping column names to data arrays
+            filtered_indices: Array of filtered row indices, or None for all rows
+            parent: Parent widget
+        """
         super().__init__(parent)
         self.setWindowTitle("Column Statistics")
         self.resize(700, 500)
@@ -463,6 +519,12 @@ class ColumnSortDialog(QDialog):
     """Dialog for configuring multi-column sorting."""
 
     def __init__(self, column_names, parent=None):
+        """Initialize the column sorting dialog.
+
+        Args:
+            column_names: List of available column names for sorting
+            parent: Parent widget
+        """
         super().__init__(parent)
         self.setWindowTitle("Configure Column Sorting")
         self.resize(500, 400)
@@ -506,7 +568,12 @@ class ColumnSortDialog(QDialog):
         layout.addWidget(button_box)
 
     def _add_sort_row(self, col_name=None, ascending=True):
-        """Add a new sort row to the dialog."""
+        """Add a new sort row to the dialog.
+
+        Args:
+            col_name: Initial column name to select, or None for first column
+            ascending: True for ascending sort, False for descending
+        """
         row_widget = QWidget()
         row_layout = QHBoxLayout(row_widget)
         row_layout.setContentsMargins(0, 0, 0, 0)
@@ -558,7 +625,12 @@ class ColumnSortDialog(QDialog):
         self.sort_layout.insertWidget(self.sort_layout.count() - 1, row_widget)
 
     def _move_sort_row(self, row_widget, direction):
-        """Move a sort row up or down in the list."""
+        """Move a sort row up or down in the list.
+
+        Args:
+            row_widget: The widget representing the sort row to move
+            direction: -1 to move up, +1 to move down
+        """
         current_index = None
         for i in range(self.sort_layout.count() - 1):  # -1 to skip stretch
             if self.sort_layout.itemAt(i).widget() == row_widget:
@@ -578,7 +650,11 @@ class ColumnSortDialog(QDialog):
         self.sort_layout.insertWidget(new_index, row_widget)
 
     def _remove_sort_row(self, row_widget):
-        """Remove a sort row from the dialog."""
+        """Remove a sort row from the dialog.
+
+        Args:
+            row_widget: The widget representing the sort row to remove
+        """
         self.sort_layout.removeWidget(row_widget)
         row_widget.deleteLater()
 
@@ -594,7 +670,11 @@ class ColumnSortDialog(QDialog):
         return sort_specs
 
     def set_sort_specs(self, sort_specs):
-        """Set the sort specifications to display in the dialog."""
+        """Set the sort specifications to display in the dialog.
+
+        Args:
+            sort_specs: List of (column_name, ascending) tuples
+        """
         # Clear existing rows
         for i in reversed(range(self.sort_layout.count() - 1)):  # -1 to skip stretch
             widget = self.sort_layout.itemAt(i).widget()
@@ -650,7 +730,13 @@ class ColumnFilterDialog(QDialog):
         layout.addWidget(button_box)
 
     def _add_filter_row(self, col_name=None, operator="==", value=""):
-        """Add a new filter row to the dialog."""
+        """Add a new filter row to the dialog.
+
+        Args:
+            col_name: Initial column name to filter on, or None for first column
+            operator: Comparison operator (==, !=, >, >=, <, <=, contains, startswith, endswith)
+            value: Filter value as string
+        """
         row_widget = QWidget()
         row_layout = QHBoxLayout(row_widget)
         row_layout.setContentsMargins(0, 0, 0, 0)
@@ -696,7 +782,11 @@ class ColumnFilterDialog(QDialog):
         self.filter_layout.insertWidget(self.filter_layout.count() - 1, row_widget)
 
     def _remove_filter_row(self, row_widget):
-        """Remove a filter row from the dialog."""
+        """Remove a filter row from the dialog.
+
+        Args:
+            row_widget: The widget representing the filter row to remove
+        """
         self.filter_layout.removeWidget(row_widget)
         row_widget.deleteLater()
 
@@ -714,7 +804,11 @@ class ColumnFilterDialog(QDialog):
         return filters
 
     def set_filters(self, filters):
-        """Set initial filters from a list of (column_name, operator, value) tuples."""
+        """Set initial filters from a list of (column_name, operator, value) tuples.
+
+        Args:
+            filters: List of (column_name, operator, value) tuples
+        """
         for col_name, operator, value in filters:
             self._add_filter_row(col_name, operator, value)
 
@@ -723,6 +817,13 @@ class ColumnVisibilityDialog(QDialog):
     """Dialog for selecting which columns to display in the CSV table."""
 
     def __init__(self, column_names, visible_columns=None, parent=None):
+        """Initialize the column visibility dialog.
+
+        Args:
+            column_names: List of all column names
+            visible_columns: List of currently visible column names, or None for all
+            parent: Parent widget
+        """
         super().__init__(parent)
         self.setWindowTitle("Select Columns to Display")
         self.resize(400, 500)
@@ -786,7 +887,11 @@ class ColumnVisibilityDialog(QDialog):
         layout.addWidget(button_box)
 
     def _on_show_all_toggled(self, checked):
-        """Handle show all checkbox toggle."""
+        """Handle show all checkbox toggle.
+
+        Args:
+            checked: True if checkbox is checked, False otherwise
+        """
         if checked:
             for checkbox in self.column_checkboxes:
                 checkbox.setChecked(True)
@@ -815,6 +920,13 @@ class UniqueValuesDialog(QDialog):
     """Dialog for displaying unique values in a column."""
 
     def __init__(self, column_name, unique_values, parent=None):
+        """Initialize the unique values dialog.
+
+        Args:
+            column_name: Name of the column being displayed
+            unique_values: List of unique values to display
+            parent: Parent widget
+        """
         super().__init__(parent)
         self.setWindowTitle(f"Unique Values - {column_name}")
         self.resize(400, 500)
@@ -890,6 +1002,13 @@ class PlotOptionsDialog(QDialog):
     ]
 
     def __init__(self, plot_config, column_names, parent=None):
+        """Initialize the plot options dialog.
+
+        Args:
+            plot_config: Dictionary containing plot configuration
+            column_names: List of available column names
+            parent: Parent widget
+        """
         super().__init__(parent)
         self.setWindowTitle("Plot Options")
         self.resize(600, 500)
@@ -1322,7 +1441,16 @@ class PlotOptionsDialog(QDialog):
         layout.addWidget(button_box)
 
     def _create_series_widget(self, series_name, series_idx, series_options):
-        """Create a widget for configuring one series."""
+        """Create a widget for configuring one series.
+
+        Args:
+            series_name: Name of the data series (column name)
+            series_idx: Index of the series in the list
+            series_options: Dictionary of existing options for this series
+
+        Returns:
+            QFrame widget configured for the series
+        """
         widget = QFrame()
         widget.setFrameShape(QFrame.StyledPanel)
         layout = QVBoxLayout(widget)
@@ -1638,7 +1766,11 @@ class PlotOptionsDialog(QDialog):
         return widget
 
     def _remove_refline_widget(self, widget):
-        """Remove a reference line widget."""
+        """Remove a reference line widget.
+
+        Args:
+            widget: The reference line widget to remove
+        """
         if widget in self.refline_widgets:
             self.refline_widgets.remove(widget)
             self.reflines_layout.removeWidget(widget)
@@ -1748,11 +1880,17 @@ class CustomSplitter(QSplitter):
     """QSplitter with explicit cursor management for macOS compatibility."""
 
     def __init__(self, *args, **kwargs):
+        """Initialize the clickable splitter.
+
+        Args:
+            *args: Positional arguments passed to QSplitter
+            **kwargs: Keyword arguments passed to QSplitter
+        """
         super().__init__(*args, **kwargs)
         self._setupCursor()
 
     def _setupCursor(self):
-        """Ensure the splitter handle always has the correct cursor."""
+        """Ensure the splitter handle always has the correct cursor based on orientation."""
         # Set the cursor based on orientation
         if self.orientation() == Qt.Horizontal:
             cursor = Qt.SplitHCursor
@@ -1766,18 +1904,32 @@ class CustomSplitter(QSplitter):
                 handle.setCursor(cursor)
 
     def addWidget(self, widget):
-        """Override to set cursor on handle after widget is added."""
+        """Override to set cursor on handle after widget is added.
+
+        Args:
+            widget: QWidget to add to the splitter
+        """
         super().addWidget(widget)
         self._setupCursor()
 
     def insertWidget(self, index, widget):
-        """Override to set cursor on handle after widget is inserted."""
+        """Override to set cursor on handle after widget is inserted.
+
+        Args:
+            index: Position to insert the widget at
+            widget: QWidget to insert
+        """
         super().insertWidget(index, widget)
         self._setupCursor()
 
 
 class HDF5Viewer(QMainWindow):
     def __init__(self, parent=None):
+        """Initialize the HDF5 viewer main window.
+
+        Args:
+            parent: Parent widget, or None for top-level window
+        """
         super().__init__(parent)
         self.setWindowTitle("VibeHDF5")
         self.resize(900, 600)
@@ -2260,7 +2412,7 @@ class HDF5Viewer(QMainWindow):
 
     def _plot_series_with_options(
         self,
-        ax: Axes,
+        ax: plt.Axes,
         x_num: np.ndarray,
         y_num: np.ndarray,
         valid: np.ndarray,
@@ -2402,7 +2554,7 @@ class HDF5Viewer(QMainWindow):
 
     def _apply_plot_labels_and_formatting(
         self,
-        ax: "Axes",
+        ax: plt.Axes,
         fig,
         x_name: str,
         y_names: list,
@@ -2485,6 +2637,7 @@ class HDF5Viewer(QMainWindow):
         fig.tight_layout()
 
     def _create_actions(self) -> None:
+        """Create all QAction objects for menu and toolbar items."""
         self.act_new = QAction("New HDF5 File…", self)
         self.act_new.setShortcut("Ctrl+N")
         self.act_new.setToolTip("Create a new empty HDF5 file (Ctrl+N)")
@@ -2533,6 +2686,7 @@ class HDF5Viewer(QMainWindow):
         self.act_plot_selected.setEnabled(False)
 
     def _create_toolbar(self) -> None:
+        """Create and populate the main toolbar."""
         tb = QToolBar("Main", self)
         self.addToolBar(tb)
         tb.addAction(self.act_new)
@@ -2550,6 +2704,11 @@ class HDF5Viewer(QMainWindow):
 
     # Determine where to add new content in the HDF5 file
     def _get_target_group_path(self) -> str:
+        """Determine the target HDF5 group path for adding new content.
+
+        Returns:
+            String path to target group, or "/" for root
+        """
         sel = self.tree.selectionModel().selectedIndexes()
         if not sel:
             return "/"
@@ -2597,6 +2756,14 @@ class HDF5Viewer(QMainWindow):
         return candidate
 
     def _get_target_group_path_for_index(self, index) -> str:
+        """Determine the target HDF5 group path for a given tree index.
+
+        Args:
+            index: QModelIndex of the tree item
+
+        Returns:
+            String path to target group, or "/" for root
+        """
         if not index or not index.isValid():
             return self._get_target_group_path()
         index = index.sibling(index.row(), 0)
@@ -2646,6 +2813,7 @@ class HDF5Viewer(QMainWindow):
         return candidate
 
     def add_files_dialog(self) -> None:
+        """Open a file selection dialog and add selected files to the HDF5 archive."""
         fpath = self.model.filepath
         if not fpath:
             QMessageBox.information(self, "No file", "Open an HDF5 file first.")
@@ -2663,6 +2831,7 @@ class HDF5Viewer(QMainWindow):
             self.statusBar().showMessage(f"Added {added} file(s) to {target_group}", 5000)
 
     def add_folder_dialog(self) -> None:
+        """Open a folder selection dialog and add folder contents recursively to HDF5."""
         fpath = self.model.filepath
         if not fpath:
             QMessageBox.information(self, "No file", "Open an HDF5 file first.")
@@ -2821,6 +2990,17 @@ class HDF5Viewer(QMainWindow):
     def _add_items_batch(
         self, files: list[str], folders: list[str], target_group: str
     ) -> tuple[int, list[str]]:
+        """Add multiple files and folders to the HDF5 archive in batch.
+
+        Args:
+            files: List of file paths to add
+            folders: List of folder paths to add recursively
+            target_group: HDF5 group path where items should be added
+
+        Returns:
+            Tuple of (added_count, error_list) where added_count is number of successfully added items
+            and error_list contains error messages for failed items
+        """
         fpath = self.model.filepath
         if not fpath:
             return 0, ["No HDF5 file loaded"]
@@ -2915,7 +3095,14 @@ class HDF5Viewer(QMainWindow):
         For CSV files, creates a group with individual datasets for each column.
         For other files, stores as text or binary data.
 
-        Raises FileExistsError if the path already exists.
+        Args:
+            grp: HDF5 group or file object where the dataset should be created
+            h5_path: Full HDF5 path for the new dataset
+            disk_path: Path to the file on disk
+            np: numpy module reference for array creation
+
+        Raises:
+            FileExistsError: If the path already exists in the HDF5 file
         """
         # Check existence
         f = grp.file
@@ -2959,6 +3146,11 @@ class HDF5Viewer(QMainWindow):
 
         Creates a group at h5_path (without .csv extension) containing one dataset per column.
         Each dataset contains the column data with appropriate dtype.
+
+        Args:
+            f: Open HDF5 file object
+            h5_path: Desired HDF5 path for the CSV group (will have .csv extension removed)
+            disk_path: Path to the CSV file on disk
         """
         # Create progress dialog
         progress = self._create_progress_dialog("Reading CSV file...")
@@ -3122,6 +3314,7 @@ class HDF5Viewer(QMainWindow):
             )
 
     def open_file_dialog(self) -> None:
+        """Open a file selection dialog to open an existing HDF5 file."""
         last_dir = os.getcwd()
         filepath, _ = QFileDialog.getOpenFileName(
             self,
@@ -3133,6 +3326,11 @@ class HDF5Viewer(QMainWindow):
             self.load_hdf5(filepath)
 
     def load_hdf5(self, path: str | Path) -> None:
+        """Load an HDF5 file for viewing and editing.
+
+        Args:
+            path: Path to the HDF5 file to load
+        """
         path = str(path)
         try:
             self.model.load_file(path)
@@ -3241,6 +3439,12 @@ class HDF5Viewer(QMainWindow):
 
     # Selection handling
     def on_selection_changed(self, selected, _deselected) -> None:
+        """Handle tree selection changes and update preview.
+
+        Args:
+            selected: QItemSelection of newly selected items
+            _deselected: QItemSelection of deselected items (unused)
+        """
         indexes = selected.indexes()
         if not indexes:
             self._hide_attributes()
@@ -3264,6 +3468,11 @@ class HDF5Viewer(QMainWindow):
 
     # Context menu handling
     def on_tree_context_menu(self, point) -> None:
+        """Handle context menu requests on tree items.
+
+        Args:
+            point: QPoint position where the context menu was requested
+        """
         index = self.tree.indexAt(point)
         if not index.isValid():
             return
@@ -3343,6 +3552,13 @@ class HDF5Viewer(QMainWindow):
                 self._perform_delete(kind, path, attr_key)
 
     def _perform_delete(self, kind: str, path: str, attr_key: str | None) -> None:
+        """Delete an HDF5 item (dataset, group, or attribute).
+
+        Args:
+            kind: Type of item to delete ('dataset', 'group', or 'attr')
+            path: HDF5 path to the item or its owner (for attributes)
+            attr_key: Attribute key name if kind is 'attr', None otherwise
+        """
         fpath = self.model.filepath
         if not fpath:
             QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
@@ -3378,6 +3594,11 @@ class HDF5Viewer(QMainWindow):
             )
 
     def preview_dataset(self, dspath: str) -> None:
+        """Preview an HDF5 dataset in the preview pane.
+
+        Args:
+            dspath: HDF5 path to the dataset
+        """
         self.preview_label.setText(f"Dataset: {os.path.basename(dspath)}")
         fpath = self.model.filepath
         if not fpath:
@@ -3555,6 +3776,11 @@ class HDF5Viewer(QMainWindow):
         self.attrs_table.setRowCount(0)
 
     def _show_scaled_image(self, pixmap=None):
+        """Display a scaled image in the preview pane.
+
+        Args:
+            pixmap: QPixmap to display, or None to use stored pixmap
+        """
         # Use the provided pixmap or the stored one
         if pixmap is not None:
             self._original_pixmap = pixmap
@@ -3568,12 +3794,23 @@ class HDF5Viewer(QMainWindow):
         self.preview_image.setPixmap(scaled)
 
     def resizeEvent(self, event):
+        """Handle window resize events to rescale displayed images.
+
+        Args:
+            event: QResizeEvent object
+        """
         # If an image is visible, rescale it to fit the new size
         if self.preview_image.isVisible():
             self._show_scaled_image()
         super().resizeEvent(event)
 
     def preview_attribute(self, grouppath: str, key: str) -> None:
+        """Preview an HDF5 attribute value.
+
+        Args:
+            grouppath: HDF5 path to the group or dataset containing the attribute
+            key: Attribute key name
+        """
         self.preview_label.setText(f"Attribute: {grouppath}@{key}")
         fpath = self.model.filepath
         if not fpath:
@@ -3625,7 +3862,15 @@ class HDF5Viewer(QMainWindow):
             self._hide_attributes()
 
     def _get_th_location(self, ds_key, grp):
-        """We allow an optional 'Time History' group for CSV columns."""
+        """Get the location of a dataset, checking for optional 'Time History' subgroup.
+
+        Args:
+            ds_key: Dataset key name to look for
+            grp: HDF5 group to search in
+
+        Returns:
+            Tuple of (key_in_group: bool, th_grp: h5py.Group)
+        """
         OPTIONAL_GROUP_FOR_COLUMNS = "Time History"
         th_group = OPTIONAL_GROUP_FOR_COLUMNS in grp
         if th_group:
@@ -3965,7 +4210,14 @@ class HDF5Viewer(QMainWindow):
                         self._csv_data_dict[col_name] = np.array([data], dtype=object)
 
     def _populate_table_rows(self, start_row: int, end_row: int, data_dict: dict, col_names: list[str]) -> None:
-        """Populate table rows from start_row to end_row (exclusive)."""
+        """Populate table rows from start_row to end_row (exclusive).
+
+        Args:
+            start_row: Starting row index (inclusive)
+            end_row: Ending row index (exclusive)
+            data_dict: Dictionary mapping column names to data arrays
+            col_names: List of column names in display order
+        """
         for col_idx, col_name in enumerate(col_names):
             if col_name in data_dict:
                 col_data = data_dict[col_name]
@@ -4004,7 +4256,11 @@ class HDF5Viewer(QMainWindow):
                     self.preview_table.setItem(row_idx, col_idx, item)
 
     def _on_table_scroll(self, value: int) -> None:
-        """Handle table scroll events to load more rows as needed."""
+        """Handle table scroll events to load more rows as needed.
+
+        Args:
+            value: Scroll position value
+        """
         if self._table_is_loading:
             return  # Already loading, skip
 
@@ -4034,7 +4290,11 @@ class HDF5Viewer(QMainWindow):
             self._load_rows_up_to(target_row)
 
     def _load_rows_up_to(self, target_row: int) -> None:
-        """Load all rows from current position up to target_row."""
+        """Load all rows from current position up to target_row.
+
+        Args:
+            target_row: Target row index to load up to
+        """
         if self._table_is_loading:
             return
 
@@ -4086,6 +4346,11 @@ class HDF5Viewer(QMainWindow):
             self._table_is_loading = False
 
     def _get_selected_column_indices(self) -> list[int]:
+        """Get the indices of selected columns in the CSV table.
+
+        Returns:
+            Sorted list of selected column indices
+        """
         try:
             sel_model = self.preview_table.selectionModel()
             if not sel_model:
@@ -4103,6 +4368,7 @@ class HDF5Viewer(QMainWindow):
             return []
 
     def _update_plot_action_enabled(self) -> None:
+        """Update the enabled state of plot actions based on selection."""
         # Enable plotting when a CSV group is active and >= 1 column is selected
         is_csv = self._current_csv_group_path is not None and self.preview_table.isVisible()
         sel_cols = self._get_selected_column_indices() if is_csv else []
@@ -4511,7 +4777,11 @@ class HDF5Viewer(QMainWindow):
             self.preview_table.setColumnHidden(col_idx, should_hide)
 
     def _on_column_header_context_menu(self, pos):
-        """Handle right-click context menu on column header."""
+        """Handle right-click context menu on column header.
+
+        Args:
+            pos: QPoint position where the context menu was requested
+        """
         # Get the column index at the clicked position
         header = self.preview_table.horizontalHeader()
         col_idx = header.logicalIndexAt(pos)
@@ -4533,7 +4803,11 @@ class HDF5Viewer(QMainWindow):
             self._show_unique_values_dialog(col_name)
 
     def _show_unique_values_dialog(self, col_name):
-        """Show dialog with unique values for a specific column."""
+        """Show dialog with unique values for a specific column.
+
+        Args:
+            col_name: Name of the column to show unique values for
+        """
         # Ensure all data is loaded for accurate unique value calculation
         self._ensure_all_data_loaded()
 
@@ -4576,7 +4850,14 @@ class HDF5Viewer(QMainWindow):
         self._save_csv_attr_to_hdf5("csv_visible_columns", value, success_msg, clear_msg)
 
     def _load_visible_columns_from_hdf5(self, grp: h5py.Group):
-        """Load visible columns list from the HDF5 group attributes."""
+        """Load visible columns list from the HDF5 group attributes.
+
+        Args:
+            grp: HDF5 group to load visibility settings from
+
+        Returns:
+            List of visible column names, or None if not saved
+        """
         return self._load_csv_attr_from_hdf5(grp, "csv_visible_columns", lambda v: v if isinstance(v, list) else None)
 
     def _save_filters_to_hdf5(self):
