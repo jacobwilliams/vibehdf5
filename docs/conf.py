@@ -61,83 +61,6 @@ autodoc_class_signature = 'separated'
 # Mock Qt imports to prevent documenting Qt base classes
 autodoc_mock_imports = ['PySide6', 'PyQt5', 'PyQt6', 'qtpy']
 
-# Common Qt method names to exclude
-qt_method_names = {
-    'blockSignals', 'childEvent', 'children', 'deleteLater', 'destroyed', 'disconnect',
-    'dumpObjectInfo', 'dumpObjectTree', 'dynamicPropertyNames', 'event', 'eventFilter',
-    'findChild', 'findChildren', 'inherits', 'installEventFilter', 'isSignalConnected',
-    'isWidgetType', 'isWindowType', 'killTimer', 'metaObject', 'moveToThread', 'objectName',
-    'objectNameChanged', 'parent', 'property', 'removeEventFilter', 'sender', 'senderSignalIndex',
-    'setObjectName', 'setParent', 'setProperty', 'signalsBlocked', 'startTimer', 'thread',
-    'timerEvent', 'tr', 'receivers', 'isSignalConnected',
-    # QSyntaxHighlighter specific
-    'setCurrentBlockState', 'setCurrentBlockUserData', 'setDocument', 'setFormat',
-    'currentBlock', 'currentBlockState', 'currentBlockUserData', 'document',
-    'previousBlockState', 'rehighlight', 'rehighlightBlock',
-}
-
-# Skip documenting members from Qt base classes
-def skip_qt_members(app, what, name, obj, skip, options):
-    """Skip members that come from Qt classes."""
-    if skip:
-        return True
-
-    # Skip known Qt method names
-    member_name = name.split('.')[-1]  # Get just the method name
-    if member_name in qt_method_names:
-        return True
-
-    # Skip if the member's module is from Qt
-    try:
-        if hasattr(obj, '__module__'):
-            module = obj.__module__ or ''
-            if any(qt in module.lower() for qt in ['pyside6', 'pyqt5', 'pyqt6', 'qtpy', 'shiboken']):
-                return True
-    except Exception:
-        pass
-
-    # For methods and attributes, check if they're defined in the actual vibehdf5 source
-    if what in ('method', 'attribute'):
-        try:
-            # Get the class that owns this member
-            import inspect
-            if hasattr(obj, '__objclass__'):
-                owner_class = obj.__objclass__
-            elif hasattr(obj, 'fget') and hasattr(obj.fget, '__objclass__'):
-                owner_class = obj.fget.__objclass__
-            else:
-                # Try to infer from qualname
-                if hasattr(obj, '__qualname__'):
-                    parts = obj.__qualname__.split('.')
-                    if len(parts) > 1:
-                        # Check if this is from a vibehdf5 class
-                        class_name = parts[-2]
-                        # List of your actual classes
-                        vibehdf5_classes = [
-                            'HDF5Viewer', 'ColumnStatisticsDialog', 'ColumnSortDialog',
-                            'ColumnFilterDialog', 'ColumnVisibilityDialog', 'UniqueValuesDialog',
-                            'PlotOptionsDialog', 'DraggablePlotListWidget', 'ScaledImageLabel',
-                            'DropTreeView', 'CustomSplitter'
-                        ]
-                        if class_name not in vibehdf5_classes:
-                            return True
-                        # Even if it's in the right class, check if defined in vibehdf5 module
-                        if not obj.__module__.startswith('vibehdf5'):
-                            return True
-                return False
-
-            # Check if the owner class is from Qt
-            owner_module = owner_class.__module__
-            if not owner_module.startswith('vibehdf5'):
-                return True
-        except Exception:
-            pass
-
-    return False
-
-def setup(app):
-    app.connect('autodoc-skip-member', skip_qt_members)
-
 # Napoleon settings for Google and NumPy style docstrings
 napoleon_google_docstring = True
 napoleon_numpy_docstring = True
@@ -152,5 +75,3 @@ intersphinx_mapping = {
     'pandas': ('https://pandas.pydata.org/docs/', None),
 }
 
-# Autosummary settings
-autosummary_generate = True
