@@ -2190,6 +2190,7 @@ class HDF5Viewer(QMainWindow):
         # Tool bar / actions
         self._create_actions()
         self._create_toolbar()
+        self._create_menu_bar()
         self.setStatusBar(QStatusBar(self))
         self.tree.selectionModel().selectionChanged.connect(self.on_selection_changed)
 
@@ -2677,6 +2678,11 @@ class HDF5Viewer(QMainWindow):
         self.act_quit.setToolTip("Close the application (Ctrl+Q)")
         self.act_quit.triggered.connect(self.close)
 
+        # About action
+        self.act_about = QAction("About VibeHDF5", self)
+        self.act_about.setToolTip("Show information about VibeHDF5")
+        self.act_about.triggered.connect(self.show_about_dialog)
+
         # Plotting action for CSV tables
         self.act_plot_selected = QAction("Plot Selected Columns", self)
         self.act_plot_selected.setToolTip(
@@ -2701,6 +2707,32 @@ class HDF5Viewer(QMainWindow):
         tb.addAction(self.act_plot_selected)
         tb.addSeparator()
         tb.addAction(self.act_quit)
+
+    def _create_menu_bar(self) -> None:
+        """Create and populate the menu bar."""
+        menubar = self.menuBar()
+
+        # File menu
+        file_menu = menubar.addMenu("&File")
+        file_menu.addAction(self.act_new)
+        file_menu.addAction(self.act_open)
+        file_menu.addSeparator()
+        file_menu.addAction(self.act_add_files)
+        file_menu.addAction(self.act_add_folder)
+        file_menu.addAction(self.act_new_folder)
+        file_menu.addSeparator()
+        file_menu.addAction(self.act_quit)
+
+        # View menu
+        view_menu = menubar.addMenu("&View")
+        view_menu.addAction(self.act_expand)
+        view_menu.addAction(self.act_collapse)
+        view_menu.addSeparator()
+        view_menu.addAction(self.act_plot_selected)
+
+        # Help menu
+        help_menu = menubar.addMenu("&Help")
+        help_menu.addAction(self.act_about)
 
     # Determine where to add new content in the HDF5 file
     def _get_target_group_path(self) -> str:
@@ -3345,6 +3377,41 @@ class HDF5Viewer(QMainWindow):
         self.tree.expandToDepth(1)
         self.preview_label.setText("No selection")
         self._set_preview_text("")
+
+    def show_about_dialog(self) -> None:
+        """Show the About VibeHDF5 dialog."""
+        try:
+            from vibehdf5 import __version__
+            version = __version__
+        except ImportError:
+            version = "unknown"
+
+        about_text = f"""<h2>VibeHDF5</h2>
+        <p><b>Version:</b> {version}</p>
+        <p>A powerful, lightweight GUI application for browsing, managing, and visualizing HDF5 file structures.</p>
+
+        <p><b>Features:</b></p>
+        <ul>
+        <li>Browse and explore HDF5 file hierarchies</li>
+        <li>Preview datasets with syntax highlighting</li>
+        <li>Import and manage CSV data with filtering and plotting</li>
+        <li>Drag-and-drop file import and export</li>
+        <li>Interactive matplotlib plotting</li>
+        </ul>
+
+        <p><b>Built with:</b></p>
+        <ul>
+        <li>PySide6 / PyQt6 (Qt for Python)</li>
+        <li>h5py (HDF5 for Python)</li>
+        <li>NumPy, Pandas, Matplotlib</li>
+        </ul>
+
+        <p><b>Author:</b> Jacob Williams</p>
+        <p><b>Repository:</b> <a href="https://github.com/jacobwilliams/vibehdf5">github.com/jacobwilliams/vibehdf5</a></p>
+        <p><b>License:</b> MIT</p>
+        """
+
+        QMessageBox.about(self, "About VibeHDF5", about_text)
 
     # Search/Filter handling
     def _on_search_text_changed(self, text: str) -> None:
