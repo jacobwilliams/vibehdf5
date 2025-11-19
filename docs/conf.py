@@ -59,17 +59,9 @@ autodoc_inherit_docstrings = False
 autodoc_class_signature = 'separated'
 
 # Mock Qt imports to prevent documenting Qt base classes
-autodoc_mock_imports = ['PySide6', 'PyQt5', 'PyQt6', 'qtpy']
-
-# Configure mocked objects to support Qt operations
-class MockQt:
-    """Mock Qt namespace that supports arithmetic operations."""
-    UserRole = 0x0100  # Qt.UserRole value
-    
 autodoc_mock_imports = ['PySide6', 'PyQt5', 'PyQt6']
 
 # Setup mock for qtpy that handles Qt.UserRole properly
-import sys
 from unittest.mock import MagicMock
 
 class QtMock(MagicMock):
@@ -79,11 +71,19 @@ class QtMock(MagicMock):
             return 0x0100  # Return an int that can be used in arithmetic
         return MagicMock()
 
+# Mock qtpy modules
 sys.modules['qtpy'] = MagicMock()
 sys.modules['qtpy.QtCore'] = MagicMock()
 sys.modules['qtpy.QtGui'] = MagicMock()
 sys.modules['qtpy.QtWidgets'] = MagicMock()
 sys.modules['qtpy.QtCore'].Qt = QtMock()
+
+# Mock matplotlib Qt backends to prevent Qt import issues
+sys.modules['matplotlib.backends.backend_qt'] = MagicMock()
+sys.modules['matplotlib.backends.backend_qtagg'] = MagicMock()
+sys.modules['matplotlib.backends.qt_editor'] = MagicMock()
+sys.modules['matplotlib.backends.qt_editor.figureoptions'] = MagicMock()
+sys.modules['matplotlib.backends.qt_compat'] = MagicMock()
 
 # Napoleon settings for Google and NumPy style docstrings
 napoleon_google_docstring = True
