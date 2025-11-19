@@ -61,6 +61,30 @@ autodoc_class_signature = 'separated'
 # Mock Qt imports to prevent documenting Qt base classes
 autodoc_mock_imports = ['PySide6', 'PyQt5', 'PyQt6', 'qtpy']
 
+# Configure mocked objects to support Qt operations
+class MockQt:
+    """Mock Qt namespace that supports arithmetic operations."""
+    UserRole = 0x0100  # Qt.UserRole value
+    
+autodoc_mock_imports = ['PySide6', 'PyQt5', 'PyQt6']
+
+# Setup mock for qtpy that handles Qt.UserRole properly
+import sys
+from unittest.mock import MagicMock
+
+class QtMock(MagicMock):
+    @classmethod
+    def __getattr__(cls, name):
+        if name == 'UserRole':
+            return 0x0100  # Return an int that can be used in arithmetic
+        return MagicMock()
+
+sys.modules['qtpy'] = MagicMock()
+sys.modules['qtpy.QtCore'] = MagicMock()
+sys.modules['qtpy.QtGui'] = MagicMock()
+sys.modules['qtpy.QtWidgets'] = MagicMock()
+sys.modules['qtpy.QtCore'].Qt = QtMock()
+
 # Napoleon settings for Google and NumPy style docstrings
 napoleon_google_docstring = True
 napoleon_numpy_docstring = True
