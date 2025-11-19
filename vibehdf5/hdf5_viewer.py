@@ -2061,6 +2061,79 @@ class HDF5Viewer(QMainWindow):
         # Track current search pattern
         self._search_pattern: str = ""
 
+    def _create_progress_dialog(self, title: str, max_value: int = 100, min_duration: int = 500) -> QProgressDialog:
+        """Create a standard progress dialog with consistent settings.
+
+        Args:
+            title: Dialog title/label text
+            max_value: Maximum progress value (default 100)
+            min_duration: Minimum duration in ms before showing (default 500)
+
+        Returns:
+            Configured QProgressDialog instance
+        """
+        progress = QProgressDialog(title, "Cancel", 0, max_value, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(min_duration)
+        progress.setValue(0)
+        QApplication.processEvents()
+        return progress
+
+    def _save_csv_attr_to_hdf5(self, attr_name: str, value, success_msg: str, clear_msg: str = None):
+        """Generic helper to save a CSV group attribute to HDF5.
+
+        Args:
+            attr_name: Name of the attribute to save
+            value: Value to save (will be JSON encoded if not empty)
+            success_msg: Status bar message on successful save
+            clear_msg: Status bar message when clearing attribute (optional)
+        """
+        if not self._current_csv_group_path or not self.model or not self.model.filepath:
+            return
+
+        try:
+            with h5py.File(self.model.filepath, "r+") as h5:
+                if self._current_csv_group_path in h5:
+                    grp = h5[self._current_csv_group_path]
+                    if isinstance(grp, h5py.Group):
+                        if value:
+                            # Save the value as JSON
+                            json_str = json.dumps(value)
+                            grp.attrs[attr_name] = json_str
+                            self.statusBar().showMessage(success_msg, 3000)
+                        else:
+                            # Remove attribute if value is empty
+                            if attr_name in grp.attrs:
+                                del grp.attrs[attr_name]
+                            if clear_msg:
+                                self.statusBar().showMessage(clear_msg, 3000)
+        except Exception as exc:  # noqa: BLE001
+            print(f"Warning: Could not save {attr_name} to HDF5: {exc}")
+
+    def _load_csv_attr_from_hdf5(self, grp: h5py.Group, attr_name: str, validator=None):
+        """Generic helper to load a CSV group attribute from HDF5.
+
+        Args:
+            grp: HDF5 group to load from
+            attr_name: Name of the attribute to load
+            validator: Optional function to validate/transform loaded value
+
+        Returns:
+            Loaded value or None if not found/invalid
+        """
+        try:
+            if attr_name in grp.attrs:
+                json_str = grp.attrs[attr_name]
+                if isinstance(json_str, bytes):
+                    json_str = json_str.decode("utf-8")
+                value = json.loads(json_str)
+                if validator:
+                    return validator(value)
+                return value
+        except Exception as exc:  # noqa: BLE001
+            print(f"Warning: Could not load {attr_name} from HDF5: {exc}")
+        return None
+
     def _apply_plot_style(self, fig_or_ax, ax, use_dark: bool) -> None:
         """Apply dark or light background styling to a plot figure and axes.
 
@@ -2888,11 +2961,7 @@ class HDF5Viewer(QMainWindow):
         Each dataset contains the column data with appropriate dtype.
         """
         # Create progress dialog
-        progress = QProgressDialog("Reading CSV file...", "Cancel", 0, 100, self)
-        progress.setWindowModality(Qt.WindowModal)
-        progress.setMinimumDuration(500)  # Show after 500ms
-        progress.setValue(0)
-        QApplication.processEvents()
+        progress = self._create_progress_dialog("Reading CSV file...")
 
         # Read CSV with pandas
         try:
@@ -3595,11 +3664,7 @@ class HDF5Viewer(QMainWindow):
             total_cols = len(col_names)
 
             # Create progress dialog
-            progress = QProgressDialog("Loading CSV metadata...", "Cancel", 0, 100, self)
-            progress.setWindowModality(Qt.WindowModal)
-            progress.setMinimumDuration(500)  # Show after 500ms
-            progress.setValue(0)
-            QApplication.processEvents()
+            progress = self._create_progress_dialog("Loading CSV metadata...")
 
             # First pass: only get metadata (dataset paths and row counts) - don't load data yet
             dataset_info = {}  # Maps column name to (ds_key, th_grp_path, row_count, dtype)
@@ -3737,13 +3802,15 @@ class HDF5Viewer(QMainWindow):
             saved_visible_columns = self._load_visible_columns_from_hdf5(grp)
             if saved_visible_columns:
                 self._csv_visible_columns = saved_visible_columns
-                self._apply_column_visibility()
                 self.statusBar().showMessage(
                     f"Loaded column visibility ({len(saved_visible_columns)}/{len(col_names)} columns) from HDF5 file", 5000
                 )
             else:
                 # Default to all columns visible
                 self._csv_visible_columns = col_names.copy()
+
+            # Always apply column visibility to ensure correct state
+            self._apply_column_visibility()
 
             # Update model with visible columns for drag-and-drop export
             if self._current_csv_group_path and self.model:
@@ -3797,11 +3864,7 @@ class HDF5Viewer(QMainWindow):
             return  # Already loaded
 
         # Load remaining data with progress dialog
-        progress = QProgressDialog("Loading all CSV data for operation...", "Cancel", 0, 100, self)
-        progress.setWindowModality(Qt.WindowModal)
-        progress.setMinimumDuration(200)
-        progress.setValue(0)
-        QApplication.processEvents()
+        progress = self._create_progress_dialog("Loading all CSV data for operation...", min_duration=200)
 
         try:
             with h5py.File(self.model.filepath, "r") as h5:
@@ -4399,49 +4462,17 @@ class HDF5Viewer(QMainWindow):
 
     def _save_sort_to_hdf5(self):
         """Save current sort specifications to the HDF5 file as a JSON attribute."""
-        if not self._current_csv_group_path or not self.model or not self.model.filepath:
-            return
-
-        try:
-            with h5py.File(self.model.filepath, "r+") as h5:
-                if self._current_csv_group_path in h5:
-                    grp = h5[self._current_csv_group_path]
-                    if isinstance(grp, h5py.Group):
-                        if self._csv_sort_specs:
-                            # Convert sort specs to JSON string
-                            # Format: list of [column_name, ascending]
-                            sort_json = json.dumps(self._csv_sort_specs)
-                            grp.attrs["csv_sort"] = sort_json
-                            self.statusBar().showMessage(
-                                f"Saved sort by {len(self._csv_sort_specs)} column(s) to HDF5 file", 3000
-                            )
-                        else:
-                            # Remove sort attribute if no sort specs
-                            if "csv_sort" in grp.attrs:
-                                del grp.attrs["csv_sort"]
-                            self.statusBar().showMessage("Cleared sort from HDF5 file", 3000)
-        except Exception as exc:  # noqa: BLE001
-            print(f"Warning: Could not save sort to HDF5: {exc}")
+        success_msg = f"Saved sort by {len(self._csv_sort_specs)} column(s) to HDF5 file" if self._csv_sort_specs else None
+        clear_msg = "Cleared sort from HDF5 file"
+        self._save_csv_attr_to_hdf5("csv_sort", self._csv_sort_specs, success_msg, clear_msg)
 
     def _load_sort_from_hdf5(self, grp: h5py.Group):
         """Load sort specifications from the HDF5 group attributes."""
-        try:
-            if "csv_sort" in grp.attrs:
-                sort_json = grp.attrs["csv_sort"]
-                if isinstance(sort_json, bytes):
-                    sort_json = sort_json.decode("utf-8")
-                sort_specs = json.loads(sort_json)
-                # Validate format
-                if isinstance(sort_specs, list):
-                    # Ensure each spec is a 2-element list
-                    valid_specs = []
-                    for spec in sort_specs:
-                        if isinstance(spec, list) and len(spec) == 2:
-                            valid_specs.append((spec[0], spec[1]))
-                    return valid_specs
-        except Exception as exc:  # noqa: BLE001
-            print(f"Warning: Could not load sort from HDF5: {exc}")
-        return []
+        def validate_sort(specs):
+            if isinstance(specs, list):
+                return [tuple(spec) for spec in specs if isinstance(spec, list) and len(spec) == 2]
+            return []
+        return self._load_csv_attr_from_hdf5(grp, "csv_sort", validate_sort) or []
 
     def _configure_columns_dialog(self):
         """Open dialog to select which columns to display."""
@@ -4468,6 +4499,11 @@ class HDF5Viewer(QMainWindow):
         """Apply column visibility to the table."""
         if not self._csv_column_names:
             return
+
+        # First, ensure all columns are visible (reset state)
+        # This is important when switching between CSV groups
+        for col_idx in range(self.preview_table.columnCount()):
+            self.preview_table.setColumnHidden(col_idx, False)
 
         # Hide/show columns based on visibility list
         for col_idx, col_name in enumerate(self._csv_column_names):
@@ -4533,69 +4569,21 @@ class HDF5Viewer(QMainWindow):
 
     def _save_visible_columns_to_hdf5(self):
         """Save visible columns list to the HDF5 file as a JSON attribute."""
-        if not self._current_csv_group_path or not self.model or not self.model.filepath:
-            return
-
-        try:
-            with h5py.File(self.model.filepath, "r+") as h5:
-                if self._current_csv_group_path in h5:
-                    grp = h5[self._current_csv_group_path]
-                    if isinstance(grp, h5py.Group):
-                        if self._csv_visible_columns and len(self._csv_visible_columns) < len(self._csv_column_names):
-                            # Only save if not all columns are visible
-                            visible_json = json.dumps(self._csv_visible_columns)
-                            grp.attrs["csv_visible_columns"] = visible_json
-                            self.statusBar().showMessage(
-                                f"Saved column visibility ({len(self._csv_visible_columns)}/{len(self._csv_column_names)} columns) to HDF5 file", 3000
-                            )
-                        else:
-                            # Remove attribute if all columns are visible
-                            if "csv_visible_columns" in grp.attrs:
-                                del grp.attrs["csv_visible_columns"]
-                            self.statusBar().showMessage("All columns visible - removed saved visibility preference", 3000)
-        except Exception as exc:  # noqa: BLE001
-            print(f"Warning: Could not save column visibility to HDF5: {exc}")
+        # Only save if not all columns are visible
+        value = self._csv_visible_columns if (self._csv_visible_columns and len(self._csv_visible_columns) < len(self._csv_column_names)) else None
+        success_msg = f"Saved column visibility ({len(self._csv_visible_columns)}/{len(self._csv_column_names)} columns) to HDF5 file" if value else None
+        clear_msg = "All columns visible - removed saved visibility preference"
+        self._save_csv_attr_to_hdf5("csv_visible_columns", value, success_msg, clear_msg)
 
     def _load_visible_columns_from_hdf5(self, grp: h5py.Group):
         """Load visible columns list from the HDF5 group attributes."""
-        try:
-            if "csv_visible_columns" in grp.attrs:
-                visible_json = grp.attrs["csv_visible_columns"]
-                if isinstance(visible_json, bytes):
-                    visible_json = visible_json.decode("utf-8")
-                visible_columns = json.loads(visible_json)
-                if isinstance(visible_columns, list):
-                    return visible_columns
-        except Exception as exc:  # noqa: BLE001
-            print(f"Warning: Could not load visible columns from HDF5: {exc}")
-        return None
+        return self._load_csv_attr_from_hdf5(grp, "csv_visible_columns", lambda v: v if isinstance(v, list) else None)
 
     def _save_filters_to_hdf5(self):
         """Save current filters to the HDF5 file as a JSON attribute."""
-        if not self._current_csv_group_path or not self.model or not self.model.filepath:
-            return
-
-        try:
-
-            with h5py.File(self.model.filepath, "r+") as h5:
-                if self._current_csv_group_path in h5:
-                    grp = h5[self._current_csv_group_path]
-                    if isinstance(grp, h5py.Group):
-                        if self._csv_filters:
-                            # Convert filters to JSON string
-                            # Format: list of [column_name, operator, value]
-                            filters_json = json.dumps(self._csv_filters)
-                            grp.attrs["csv_filters"] = filters_json
-                            self.statusBar().showMessage(
-                                f"Saved {len(self._csv_filters)} filter(s) to HDF5 file", 3000
-                            )
-                        else:
-                            # Remove filter attribute if no filters
-                            if "csv_filters" in grp.attrs:
-                                del grp.attrs["csv_filters"]
-                                self.statusBar().showMessage("Cleared filters from HDF5 file", 3000)
-        except Exception as exc:  # noqa: BLE001
-            self.statusBar().showMessage(f"Warning: Could not save filters: {exc}", 5000)
+        success_msg = f"Saved {len(self._csv_filters)} filter(s) to HDF5 file" if self._csv_filters else None
+        clear_msg = "Cleared filters from HDF5 file"
+        self._save_csv_attr_to_hdf5("csv_filters", self._csv_filters, success_msg, clear_msg)
 
     def _load_filters_from_hdf5(self, grp: h5py.Group) -> list:
         """Load filters from the HDF5 group attributes.
@@ -4606,24 +4594,11 @@ class HDF5Viewer(QMainWindow):
         Returns:
             List of filters in format [column_name, operator, value]
         """
-        try:
-            if "csv_filters" in grp.attrs:
-
-                filters_json = grp.attrs["csv_filters"]
-                if isinstance(filters_json, bytes):
-                    filters_json = filters_json.decode("utf-8")
-                filters = json.loads(filters_json)
-                # Validate format
-                if isinstance(filters, list):
-                    # Ensure each filter is a 3-element list
-                    valid_filters = []
-                    for f in filters:
-                        if isinstance(f, list) and len(f) == 3:
-                            valid_filters.append(f)
-                    return valid_filters
-        except Exception as exc:  # noqa: BLE001
-            print(f"Warning: Could not load filters from HDF5: {exc}")
-        return []
+        def validate_filters(filters):
+            if isinstance(filters, list):
+                return [f for f in filters if isinstance(f, list) and len(f) == 3]
+            return []
+        return self._load_csv_attr_from_hdf5(grp, "csv_filters", validate_filters) or []
 
     def _apply_sort(self):
         """Apply current sort specifications to the CSV table."""
