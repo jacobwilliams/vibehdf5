@@ -49,7 +49,6 @@ autodoc_default_options = {
     'special-members': '__init__',
     'undoc-members': True,
     'exclude-members': '__weakref__',
-    'inherited-members': False,  # Don't show inherited members
 }
 
 # Don't document inherited members from base classes

@@ -10,22 +10,18 @@ Main Modules
    :members:
    :undoc-members:
    :show-inheritance:
-   :inherited-members: False
 
 .. automodule:: vibehdf5.hdf5_tree_model
    :members:
    :undoc-members:
    :show-inheritance:
-   :inherited-members: False
 
 .. automodule:: vibehdf5.syntax_highlighter
    :members:
    :undoc-members:
    :show-inheritance:
-   :inherited-members: False
 
 .. automodule:: vibehdf5.utilities
    :members:
    :undoc-members:
    :show-inheritance:
-   :inherited-members: False
