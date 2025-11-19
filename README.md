@@ -74,6 +74,10 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 pip install vibehdf5
 ```
 
+### Documentation
+
+To build the documentation locally (using Sphinx) use `make html` in the `docs/` directory.
+
 ### From Source
 
 ```bash

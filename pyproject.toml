@@ -43,6 +43,10 @@ dev = [
     "mypy>=0.990",
     "ruff>=0.1.0",
 ]
+docs = [
+    "sphinx>=7.0.0",
+    "sphinx-rtd-theme>=1.3.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/jacobwilliams/vibehdf5"
