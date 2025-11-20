@@ -50,7 +50,7 @@ class SyntaxHighlighter(QSyntaxHighlighter):
 
         # Operator format
         self.operator_format = QTextCharFormat()
-        self.operator_format.setForeground(QColor("#000000"))  # Black
+        self.operator_format.setForeground(QColor("#97824D"))  # Black
         self.operator_format.setFontWeight(QFont.Bold)
 
         # Builtin format
