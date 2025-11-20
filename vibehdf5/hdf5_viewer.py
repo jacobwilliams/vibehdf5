@@ -4421,7 +4421,7 @@ class HDF5Viewer(QMainWindow):
         """Get the indices of selected columns in the CSV table.
 
         Returns:
-            Sorted list of selected column indices
+            Sorted list of selected column indices (excluding hidden columns)
         """
         try:
             sel_model = self.preview_table.selectionModel()
@@ -4434,8 +4434,8 @@ class HDF5Viewer(QMainWindow):
             except Exception:  # noqa: BLE001
                 # Fallback: derive from selectedIndexes
                 cols = list({idx.column() for idx in sel_model.selectedIndexes()})
-            # Unique and sorted for stable behavior
-            return sorted({c for c in cols if c >= 0})
+            # Unique and sorted for stable behavior, excluding hidden columns
+            return sorted({c for c in cols if c >= 0 and not self.preview_table.isColumnHidden(c)})
         except Exception:  # noqa: BLE001
             return []
 
