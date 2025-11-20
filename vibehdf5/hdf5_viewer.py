@@ -5867,15 +5867,15 @@ class HDF5Viewer(QMainWindow):
             return
 
         plot_config = self._saved_plots[current_row]
-        
+
         try:
             # Convert plot config to JSON with nice formatting
             json_str = json.dumps(plot_config, indent=2, default=str)
-            
+
             # Copy to clipboard
             clipboard = QApplication.clipboard()
             clipboard.setText(json_str)
-            
+
             plot_name = plot_config.get('name', 'Unnamed')
             self.statusBar().showMessage(
                 f"Copied JSON for '{plot_name}' to clipboard", 3000
