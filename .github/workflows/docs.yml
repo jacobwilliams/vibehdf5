@@ -37,6 +37,7 @@ jobs:
 
       - name: Build documentation
         run: |
+          pixi run --manifest-path ./env/pixi.toml ./run_tests.sh
           cd docs
           pixi run --manifest-path ../env/pixi.toml make html
 
