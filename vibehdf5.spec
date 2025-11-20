@@ -141,7 +141,7 @@ if sys.platform == 'darwin':
     app = BUNDLE(
         coll,
         name='vibehdf5.app',
-        icon=None,  # Add icon path here if you have one
+        icon='media/icon.icns',  # macOS icon file
         bundle_identifier='com.github.jacobwilliams.vibehdf5',
         info_plist={
             'NSPrincipalClass': 'NSApplication',
