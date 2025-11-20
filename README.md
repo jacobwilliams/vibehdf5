@@ -437,6 +437,32 @@ ruff check vibehdf5/
 python -m build
 ```
 
+### Building Standalone Executable
+
+Create a standalone executable that doesn't require Python to be installed:
+
+```bash
+# Install PyInstaller (if not already installed)
+pip install pyinstaller
+
+# Run the build script
+./build_executable.sh
+```
+
+**Output locations:**
+- **macOS**: `dist/vibehdf5.app` (application bundle)
+- **Linux**: `dist/vibehdf5` (single executable)
+- **Windows**: `dist/vibehdf5.exe` (single executable)
+
+**Distribution:**
+- **macOS**: `open dist/vibehdf5.app` or copy to `/Applications/`
+- **Linux**: `./dist/vibehdf5` or copy to `/usr/local/bin/`
+- **Windows**: Run `dist\vibehdf5.exe` or copy to desired location
+
+For detailed instructions, customization options, and troubleshooting, see [BUILD_EXECUTABLE.md](BUILD_EXECUTABLE.md).
+
+**Note:** PyInstaller does not support cross-compilation. Build on the target platform.
+
 ## Acknowledgments
 
 Built with:

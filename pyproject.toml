@@ -47,6 +47,9 @@ docs = [
     "sphinx>=8.2.3,<9",
     "sphinx-rtd-theme>=3.0.2,<4",
 ]
+build = [
+    "pyinstaller>=6.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/jacobwilliams/vibehdf5"
