@@ -5860,6 +5860,33 @@ class HDF5Viewer(QMainWindow):
                 f"Updated plot options: {updated_config.get('name', 'Unnamed')}", 3000
             )
 
+    def _copy_plot_json_to_clipboard(self):
+        """Copy the selected plot's JSON configuration to clipboard."""
+        current_row = self.saved_plots_list.currentRow()
+        if current_row < 0 or current_row >= len(self._saved_plots):
+            return
+
+        plot_config = self._saved_plots[current_row]
+        
+        try:
+            # Convert plot config to JSON with nice formatting
+            json_str = json.dumps(plot_config, indent=2, default=str)
+            
+            # Copy to clipboard
+            clipboard = QApplication.clipboard()
+            clipboard.setText(json_str)
+            
+            plot_name = plot_config.get('name', 'Unnamed')
+            self.statusBar().showMessage(
+                f"Copied JSON for '{plot_name}' to clipboard", 3000
+            )
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "Copy Failed",
+                f"Failed to copy plot JSON to clipboard.\n\nError: {e}"
+            )
+
     def _on_saved_plots_context_menu(self, point):
         """Show context menu for saved plots list."""
         item = self.saved_plots_list.itemAt(point)
@@ -5867,12 +5894,16 @@ class HDF5Viewer(QMainWindow):
             return
 
         menu = QMenu(self)
+        act_copy_json = menu.addAction("Copy JSON to Clipboard")
+        menu.addSeparator()
         act_delete = menu.addAction("Delete Plot")
 
         global_pos = self.saved_plots_list.viewport().mapToGlobal(point)
         chosen = menu.exec(global_pos)
 
-        if chosen == act_delete:
+        if chosen == act_copy_json:
+            self._copy_plot_json_to_clipboard()
+        elif chosen == act_delete:
             self._delete_plot_config()
 
 
