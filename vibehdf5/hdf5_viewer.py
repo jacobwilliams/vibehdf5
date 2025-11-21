@@ -2526,6 +2526,75 @@ class HDF5Viewer(QMainWindow):
 
         return np.arange(min_len, dtype=float), False
 
+    def _process_x_axis_data(self, x_idx: int | None, col_data: dict, y_names: list[str],
+                            x_name: str, plot_options: dict) -> tuple[np.ndarray, np.ndarray, bool, bool, int]:
+        """Process X-axis data for plotting, handling single-column, datetime, and string data.
+
+        Args:
+            x_idx: Column index for X axis, or None for point count
+            col_data: Dictionary of column name -> array data
+            y_names: List of Y column names
+            x_name: X column name (or "Point" if x_idx is None)
+            plot_options: Dictionary of plot options
+
+        Returns:
+            Tuple of (x_arr, x_num, x_is_string, xaxis_datetime, min_len)
+        """
+        # Calculate minimum data length
+        min_len = min(len(col_data.get(n, [])) for n in y_names if n in col_data)
+
+        # Handle single-column mode (x_idx is None)
+        if x_idx is None:
+            x_arr = np.arange(min_len)
+            x_num = x_arr.astype(float)
+            return x_arr, x_num, False, False, min_len
+
+        # Multi-column mode - process X data
+        x_arr = col_data[x_name].ravel()
+        min_len = min(len(x_arr), min_len)
+
+        xaxis_datetime = plot_options.get("xaxis_datetime", False)
+        datetime_format = plot_options.get("datetime_format", "").strip()
+
+        # Check if x_arr contains strings
+        x_is_string = False
+        if len(x_arr) > 0:
+            first_val = x_arr[0]
+            x_is_string = isinstance(first_val, str) or (
+                hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
+            )
+
+        # Parse X data based on type
+        if x_is_string:
+            # Try datetime parsing with various strategies
+            if xaxis_datetime and not datetime_format:
+                # Auto-detect datetime format
+                x_num, success = self._parse_datetime_column(x_arr, min_len)
+                if success:
+                    xaxis_datetime = True
+                else:
+                    x_num = np.arange(min_len, dtype=float)
+                    xaxis_datetime = False
+            elif not xaxis_datetime:
+                # Auto-detect datetime even if not explicitly requested
+                x_num, success = self._parse_datetime_column(x_arr, min_len)
+                xaxis_datetime = success
+            elif xaxis_datetime and datetime_format:
+                # Use specified format
+                x_num, success = self._parse_datetime_column(x_arr, min_len, datetime_format)
+                if not success:
+                    # Fall back to numeric conversion
+                    x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+                    xaxis_datetime = False
+            else:
+                x_num = np.arange(min_len, dtype=float)
+        else:
+            # Non-string data - convert to numeric
+            x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+            xaxis_datetime = False
+
+        return x_arr, x_num, x_is_string, xaxis_datetime, min_len
+
     def _format_xaxis(self, ax, fig, xaxis_datetime: bool, x_is_string: bool,
                       x_arr: np.ndarray, min_len: int, plot_options: dict | None = None) -> None:
         """Format x-axis for datetime or categorical string data.
@@ -6022,63 +6091,22 @@ class HDF5Viewer(QMainWindow):
 
         # Plot the data
         try:
-            # Determine minimum length from Y columns
-            min_len = min(len(col_data.get(n, [])) for n in y_names if n in col_data)
-            if min_len <= 0:
-                QMessageBox.warning(self, "Plot Error", "No data to plot.")
-                return
-
-            # Handle X-axis data
-            if x_idx is None:
-                # Single column mode: use point count as x-axis
-                x_arr = np.arange(min_len)
-                x_num = x_arr.astype(float)
-                x_is_string = False
-                xaxis_datetime = False
-            else:
-                x_arr = col_data[x_name].ravel()
-                min_len = min(len(x_arr), min_len)
-                if min_len <= 0:
-                    QMessageBox.warning(self, "Plot Error", "No data to plot.")
-                    return
-
             # Get plot options from configuration
             plot_options = plot_config.get("plot_options", {})
 
-            # Process x-axis data - check if it's datetime (only for non-None x_idx)
-            if x_idx is not None:
-                xaxis_datetime = plot_options.get("xaxis_datetime", False)
-                datetime_format = plot_options.get("datetime_format", "").strip()
+            # Process X-axis data using helper method
+            x_arr, x_num, x_is_string, xaxis_datetime, min_len = self._process_x_axis_data(
+                x_idx, col_data, y_names, x_name, plot_options
+            )
 
-                # Check if x_arr contains strings (automatic date detection)
-                x_is_string = False
-                if len(x_arr) > 0:
-                    first_val = x_arr[0]
-                    x_is_string = isinstance(first_val, str) or (
-                        hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
-                    )
-
-                # Try datetime parsing if string data
-                if x_is_string:
-                    if xaxis_datetime or not datetime_format:
-                        # Try auto-detection or use format if provided
-                        x_num, xaxis_datetime = self._parse_datetime_column(x_arr, min_len, datetime_format)
-                    else:
-                        # String data but not datetime - use indices
-                        x_num = np.arange(min_len, dtype=float)
-                        xaxis_datetime = False
-                else:
-                    # Non-string data - convert to numeric
-                    x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
-            else:
-                xaxis_datetime = False
-                x_is_string = False
+            if min_len <= 0:
+                QMessageBox.warning(self, "Plot Error", "No data to plot.")
+                return
 
             # Clear previous plot
             self.plot_figure.clear()
 
             # Get plot options to check for dark background
-            plot_options = plot_config.get("plot_options", {})
             use_dark = plot_options.get("dark_background", False)
 
             # Create subplot and apply style
@@ -6231,74 +6259,13 @@ class HDF5Viewer(QMainWindow):
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
 
-            # Handle x-axis data - if x_idx is None, use point count
-            if x_idx is None:
-                # Single column mode: use point count as x-axis
-                min_len = min(len(col_data.get(n, [])) for n in y_names if n in col_data)
-                if min_len <= 0:
-                    return False, "No data to plot"
-                x_arr = np.arange(min_len)
-                x_num = x_arr.astype(float)
-                x_is_string = False
-                xaxis_datetime = False
-            else:
-                # Process x-axis data (same logic as _apply_saved_plot)
-                x_arr = col_data[x_name].ravel()
-                min_len = min(len(x_arr), *(len(col_data.get(n, [])) for n in y_names if n in col_data))
-                if min_len <= 0:
-                    return False, "No data to plot"
+            # Process X-axis data using helper method
+            x_arr, x_num, x_is_string, xaxis_datetime, min_len = self._process_x_axis_data(
+                x_idx, col_data, y_names, x_name, plot_options
+            )
 
-                xaxis_datetime = plot_options.get("xaxis_datetime", False)
-                datetime_format = plot_options.get("datetime_format", "").strip()
-
-                # Check if x_arr contains strings
-                x_is_string = False
-                if len(x_arr) > 0:
-                    first_val = x_arr[0]
-                    x_is_string = isinstance(first_val, str) or (
-                        hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
-                    )
-
-                # Date parsing logic (same as _apply_saved_plot)
-                if x_is_string and xaxis_datetime and not datetime_format:
-                    try:
-                        x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
-                        valid_dates = x_data.notna()
-                        if valid_dates.sum() > 0:
-                            x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan for d in x_data])
-                        else:
-                            x_num = np.arange(min_len, dtype=float)
-                            xaxis_datetime = False
-                    except Exception:
-                        x_num = np.arange(min_len, dtype=float)
-                        xaxis_datetime = False
-                elif x_is_string and not xaxis_datetime:
-                    try:
-                        x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
-                        valid_dates = x_data.notna()
-                        if valid_dates.sum() > 0:
-                            x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan for d in x_data])
-                            xaxis_datetime = True
-                        else:
-                            x_num = np.arange(min_len, dtype=float)
-                            xaxis_datetime = False
-                    except Exception:
-                        x_num = np.arange(min_len, dtype=float)
-                        xaxis_datetime = False
-                elif xaxis_datetime and datetime_format:
-                    try:
-                        x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), format=datetime_format, errors="coerce")
-                        valid_dates = x_data.notna()
-                        if valid_dates.sum() > 0:
-                            x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan for d in x_data])
-                        else:
-                            x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
-                            xaxis_datetime = False
-                    except Exception:
-                        x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
-                        xaxis_datetime = False
-                else:
-                    x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+            if min_len <= 0:
+                return False, "No data to plot"
 
             # Plot series with smoothing support
             series_styles = plot_options.get("series", {})
