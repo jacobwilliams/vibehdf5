@@ -27,7 +27,7 @@ class SyntaxHighlighter(QSyntaxHighlighter):
         """Define text formats for different syntax elements."""
         # Keyword format
         self.keyword_format = QTextCharFormat()
-        self.keyword_format.setForeground(QColor("#0000FF"))  # Blue
+        self.keyword_format.setForeground(QColor("#5B5BE8"))  # Blue
         self.keyword_format.setFontWeight(QFont.Bold)
 
         # String format
@@ -502,6 +502,7 @@ LANGUAGE_PATTERNS = {
     },
     "fortran": {
         "keywords": [
+            "associate",
             "program",
             "end",
             "subroutine",
