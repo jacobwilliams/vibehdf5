@@ -50,6 +50,7 @@ from qtpy.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStatusBar,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -5649,10 +5650,20 @@ class HDF5Viewer(QMainWindow):
     def _refresh_saved_plots_list(self):
         """Update the saved plots list widget with current configurations."""
         self.saved_plots_list.clear()
+
+        # Get a standard chart/graph icon for plots
+        style = QApplication.instance().style() if QApplication.instance() else None
+        plot_icon = style.standardIcon(QStyle.SP_FileDialogContentsView) if style else None
+
         for plot_config in self._saved_plots:
             name = plot_config.get("name", "Unnamed Plot")
             item = QListWidgetItem(name)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
+
+            # Add plot icon to each item
+            if plot_icon:
+                item.setIcon(plot_icon)
+
             self.saved_plots_list.addItem(item)
 
         # Update button states
