@@ -6472,16 +6472,16 @@ class HDF5Viewer(QMainWindow):
                             for plot_config in plots:
                                 if plot_config.get("csv_filters") or plot_config.get("csv_sort"):
                                     self._recalculate_plot_filtered_indices(plot_config)
-                            
+
                             # Save the updated plots back to HDF5
                             with h5py.File(fpath, "r+") as h5:
                                 if obj_path in h5:
                                     h5[obj_path].attrs[attr_name] = json.dumps(plots)
-                            
+
                             # Reload the plots in the UI
                             self._saved_plots = plots
                             self._refresh_saved_plots_list()
-                            
+
                             self.statusBar().showMessage(
                                 f"Updated {len(plots)} plot(s) and recalculated filtered indices", 3000
                             )
@@ -6512,6 +6512,37 @@ class HDF5Viewer(QMainWindow):
             except Exception as exc:
                 QMessageBox.critical(self, "Paste Failed", f"Failed to update attribute:\n{exc}")
 
+    def _duplicate_plot_config(self):
+        """Duplicate the selected plot configuration."""
+        current_row = self.saved_plots_list.currentRow()
+        if current_row < 0 or current_row >= len(self._saved_plots):
+            return
+
+        plot_config = self._saved_plots[current_row]
+        plot_name = plot_config.get("name", "Unnamed Plot")
+
+        # Create a deep copy of the plot config
+        import copy
+        duplicated_config = copy.deepcopy(plot_config)
+
+        # Update the name to indicate it's a copy
+        duplicated_config["name"] = f"{plot_name} (copy)"
+        duplicated_config["timestamp"] = time.time()
+
+        # Add to the end of the list
+        self._saved_plots.append(duplicated_config)
+
+        # Save to HDF5
+        self._save_plot_configs_to_hdf5()
+
+        # Refresh list widget
+        self._refresh_saved_plots_list()
+
+        # Select the new duplicated plot
+        self.saved_plots_list.setCurrentRow(len(self._saved_plots) - 1)
+
+        self.statusBar().showMessage(f"Duplicated plot: {plot_name}", 3000)
+
     def _on_saved_plots_context_menu(self, point):
         """Show context menu for saved plots list."""
         item = self.saved_plots_list.itemAt(point)
@@ -6519,6 +6550,7 @@ class HDF5Viewer(QMainWindow):
             return
 
         menu = QMenu(self)
+        act_duplicate = menu.addAction("Duplicate Plot")
         act_copy_json = menu.addAction("Copy JSON to Clipboard")
         menu.addSeparator()
         act_delete = menu.addAction("Delete Plot")
@@ -6526,7 +6558,9 @@ class HDF5Viewer(QMainWindow):
         global_pos = self.saved_plots_list.viewport().mapToGlobal(point)
         chosen = menu.exec(global_pos)
 
-        if chosen == act_copy_json:
+        if chosen == act_duplicate:
+            self._duplicate_plot_config()
+        elif chosen == act_copy_json:
             self._copy_plot_json_to_clipboard()
         elif chosen == act_delete:
             self._delete_plot_config()
