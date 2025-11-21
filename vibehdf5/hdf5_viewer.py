@@ -6461,6 +6461,33 @@ class HDF5Viewer(QMainWindow):
 
                 self.statusBar().showMessage(f"Updated attribute '{attr_name}' in HDF5 file", 3000)
 
+                # Special handling for saved_plots attribute - recalculate filtered indices
+                if attr_name == "saved_plots" and obj_path == self._current_csv_group_path:
+                    try:
+                        # Parse the JSON to get the updated plots
+                        import json
+                        plots = json.loads(clipboard_text)
+                        if isinstance(plots, list):
+                            # Update each plot's filtered_indices based on its filters/sort
+                            for plot_config in plots:
+                                if plot_config.get("csv_filters") or plot_config.get("csv_sort"):
+                                    self._recalculate_plot_filtered_indices(plot_config)
+                            
+                            # Save the updated plots back to HDF5
+                            with h5py.File(fpath, "r+") as h5:
+                                if obj_path in h5:
+                                    h5[obj_path].attrs[attr_name] = json.dumps(plots)
+                            
+                            # Reload the plots in the UI
+                            self._saved_plots = plots
+                            self._refresh_saved_plots_list()
+                            
+                            self.statusBar().showMessage(
+                                f"Updated {len(plots)} plot(s) and recalculated filtered indices", 3000
+                            )
+                    except Exception as e:
+                        print(f"Warning: Could not recalculate plot filtered indices: {e}")
+
                 # Refresh the display to reflect any changes
                 kind = item.data(self.model.ROLE_KIND)
                 if kind == "dataset":
