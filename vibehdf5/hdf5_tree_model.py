@@ -8,7 +8,7 @@ import h5py
 import numpy as np
 import csv
 from qtpy.QtCore import QMimeData, Qt, QUrl
-from qtpy.QtGui import QStandardItem, QStandardItemModel
+from qtpy.QtGui import QIcon, QPainter, QPixmap, QColor, QStandardItem, QStandardItemModel
 from qtpy.QtWidgets import QApplication, QStyle
 
 
@@ -35,6 +35,37 @@ class HDF5TreeModel(QStandardItemModel):
         self._filepath: str | None = None
         self._csv_filtered_indices = {}  # Dict mapping CSV group path to filtered row indices
         self._csv_visible_columns = {}  # Dict mapping CSV group path to list of visible column names
+
+    def _create_icon_with_indicator(self, base_icon: QIcon, has_attrs: bool) -> QIcon:
+        """Create an icon with a red dot indicator if item has attributes.
+
+        Args:
+            base_icon: The base icon to use
+            has_attrs: Whether to add the red dot indicator
+
+        Returns:
+            QIcon with red dot overlay if has_attrs is True, otherwise base_icon
+        """
+        if not has_attrs or base_icon.isNull():
+            return base_icon
+
+        # Get the base pixmap at a reasonable size
+        size = 16
+        pixmap = base_icon.pixmap(size, size)
+
+        # Create a painter to draw on the pixmap
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Draw a red dot in the bottom-left corner
+        dot_size = 5
+        painter.setBrush(QColor(255, 0, 0))  # Red
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(1, size - dot_size - 1, dot_size, dot_size)
+
+        painter.end()
+
+        return QIcon(pixmap)
 
     def load_file(self, filepath: str) -> None:
         """Load the HDF5 file and populate the model."""
@@ -435,12 +466,15 @@ class HDF5TreeModel(QStandardItemModel):
 
         # Set icon for CSV groups based on expansion state
         if is_csv_group and self._style:
+            has_attrs = len(group.attrs) > 0
             if csv_expanded:
                 # Show folder icon when expanded
-                parent_item.setIcon(self._style.standardIcon(QStyle.SP_DirIcon))
+                base_icon = self._style.standardIcon(QStyle.SP_DirIcon)
+                parent_item.setIcon(self._create_icon_with_indicator(base_icon, has_attrs))
             else:
                 # Show table/dialog icon for collapsed CSV (makes them stand out)
-                parent_item.setIcon(self._style.standardIcon(QStyle.SP_FileDialogDetailedView))
+                base_icon = self._style.standardIcon(QStyle.SP_FileDialogDetailedView)
+                parent_item.setIcon(self._create_icon_with_indicator(base_icon, has_attrs))
         if len(group.attrs) and (not is_csv_group or csv_expanded):
             attrs_item = QStandardItem("Attributes")
             attrs_info = QStandardItem(f"{len(group.attrs)} item(s)")
@@ -467,7 +501,9 @@ class HDF5TreeModel(QStandardItemModel):
                     g_item = QStandardItem(name)
                     g_info = QStandardItem("group")
                     if self._style:
-                        g_item.setIcon(self._style.standardIcon(QStyle.SP_DirIcon))
+                        has_attrs = len(obj.attrs) > 0
+                        base_icon = self._style.standardIcon(QStyle.SP_DirIcon)
+                        g_item.setIcon(self._create_icon_with_indicator(base_icon, has_attrs))
                     parent_item.appendRow([g_item, g_info])
                     g_item.setData(obj.name, self.ROLE_PATH)
                     g_item.setData("group", self.ROLE_KIND)
@@ -479,7 +515,9 @@ class HDF5TreeModel(QStandardItemModel):
                     space = f"{shape}" if shape is not None else "(scalar)"
                     d_info = QStandardItem(f"dataset | shape={space} | dtype={dtype}")
                     if self._style:
-                        d_item.setIcon(self._style.standardIcon(QStyle.SP_FileIcon))
+                        has_attrs = len(obj.attrs) > 0
+                        base_icon = self._style.standardIcon(QStyle.SP_FileIcon)
+                        d_item.setIcon(self._create_icon_with_indicator(base_icon, has_attrs))
                     parent_item.appendRow([d_item, d_info])
                     d_item.setData(obj.name, self.ROLE_PATH)
                     d_item.setData("dataset", self.ROLE_KIND)
