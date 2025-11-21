@@ -21,7 +21,7 @@ from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToo
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.dates import AutoDateLocator, DateFormatter
 from matplotlib.figure import Figure
-from qtpy.QtCore import QMimeData, QUrl, Qt
+from qtpy.QtCore import QMimeData, QSettings, QUrl, Qt
 from qtpy.QtGui import QAction, QColor, QDoubleValidator, QDrag, QFont, QFontDatabase, QPixmap
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -2080,6 +2080,11 @@ class HDF5Viewer(QMainWindow):
         self._original_pixmap = None
         self._current_highlighter = None  # Track current syntax highlighter
 
+        # Initialize QSettings for storing recent files
+        self.settings = QSettings("VibeHDF5", "VibeHDF5")
+        self.max_recent_files = 10
+        self.recent_file_actions = []
+
         # Central widget: splitter with tree (left) and preview (right)
         central = QWidget(self)
         central_layout = QVBoxLayout(central)
@@ -2889,6 +2894,13 @@ class HDF5Viewer(QMainWindow):
         self.act_reset_font.setToolTip("Reset GUI font size to default (Ctrl+0)")
         self.act_reset_font.triggered.connect(self._reset_font_size)
 
+        # Create recent file actions (will be populated dynamically)
+        for i in range(self.max_recent_files):
+            action = QAction(self)
+            action.setVisible(False)
+            action.triggered.connect(self._open_recent_file)
+            self.recent_file_actions.append(action)
+
     def _create_toolbar(self) -> None:
         """Create and populate the main toolbar."""
         tb = QToolBar("Main", self)
@@ -2915,11 +2927,25 @@ class HDF5Viewer(QMainWindow):
         file_menu.addAction(self.act_new)
         file_menu.addAction(self.act_open)
         file_menu.addSeparator()
+
+        # Recent files submenu
+        self.recent_files_menu = file_menu.addMenu("Open Recent")
+        for action in self.recent_file_actions:
+            self.recent_files_menu.addAction(action)
+        self.recent_files_menu.addSeparator()
+        self.act_clear_recent = QAction("Clear Recent Files", self)
+        self.act_clear_recent.triggered.connect(self._clear_recent_files)
+        self.recent_files_menu.addAction(self.act_clear_recent)
+
+        file_menu.addSeparator()
         file_menu.addAction(self.act_add_files)
         file_menu.addAction(self.act_add_folder)
         file_menu.addAction(self.act_new_folder)
         file_menu.addSeparator()
         file_menu.addAction(self.act_quit)
+
+        # Update recent files menu after creation
+        self._update_recent_files_menu()
 
         # View menu
         view_menu = menubar.addMenu("&View")
@@ -3579,6 +3605,102 @@ class HDF5Viewer(QMainWindow):
         self.tree.expandToDepth(1)
         self.preview_label.setText("No selection")
         self._set_preview_text("")
+
+        # Add to recent files
+        self._add_recent_file(path)
+
+    def _get_recent_files(self) -> list[str]:
+        """Get the list of recent files from QSettings.
+
+        Returns:
+            List of recent file paths, most recent first
+        """
+        recent_files = self.settings.value("recent_files", [])
+        if not isinstance(recent_files, list):
+            recent_files = []
+        # Filter out files that no longer exist
+        return [f for f in recent_files if os.path.exists(f)]
+
+    def _add_recent_file(self, filepath: str) -> None:
+        """Add a file to the recent files list.
+
+        Args:
+            filepath: Absolute path to the file to add
+        """
+        filepath = os.path.abspath(filepath)
+        recent_files = self._get_recent_files()
+
+        # Remove if already in list
+        if filepath in recent_files:
+            recent_files.remove(filepath)
+
+        # Add to front of list
+        recent_files.insert(0, filepath)
+
+        # Limit to max_recent_files
+        recent_files = recent_files[:self.max_recent_files]
+
+        # Save to settings
+        self.settings.setValue("recent_files", recent_files)
+
+        # Update menu
+        self._update_recent_files_menu()
+
+    def _update_recent_files_menu(self) -> None:
+        """Update the recent files menu with current list."""
+        recent_files = self._get_recent_files()
+
+        for i, action in enumerate(self.recent_file_actions):
+            if i < len(recent_files):
+                filepath = recent_files[i]
+                # Show just the filename and first part of path for readability
+                display_name = f"{i + 1}. {os.path.basename(filepath)}"
+                action.setText(display_name)
+                action.setData(filepath)
+                action.setVisible(True)
+                action.setToolTip(filepath)
+            else:
+                action.setVisible(False)
+
+        # Enable/disable clear action and menu
+        has_files = len(recent_files) > 0
+        self.act_clear_recent.setEnabled(has_files)
+        self.recent_files_menu.setEnabled(has_files)
+
+    def _open_recent_file(self) -> None:
+        """Open a file from the recent files list."""
+        action = self.sender()
+        if action:
+            filepath = action.data()
+            if filepath and os.path.exists(filepath):
+                self.load_hdf5(filepath)
+            else:
+                # File no longer exists, remove from list
+                recent_files = self._get_recent_files()
+                if filepath in recent_files:
+                    recent_files.remove(filepath)
+                    self.settings.setValue("recent_files", recent_files)
+                    self._update_recent_files_menu()
+                QMessageBox.warning(
+                    self,
+                    "File Not Found",
+                    f"The file no longer exists:\n{filepath}"
+                )
+
+    def _clear_recent_files(self) -> None:
+        """Clear the recent files list."""
+        reply = QMessageBox.question(
+            self,
+            "Clear Recent Files",
+            "Are you sure you want to clear the recent files list?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self.settings.setValue("recent_files", [])
+            self._update_recent_files_menu()
+            self.statusBar().showMessage("Recent files list cleared", 3000)
 
     def show_about_dialog(self) -> None:
         """Show the About VibeHDF5 dialog."""
