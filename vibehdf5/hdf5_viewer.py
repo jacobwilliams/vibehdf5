@@ -5358,9 +5358,11 @@ class HDF5Viewer(QMainWindow):
         # Refresh the list widget
         self._refresh_saved_plots_list()
 
-        # Auto-select the first plot if available
+        # Auto-select the first plot if available, or clear plot display if no plots
         if self._saved_plots:
             self.saved_plots_list.setCurrentRow(0)
+        else:
+            self._clear_plot_display()
 
     def _refresh_saved_plots_list(self):
         """Update the saved plots list widget with current configurations."""
