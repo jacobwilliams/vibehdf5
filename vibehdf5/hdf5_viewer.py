@@ -39,6 +39,7 @@ from qtpy.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -1982,7 +1983,8 @@ class HDF5Viewer(QMainWindow):
         self.saved_plots_list.setMaximumHeight(150)
         self.saved_plots_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.saved_plots_list.customContextMenuRequested.connect(self._on_saved_plots_context_menu)
-        self.saved_plots_list.setToolTip("Drag and drop to filesystem to export plot")
+        self.saved_plots_list.setToolTip("Drag and drop to filesystem to export plot. Double-click to rename.")
+        self.saved_plots_list.setEditTriggers(QListWidget.DoubleClicked)
         left_layout.addWidget(self.saved_plots_list)
 
         # Buttons for plot management
@@ -2210,6 +2212,7 @@ class HDF5Viewer(QMainWindow):
 
         # Connect saved plots list selection changed
         self.saved_plots_list.itemSelectionChanged.connect(self._on_saved_plot_selection_changed)
+        self.saved_plots_list.itemChanged.connect(self._on_plot_item_renamed)
 
         # Track current search pattern
         self._search_pattern: str = ""
@@ -5343,7 +5346,9 @@ class HDF5Viewer(QMainWindow):
         self.saved_plots_list.clear()
         for plot_config in self._saved_plots:
             name = plot_config.get("name", "Unnamed Plot")
-            self.saved_plots_list.addItem(name)
+            item = QListWidgetItem(name)
+            item.setFlags(item.flags() | Qt.ItemIsEditable)
+            self.saved_plots_list.addItem(item)
 
         # Update button states
         self._update_plot_buttons_state()
@@ -5368,6 +5373,49 @@ class HDF5Viewer(QMainWindow):
         current_item = self.saved_plots_list.currentItem()
         if current_item is not None:
             self._apply_saved_plot(current_item)
+
+    def _on_plot_item_renamed(self, item: QListWidgetItem):
+        """Handle when a plot item is renamed by the user.
+
+        Args:
+            item: The list item that was edited
+        """
+        new_name = item.text().strip()
+        if not new_name:
+            # Don't allow empty names
+            row = self.saved_plots_list.row(item)
+            if 0 <= row < len(self._saved_plots):
+                old_name = self._saved_plots[row].get("name", "Unnamed Plot")
+                item.setText(old_name)
+            return
+
+        # Get the row index to find the corresponding plot config
+        row = self.saved_plots_list.row(item)
+        if 0 <= row < len(self._saved_plots):
+            old_name = self._saved_plots[row].get("name", "Unnamed Plot")
+
+            # Check if name is different
+            if new_name != old_name:
+                # Update the plot config
+                self._saved_plots[row]["name"] = new_name
+
+                # Save to HDF5 file using the same method as other plot operations
+                if self._current_csv_group_path and self.model and self.model.filepath:
+                    try:
+                        with h5py.File(self.model.filepath, "r+") as h5:
+                            if self._current_csv_group_path in h5:
+                                grp = h5[self._current_csv_group_path]
+                                if isinstance(grp, h5py.Group):
+                                    plots_json = json.dumps(self._saved_plots)
+                                    grp.attrs["saved_plots"] = plots_json
+                        self.statusBar().showMessage(f"Renamed plot to '{new_name}'", 3000)
+                    except Exception as e:
+                        self.statusBar().showMessage(f"Error saving renamed plot: {e}", 5000)
+                        # Revert the name on error
+                        item.setText(old_name)
+                        self._saved_plots[row]["name"] = old_name
+                        item.setText(old_name)
+                        self._saved_plots[row]["name"] = old_name
 
     def _apply_saved_plot(self, item=None):
         """Apply a saved plot configuration.
