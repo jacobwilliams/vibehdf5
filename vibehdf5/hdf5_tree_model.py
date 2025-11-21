@@ -68,11 +68,13 @@ class HDF5TreeModel(QStandardItemModel):
 
         return QIcon(pixmap)
 
-    def _create_png_thumbnail_icon(self, dataset: h5py.Dataset, has_attrs: bool) -> QIcon | None:
-        """Create a thumbnail icon from PNG dataset data.
+    def _create_image_thumbnail_icon(self, dataset: h5py.Dataset, has_attrs: bool) -> QIcon | None:
+        """Create a thumbnail icon from an image dataset.
+
+        Supports PNG, JPEG, GIF, BMP, and other formats supported by QPixmap.
 
         Args:
-            dataset: HDF5 dataset containing PNG image data
+            dataset: HDF5 dataset containing image data
             has_attrs: Whether to add the red dot indicator
 
         Returns:
@@ -608,14 +610,15 @@ class HDF5TreeModel(QStandardItemModel):
                         has_attrs = len(obj.attrs) > 0
                         icon_set = False
 
-                        # Try to use PNG thumbnail for .png datasets
-                        if name.lower().endswith(".png"):
-                            png_icon = self._create_png_thumbnail_icon(obj, has_attrs)
-                            if png_icon:
-                                d_item.setIcon(png_icon)
+                        # Try to use image thumbnail for known image formats
+                        image_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tif', '.tiff', '.webp', '.ico')
+                        if name.lower().endswith(image_extensions):
+                            img_icon = self._create_image_thumbnail_icon(obj, has_attrs)
+                            if img_icon:
+                                d_item.setIcon(img_icon)
                                 icon_set = True
 
-                        # If no PNG thumbnail, try system icon for the file extension
+                        # If no image thumbnail, try system icon for the file extension
                         if not icon_set:
                             sys_icon = self._get_system_icon_for_extension(name, has_attrs)
                             if sys_icon:

@@ -3723,8 +3723,9 @@ class HDF5Viewer(QMainWindow):
             self.preview_image.setVisible(False)
             self._hide_attributes()
             return
-        # If the dataset name ends with .png, try to display as image
-        if dspath.lower().endswith(".png"):
+        # If the dataset name is an image format, try to display as image
+        image_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tif', '.tiff', '.webp', '.ico')
+        if dspath.lower().endswith(image_extensions):
             try:
                 with h5py.File(fpath, "r") as h5:
                     obj = h5[dspath]
@@ -3755,7 +3756,7 @@ class HDF5Viewer(QMainWindow):
                         elif hasattr(data, "tobytes"):
                             img_bytes = data.tobytes()
                         else:
-                            self._set_preview_text("Dataset is not a valid PNG byte array.")
+                            self._set_preview_text("Dataset is not a valid image byte array.")
                             self.preview_edit.setVisible(True)
                             self.preview_image.setVisible(False)
                             self._hide_attributes()
@@ -3765,13 +3766,14 @@ class HDF5Viewer(QMainWindow):
                     elif hasattr(data, "tobytes"):
                         img_bytes = data.tobytes()
                     else:
-                        self._set_preview_text("Dataset is not a valid PNG byte array.")
+                        self._set_preview_text("Dataset is not a valid image byte array.")
                         self.preview_edit.setVisible(True)
                         self.preview_image.setVisible(False)
                         self._hide_attributes()
                         return
                     pixmap = QPixmap()
-                    if pixmap.loadFromData(img_bytes, "PNG"):
+                    # QPixmap.loadFromData will auto-detect the format
+                    if pixmap.loadFromData(img_bytes):
                         # Scale pixmap to fit preview area, maintaining aspect ratio
                         self._show_scaled_image(pixmap)
                         self.preview_image.setVisible(True)
@@ -3781,17 +3783,17 @@ class HDF5Viewer(QMainWindow):
                         # Show attributes for the dataset
                         self._show_attributes(obj)
                     else:
-                        self._set_preview_text("Failed to load PNG image from dataset.")
+                        self._set_preview_text("Failed to load image from dataset.")
                         self.preview_edit.setVisible(True)
                         self.preview_image.setVisible(False)
                         self._hide_attributes()
             except Exception as exc:
-                self._set_preview_text(f"Error reading PNG dataset:\n{exc}")
+                self._set_preview_text(f"Error reading image dataset:\n{exc}")
                 self.preview_edit.setVisible(True)
                 self.preview_image.setVisible(False)
                 self._hide_attributes()
             return
-        # Otherwise, show text preview for non-PNG datasets
+        # Otherwise, show text preview for non-image datasets
         try:
             with h5py.File(fpath, "r") as h5:
                 obj = h5[dspath]
