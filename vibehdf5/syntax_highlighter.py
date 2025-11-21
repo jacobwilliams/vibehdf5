@@ -55,7 +55,7 @@ class SyntaxHighlighter(QSyntaxHighlighter):
 
         # Builtin format
         self.builtin_format = QTextCharFormat()
-        self.builtin_format.setForeground(QColor("#4B0082"))  # Indigo
+        self.builtin_format.setForeground(QColor("#9D40E0"))  # Indigo
 
     def _setup_rules(self):
         """Setup highlighting rules based on the selected language."""
