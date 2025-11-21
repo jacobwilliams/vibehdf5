@@ -2724,6 +2724,22 @@ class HDF5Viewer(QMainWindow):
         self.act_plot_selected.triggered.connect(self.plot_selected_columns)
         self.act_plot_selected.setEnabled(False)
 
+        # Font size actions
+        self.act_increase_font = QAction("Increase Font Size", self)
+        self.act_increase_font.setShortcut("Ctrl++")
+        self.act_increase_font.setToolTip("Increase GUI font size (Ctrl++)")
+        self.act_increase_font.triggered.connect(self._increase_font_size)
+
+        self.act_decrease_font = QAction("Decrease Font Size", self)
+        self.act_decrease_font.setShortcut("Ctrl+-")
+        self.act_decrease_font.setToolTip("Decrease GUI font size (Ctrl+-)")
+        self.act_decrease_font.triggered.connect(self._decrease_font_size)
+
+        self.act_reset_font = QAction("Reset Font Size", self)
+        self.act_reset_font.setShortcut("Ctrl+0")
+        self.act_reset_font.setToolTip("Reset GUI font size to default (Ctrl+0)")
+        self.act_reset_font.triggered.connect(self._reset_font_size)
+
     def _create_toolbar(self) -> None:
         """Create and populate the main toolbar."""
         tb = QToolBar("Main", self)
@@ -2762,6 +2778,10 @@ class HDF5Viewer(QMainWindow):
         view_menu.addAction(self.act_collapse)
         view_menu.addSeparator()
         view_menu.addAction(self.act_plot_selected)
+        view_menu.addSeparator()
+        view_menu.addAction(self.act_increase_font)
+        view_menu.addAction(self.act_decrease_font)
+        view_menu.addAction(self.act_reset_font)
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -3445,6 +3465,57 @@ class HDF5Viewer(QMainWindow):
         """
 
         QMessageBox.about(self, "About VibeHDF5", about_text)
+
+    def _increase_font_size(self) -> None:
+        """Increase the application font size."""
+        app = QApplication.instance()
+        if app:
+            font = app.font()
+            current_size = font.pointSize()
+            if current_size > 0:  # pointSize returns -1 if not set
+                new_size = min(current_size + 1, 32)  # Cap at 32pt
+                font.setPointSize(new_size)
+            else:
+                # Use pixel size as fallback
+                pixel_size = font.pixelSize()
+                if pixel_size > 0:
+                    new_size = min(pixel_size + 1, 42)  # Cap at 42px
+                    font.setPixelSize(new_size)
+                else:
+                    # Default starting point
+                    font.setPointSize(12)
+            app.setFont(font)
+            self.statusBar().showMessage(f"Font size increased to {font.pointSize()}pt", 2000)
+
+    def _decrease_font_size(self) -> None:
+        """Decrease the application font size."""
+        app = QApplication.instance()
+        if app:
+            font = app.font()
+            current_size = font.pointSize()
+            if current_size > 0:
+                new_size = max(current_size - 1, 6)  # Minimum 6pt
+                font.setPointSize(new_size)
+            else:
+                # Use pixel size as fallback
+                pixel_size = font.pixelSize()
+                if pixel_size > 0:
+                    new_size = max(pixel_size - 1, 8)  # Minimum 8px
+                    font.setPixelSize(new_size)
+                else:
+                    # Default starting point
+                    font.setPointSize(10)
+            app.setFont(font)
+            self.statusBar().showMessage(f"Font size decreased to {font.pointSize()}pt", 2000)
+
+    def _reset_font_size(self) -> None:
+        """Reset the application font size to default."""
+        app = QApplication.instance()
+        if app:
+            # Get system default font
+            default_font = QApplication.font()
+            app.setFont(default_font)
+            self.statusBar().showMessage(f"Font size reset to default ({default_font.pointSize()}pt)", 2000)
 
     # Search/Filter handling
     def _on_search_text_changed(self, text: str) -> None:
