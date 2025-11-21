@@ -537,7 +537,7 @@ LANGUAGE_PATTERNS = {
         ],
         "builtins": ["write", "read", "print", "open", "close", "allocate", "deallocate"],
         "function_pattern": r"\b[A-Za-z_][A-Za-z0-9_]*(?=\s*\()",
-        "number_pattern": r"\b[0-9]+\.?[0-9]*([dDeE][+-]?[0-9]+)?\b",
+        "number_pattern": r"\b[0-9]+\.?[0-9]*([dDeE][+-]?[0-9]+)?(_[A-Za-z_][A-Za-z0-9_]*)?\b",
         "string_patterns": [r'"[^"]*"', r"'[^']*'"],
         "comment_patterns": [r"!.*"],
         "operators": ["+", "-", "*", "/", "**", "=", "==", "/=", "<", ">", "<=", ">="],
