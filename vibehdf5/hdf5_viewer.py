@@ -6182,19 +6182,28 @@ class HDF5Viewer(QMainWindow):
                     for i in range(self.preview_table.columnCount())
                 ]
 
-            if x_idx >= len(headers) or not all(idx < len(headers) for idx in y_idxs):
-                return False, "Invalid column indices"
+            # Validate column indices (x_idx can be None for single-column plots)
+            if x_idx is not None and x_idx >= len(headers):
+                return False, "Invalid X column index"
+            if not all(idx < len(headers) for idx in y_idxs):
+                return False, "Invalid Y column indices"
 
-            x_name = headers[x_idx]
+            # Get column names
+            x_name = headers[x_idx] if x_idx is not None else "Point"
             y_names = [headers[i] for i in y_idxs]
 
-            # Read column data
-            col_data = self._read_csv_columns(group_path, headers)
+            # Read column data (only for columns that exist)
+            columns_to_read = y_names if x_idx is None else [x_name] + y_names
+            col_data = self._read_csv_columns(group_path, columns_to_read)
             if not col_data:
                 return False, "Failed to read column data"
 
-            if x_name not in col_data or not any(name in col_data for name in y_names):
-                return False, "Column data not found"
+            if not any(name in col_data for name in y_names):
+                return False, "Y column data not found"
+
+            # For None x_idx, x_name won't be in col_data, which is expected
+            if x_idx is not None and x_name not in col_data:
+                return False, "X column data not found"
 
             # Apply filtering if specified in plot config
             # This ensures filtered data is used during export (respects filters from when plot was saved)
@@ -6222,63 +6231,74 @@ class HDF5Viewer(QMainWindow):
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
 
-            # Process x-axis data (same logic as _apply_saved_plot)
-            x_arr = col_data[x_name].ravel()
-            min_len = min(len(x_arr), *(len(col_data.get(n, [])) for n in y_names if n in col_data))
-            if min_len <= 0:
-                return False, "No data to plot"
+            # Handle x-axis data - if x_idx is None, use point count
+            if x_idx is None:
+                # Single column mode: use point count as x-axis
+                min_len = min(len(col_data.get(n, [])) for n in y_names if n in col_data)
+                if min_len <= 0:
+                    return False, "No data to plot"
+                x_arr = np.arange(min_len)
+                x_num = x_arr.astype(float)
+                x_is_string = False
+                xaxis_datetime = False
+            else:
+                # Process x-axis data (same logic as _apply_saved_plot)
+                x_arr = col_data[x_name].ravel()
+                min_len = min(len(x_arr), *(len(col_data.get(n, [])) for n in y_names if n in col_data))
+                if min_len <= 0:
+                    return False, "No data to plot"
 
-            xaxis_datetime = plot_options.get("xaxis_datetime", False)
-            datetime_format = plot_options.get("datetime_format", "").strip()
+                xaxis_datetime = plot_options.get("xaxis_datetime", False)
+                datetime_format = plot_options.get("datetime_format", "").strip()
 
-            # Check if x_arr contains strings
-            x_is_string = False
-            if len(x_arr) > 0:
-                first_val = x_arr[0]
-                x_is_string = isinstance(first_val, str) or (
-                    hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
-                )
+                # Check if x_arr contains strings
+                x_is_string = False
+                if len(x_arr) > 0:
+                    first_val = x_arr[0]
+                    x_is_string = isinstance(first_val, str) or (
+                        hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
+                    )
 
-            # Date parsing logic (same as _apply_saved_plot)
-            if x_is_string and xaxis_datetime and not datetime_format:
-                try:
-                    x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
-                    valid_dates = x_data.notna()
-                    if valid_dates.sum() > 0:
-                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan for d in x_data])
-                    else:
+                # Date parsing logic (same as _apply_saved_plot)
+                if x_is_string and xaxis_datetime and not datetime_format:
+                    try:
+                        x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
+                        valid_dates = x_data.notna()
+                        if valid_dates.sum() > 0:
+                            x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan for d in x_data])
+                        else:
+                            x_num = np.arange(min_len, dtype=float)
+                            xaxis_datetime = False
+                    except Exception:
                         x_num = np.arange(min_len, dtype=float)
                         xaxis_datetime = False
-                except Exception:
-                    x_num = np.arange(min_len, dtype=float)
-                    xaxis_datetime = False
-            elif x_is_string and not xaxis_datetime:
-                try:
-                    x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
-                    valid_dates = x_data.notna()
-                    if valid_dates.sum() > 0:
-                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan for d in x_data])
-                        xaxis_datetime = True
-                    else:
+                elif x_is_string and not xaxis_datetime:
+                    try:
+                        x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
+                        valid_dates = x_data.notna()
+                        if valid_dates.sum() > 0:
+                            x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan for d in x_data])
+                            xaxis_datetime = True
+                        else:
+                            x_num = np.arange(min_len, dtype=float)
+                            xaxis_datetime = False
+                    except Exception:
                         x_num = np.arange(min_len, dtype=float)
                         xaxis_datetime = False
-                except Exception:
-                    x_num = np.arange(min_len, dtype=float)
-                    xaxis_datetime = False
-            elif xaxis_datetime and datetime_format:
-                try:
-                    x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), format=datetime_format, errors="coerce")
-                    valid_dates = x_data.notna()
-                    if valid_dates.sum() > 0:
-                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan for d in x_data])
-                    else:
+                elif xaxis_datetime and datetime_format:
+                    try:
+                        x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), format=datetime_format, errors="coerce")
+                        valid_dates = x_data.notna()
+                        if valid_dates.sum() > 0:
+                            x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan for d in x_data])
+                        else:
+                            x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
+                            xaxis_datetime = False
+                    except Exception:
                         x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
                         xaxis_datetime = False
-                except Exception:
+                else:
                     x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
-                    xaxis_datetime = False
-            else:
-                x_num = pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce").astype(float).to_numpy()
 
             # Plot series with smoothing support
             series_styles = plot_options.get("series", {})
@@ -6327,6 +6347,96 @@ class HDF5Viewer(QMainWindow):
             print(error_msg)
             traceback.print_exc()
             return False, str(e)
+
+    def _export_all_plots(self):
+        """Export all saved plots to a selected directory."""
+        if not self._saved_plots:
+            QMessageBox.information(self, "No Plots", "There are no saved plots to export.")
+            return
+
+        # Ask user to select output directory
+        output_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Select Directory to Export Plots",
+            os.path.expanduser("~"),
+            QFileDialog.ShowDirsOnly
+        )
+
+        if not output_dir:
+            return  # User cancelled
+
+        # Create progress dialog
+        progress = QProgressDialog(
+            "Exporting plots...",
+            "Cancel",
+            0,
+            len(self._saved_plots),
+            self
+        )
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+
+        # Export each plot
+        exported_count = 0
+        failed_plots = []
+
+        for i, plot_config in enumerate(self._saved_plots):
+            if progress.wasCanceled():
+                break
+
+            plot_name = plot_config.get("name", f"plot_{i+1}")
+            progress.setLabelText(f"Exporting: {plot_name}")
+            progress.setValue(i)
+            QApplication.processEvents()
+
+            # Sanitize filename (remove invalid characters)
+            safe_name = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in plot_name)
+            safe_name = safe_name.strip()
+            if not safe_name:
+                safe_name = f"plot_{i+1}"
+
+            # Get export format from plot options, default to PNG
+            plot_options = plot_config.get("plot_options", {})
+            export_format = plot_options.get("export_format", "png").lower()
+            if export_format not in ["png", "pdf", "svg", "jpg", "jpeg"]:
+                export_format = "png"
+
+            filepath = os.path.join(output_dir, f"{safe_name}.{export_format}")
+
+            # If file exists, add number suffix
+            counter = 1
+            while os.path.exists(filepath):
+                filepath = os.path.join(output_dir, f"{safe_name}_{counter}.{export_format}")
+                counter += 1
+
+            # Export the plot
+            success, error_msg = self._export_plot_to_file(plot_config, filepath)
+
+            if success:
+                exported_count += 1
+            else:
+                failed_plots.append((plot_name, error_msg))
+
+        progress.setValue(len(self._saved_plots))
+        progress.close()
+
+        # Show results
+        if failed_plots:
+            failure_details = "\n".join([f"• {name}: {error}" for name, error in failed_plots])
+            QMessageBox.warning(
+                self,
+                "Export Complete with Errors",
+                f"Exported {exported_count} of {len(self._saved_plots)} plots to:\n{output_dir}\n\n"
+                f"Failed plots:\n{failure_details}"
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Export Complete",
+                f"Successfully exported {exported_count} plot(s) to:\n{output_dir}"
+            )
+
+        self.statusBar().showMessage(f"Exported {exported_count} plot(s) to {output_dir}", 5000)
 
     def _delete_plot_config(self):
         """Delete the selected plot configuration."""
@@ -6778,24 +6888,39 @@ class HDF5Viewer(QMainWindow):
     def _on_saved_plots_context_menu(self, point):
         """Show context menu for saved plots list."""
         item = self.saved_plots_list.itemAt(point)
-        if item is None:
-            return
 
         menu = QMenu(self)
-        act_duplicate = menu.addAction("Duplicate Plot")
-        act_copy_json = menu.addAction("Copy JSON to Clipboard")
-        menu.addSeparator()
-        act_delete = menu.addAction("Delete Plot")
+
+        # Actions that require a selected item
+        if item is not None:
+            act_duplicate = menu.addAction("Duplicate Plot")
+            act_copy_json = menu.addAction("Copy JSON to Clipboard")
+            menu.addSeparator()
+            act_delete = menu.addAction("Delete Plot")
+            menu.addSeparator()
+
+        # Export all plots action (always available if plots exist)
+        act_export_all = None
+        if len(self._saved_plots) > 0:
+            act_export_all = menu.addAction("Export All Plots...")
+
+        # If no actions available, don't show menu
+        if menu.isEmpty():
+            return
 
         global_pos = self.saved_plots_list.viewport().mapToGlobal(point)
         chosen = menu.exec(global_pos)
 
-        if chosen == act_duplicate:
-            self._duplicate_plot_config()
-        elif chosen == act_copy_json:
-            self._copy_plot_json_to_clipboard()
-        elif chosen == act_delete:
-            self._delete_plot_config()
+        if item is not None:
+            if chosen == act_duplicate:
+                self._duplicate_plot_config()
+            elif chosen == act_copy_json:
+                self._copy_plot_json_to_clipboard()
+            elif chosen == act_delete:
+                self._delete_plot_config()
+
+        if chosen == act_export_all:
+            self._export_all_plots()
 
 
 def main(argv: list[str] | None = None) -> int:
