@@ -3604,6 +3604,15 @@ class HDF5Viewer(QMainWindow):
                     # Default starting point
                     font.setPointSize(12)
             app.setFont(font)
+
+            # Also update the preview_edit fixed-width font
+            preview_font = self.preview_edit.font()
+            if current_size > 0:
+                preview_font.setPointSize(new_size)
+            else:
+                preview_font.setPixelSize(new_size)
+            self.preview_edit.setFont(preview_font)
+
             self.statusBar().showMessage(f"Font size increased to {font.pointSize()}pt", 2000)
 
     def _decrease_font_size(self) -> None:
@@ -3625,6 +3634,15 @@ class HDF5Viewer(QMainWindow):
                     # Default starting point
                     font.setPointSize(10)
             app.setFont(font)
+
+            # Also update the preview_edit fixed-width font
+            preview_font = self.preview_edit.font()
+            if current_size > 0:
+                preview_font.setPointSize(new_size)
+            else:
+                preview_font.setPixelSize(new_size)
+            self.preview_edit.setFont(preview_font)
+
             self.statusBar().showMessage(f"Font size decreased to {font.pointSize()}pt", 2000)
 
     def _reset_font_size(self) -> None:
@@ -3634,6 +3652,14 @@ class HDF5Viewer(QMainWindow):
             # Get system default font
             default_font = QApplication.font()
             app.setFont(default_font)
+
+            # Also reset the preview_edit fixed-width font
+            try:
+                fixed = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+            except Exception:
+                fixed = QFont("Courier New")
+            self.preview_edit.setFont(fixed)
+
             self.statusBar().showMessage(f"Font size reset to default ({default_font.pointSize()}pt)", 2000)
 
     # Search/Filter handling
