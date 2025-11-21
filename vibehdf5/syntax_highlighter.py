@@ -68,22 +68,26 @@ class SyntaxHighlighter(QSyntaxHighlighter):
         if "keywords" in patterns:
             for keyword in patterns["keywords"]:
                 pattern = QRegularExpression(rf"\b{keyword}\b")
+                pattern.optimize()  # Optimize pattern for better performance
                 self.highlighting_rules.append((pattern, self.keyword_format))
 
         # Builtins
         if "builtins" in patterns:
             for builtin in patterns["builtins"]:
                 pattern = QRegularExpression(rf"\b{builtin}\b")
+                pattern.optimize()  # Optimize pattern for better performance
                 self.highlighting_rules.append((pattern, self.builtin_format))
 
         # Functions/Classes
         if "function_pattern" in patterns:
             pattern = QRegularExpression(patterns["function_pattern"])
+            pattern.optimize()  # Optimize pattern for better performance
             self.highlighting_rules.append((pattern, self.function_format))
 
         # Numbers
         if "number_pattern" in patterns:
             pattern = QRegularExpression(patterns["number_pattern"])
+            pattern.optimize()  # Optimize pattern for better performance
             self.highlighting_rules.append((pattern, self.number_format))
 
         # Operators (before strings and comments so they don't override them)
@@ -92,18 +96,21 @@ class SyntaxHighlighter(QSyntaxHighlighter):
                 # Escape all special regex characters to match literally
                 escaped = re.escape(operator)
                 pattern = QRegularExpression(escaped)
+                pattern.optimize()  # Optimize pattern for better performance
                 self.highlighting_rules.append((pattern, self.operator_format))
 
         # Strings (must come before comments to avoid highlighting strings in comments)
         if "string_patterns" in patterns:
             for str_pattern in patterns["string_patterns"]:
                 pattern = QRegularExpression(str_pattern)
+                pattern.optimize()  # Optimize pattern for better performance
                 self.highlighting_rules.append((pattern, self.string_format))
 
         # Comments (should be last to override other patterns)
         if "comment_patterns" in patterns:
             for comment_pattern in patterns["comment_patterns"]:
                 pattern = QRegularExpression(comment_pattern)
+                pattern.optimize()  # Optimize pattern for better performance
                 self.highlighting_rules.append((pattern, self.comment_format))
 
     def highlightBlock(self, text):
