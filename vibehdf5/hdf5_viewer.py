@@ -3518,6 +3518,11 @@ class HDF5Viewer(QMainWindow):
         indexes = selected.indexes()
         if not indexes:
             self._hide_attributes()
+            # Clear plot display when nothing is selected
+            self._current_csv_group_path = None
+            self._saved_plots = []
+            self._refresh_saved_plots_list()
+            self._clear_plot_display()
             return
         index = indexes[0]
         item = self.model.itemFromIndex(index)
@@ -3535,6 +3540,11 @@ class HDF5Viewer(QMainWindow):
             self.preview_label.setText(str(kind) if kind else "")
             self._set_preview_text("")
             self._hide_attributes()
+            # Clear plot display for unknown item types
+            self._current_csv_group_path = None
+            self._saved_plots = []
+            self._refresh_saved_plots_list()
+            self._clear_plot_display()
 
     # Context menu handling
     def on_tree_context_menu(self, point) -> None:
@@ -3669,6 +3679,12 @@ class HDF5Viewer(QMainWindow):
         Args:
             dspath: HDF5 path to the dataset
         """
+        # Clear plot display and saved plots when viewing a dataset
+        self._current_csv_group_path = None
+        self._saved_plots = []
+        self._refresh_saved_plots_list()
+        self._clear_plot_display()
+
         self.preview_label.setText(f"Dataset: {os.path.basename(dspath)}")
         fpath = self.model.filepath
         if not fpath:
@@ -3924,6 +3940,7 @@ class HDF5Viewer(QMainWindow):
                     self._current_csv_group_path = None
                     self._saved_plots = []
                     self._refresh_saved_plots_list()
+                    self._clear_plot_display()
                     self._set_preview_text("(No content to display)")
                     # Show attributes for the group
                     self._show_attributes(grp)
@@ -5341,6 +5358,10 @@ class HDF5Viewer(QMainWindow):
         # Refresh the list widget
         self._refresh_saved_plots_list()
 
+        # Auto-select the first plot if available
+        if self._saved_plots:
+            self.saved_plots_list.setCurrentRow(0)
+
     def _refresh_saved_plots_list(self):
         """Update the saved plots list widget with current configurations."""
         self.saved_plots_list.clear()
@@ -5352,6 +5373,11 @@ class HDF5Viewer(QMainWindow):
 
         # Update button states
         self._update_plot_buttons_state()
+
+    def _clear_plot_display(self):
+        """Clear the plot display area."""
+        self.plot_figure.clear()
+        self.plot_canvas.draw()
 
     def _update_plot_buttons_state(self):
         """Enable/disable plot management buttons based on current state."""
@@ -5412,8 +5438,6 @@ class HDF5Viewer(QMainWindow):
                     except Exception as e:
                         self.statusBar().showMessage(f"Error saving renamed plot: {e}", 5000)
                         # Revert the name on error
-                        item.setText(old_name)
-                        self._saved_plots[row]["name"] = old_name
                         item.setText(old_name)
                         self._saved_plots[row]["name"] = old_name
 
