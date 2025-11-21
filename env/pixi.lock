@@ -4162,8 +4162,6 @@ packages:
   - python >=3.14,<3.15.0a0
   - python_abi 3.14.* *_cp314
   - setuptools >=42.0.0
-  arch: x86_64
-  platform: linux
   license: GPL-2.0-or-later WITH Bootloader-exception
   license_family: GPL
   size: 1679099
@@ -4182,8 +4180,6 @@ packages:
   - python >=3.14,<3.15.0a0 *_cp314
   - python_abi 3.14.* *_cp314
   - setuptools >=42.0.0
-  arch: arm64
-  platform: osx
   license: GPL-2.0-or-later WITH Bootloader-exception
   license_family: GPL
   size: 1702949
@@ -4205,8 +4201,6 @@ packages:
   - ucrt >=10.0.20348.0
   - vc >=14.3,<15
   - vc14_runtime >=14.44.35208
-  arch: x86_64
-  platform: win
   license: GPL-2.0-or-later WITH Bootloader-exception
   license_family: GPL
   size: 1759849
@@ -4539,8 +4533,6 @@ packages:
   - vc14_runtime >=14.44.35208
   - ucrt >=10.0.20348.0
   - python_abi 3.14.* *_cp314
-  arch: x86_64
-  platform: win
   license: PSF-2.0
   license_family: PSF
   size: 6713155
@@ -4551,8 +4543,6 @@ packages:
   depends:
   - python >=3.14,<3.15.0a0
   - python_abi 3.14.* *_cp314
-  arch: x86_64
-  platform: win
   license: BSD-3-Clause
   license_family: BSD
   size: 58083
