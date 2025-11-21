@@ -1073,6 +1073,31 @@ class PlotOptionsDialog(QDialog):
         )
         grid_layout.addWidget(self.legend_checkbox)
 
+        grid_layout.addWidget(QLabel("Legend Position:"))
+        self.legend_loc_combo = QComboBox()
+        # Matplotlib legend location options
+        legend_locations = [
+            ("best", "Best"),
+            ("upper right", "Upper Right"),
+            ("upper left", "Upper Left"),
+            ("lower left", "Lower Left"),
+            ("lower right", "Lower Right"),
+            ("right", "Right"),
+            ("center left", "Center Left"),
+            ("center right", "Center Right"),
+            ("lower center", "Lower Center"),
+            ("upper center", "Upper Center"),
+            ("center", "Center"),
+        ]
+        for loc_value, loc_name in legend_locations:
+            self.legend_loc_combo.addItem(loc_name, loc_value)
+        # Set current value
+        current_loc = self.plot_config.get("plot_options", {}).get("legend_loc", "best")
+        index = self.legend_loc_combo.findData(current_loc)
+        if index >= 0:
+            self.legend_loc_combo.setCurrentIndex(index)
+        grid_layout.addWidget(self.legend_loc_combo)
+
         self.dark_background_checkbox = QCheckBox("Dark Background")
         self.dark_background_checkbox.setChecked(
             self.plot_config.get("plot_options", {}).get("dark_background", False)
@@ -1792,6 +1817,7 @@ class PlotOptionsDialog(QDialog):
         plot_opts["ylabel"] = self.ylabel_edit.text()
         plot_opts["grid"] = self.grid_checkbox.isChecked()
         plot_opts["legend"] = self.legend_checkbox.isChecked()
+        plot_opts["legend_loc"] = self.legend_loc_combo.currentData()
         plot_opts["dark_background"] = self.dark_background_checkbox.isChecked()
 
         # Save axis limits (convert to float or None)
@@ -2602,7 +2628,11 @@ class HDF5Viewer(QMainWindow):
         if grid_alpha:
             ax.grid(True, alpha=grid_alpha)
         if plot_options.get("legend", True):
-            legend = ax.legend(fontsize=plot_options.get("legend_fontsize", 9))
+            legend_loc = plot_options.get("legend_loc", "best")
+            legend = ax.legend(
+                fontsize=plot_options.get("legend_fontsize", 9),
+                loc=legend_loc
+            )
             # Apply font family to legend text
             for text in legend.get_texts():
                 text.set_fontfamily(font_family)
