@@ -6071,30 +6071,12 @@ class HDF5Viewer(QMainWindow):
             )
             return
 
-        # Get the data with filtering applied
-        col_data = {}
-        # Get the data with filtering applied
-        columns_to_load = y_names if x_idx is None else [x_name] + y_names
-
-        # Lazy load any columns that aren't fully loaded yet
-        # Check for both missing columns and partially loaded columns
-        columns_to_fully_load = []
-        for col in columns_to_load:
-            if col not in self._csv_data_dict:
-                # Column not loaded at all
-                columns_to_fully_load.append(col)
-            elif len(self._csv_data_dict[col]) < self._csv_total_rows:
-                # Column partially loaded - need to load remaining rows
-                columns_to_fully_load.append(col)
-
-        if columns_to_fully_load:
-            # Load all rows for the needed columns
-            fpath = self.model.filepath
-            if fpath:
-                with h5py.File(fpath, "r") as h5:
-                    self._lazy_load_columns(columns_to_fully_load, 0, self._csv_total_rows, h5)
-
-        col_data = {name: self._csv_data_dict[name] for name in columns_to_load if name in self._csv_data_dict}
+        # Read column data directly from HDF5 for plotting (don't use table's lazy-loading cache)
+        columns_to_read = y_names if x_idx is None else [x_name] + y_names
+        col_data = self._read_csv_columns(self._current_csv_group_path, columns_to_read)
+        if not col_data:
+            QMessageBox.warning(self, "Plot Error", "Failed to read column data from HDF5.")
+            return
 
         # Handle non-array data
         for name in list(col_data.keys()):
