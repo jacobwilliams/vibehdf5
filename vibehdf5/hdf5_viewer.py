@@ -4091,7 +4091,13 @@ class HDF5Viewer(QMainWindow):
 
             self.preview_table.setUpdatesEnabled(False)
             self.preview_table.setSortingEnabled(False)
+            # Clear existing table content efficiently
+            self.preview_table.setRowCount(0)
+            self.preview_table.setColumnCount(0)
             self.preview_table.clear()
+            # Reset lazy loading state
+            self._table_loaded_rows = 0
+            # Now set up the new table
             self.preview_table.setRowCount(max_rows)  # Set full row count for scrollbar
             self.preview_table.setColumnCount(len(col_names))
             self.preview_table.setHorizontalHeaderLabels(col_names)
