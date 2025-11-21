@@ -2109,25 +2109,40 @@ class HDF5Viewer(QMainWindow):
 
         left_layout.addLayout(search_layout)
 
-        self.tree = DropTreeView(left, viewer=self)
+        # Create a vertical splitter for tree view and saved plots list
+        left_splitter = QSplitter(Qt.Vertical)
+        left_splitter.setHandleWidth(4)
+        left_splitter.setChildrenCollapsible(False)
+
+        # Tree view widget
+        tree_widget = QWidget()
+        tree_layout = QVBoxLayout(tree_widget)
+        tree_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.tree = DropTreeView(tree_widget, viewer=self)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
         self.tree.setSelectionBehavior(QTreeView.SelectRows)
         self.tree.setHeaderHidden(False)
-        left_layout.addWidget(self.tree)
+        tree_layout.addWidget(self.tree)
 
-        # Saved plots list widget (below tree)
+        left_splitter.addWidget(tree_widget)
+
+        # Saved plots widget (below tree)
+        plots_widget = QWidget()
+        plots_layout = QVBoxLayout(plots_widget)
+        plots_layout.setContentsMargins(0, 0, 0, 0)
+
         saved_plots_label = QLabel("Saved Plots:")
         saved_plots_label.setStyleSheet("font-weight: bold; padding: 4px;")
-        left_layout.addWidget(saved_plots_label)
+        plots_layout.addWidget(saved_plots_label)
 
         self.saved_plots_list = DraggablePlotListWidget(self)
-        self.saved_plots_list.setMaximumHeight(150)
         self.saved_plots_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.saved_plots_list.customContextMenuRequested.connect(self._on_saved_plots_context_menu)
         self.saved_plots_list.setToolTip("Drag and drop to filesystem to export plot. Double-click to rename.")
         self.saved_plots_list.setEditTriggers(QListWidget.DoubleClicked)
-        left_layout.addWidget(self.saved_plots_list)
+        plots_layout.addWidget(self.saved_plots_list)
 
         # Buttons for plot management
         plot_buttons_layout = QHBoxLayout()
@@ -2149,7 +2164,15 @@ class HDF5Viewer(QMainWindow):
         self.btn_delete_plot.setEnabled(False)
         plot_buttons_layout.addWidget(self.btn_delete_plot)
 
-        left_layout.addLayout(plot_buttons_layout)
+        plots_layout.addLayout(plot_buttons_layout)
+
+        left_splitter.addWidget(plots_widget)
+
+        # Set initial sizes for the splitter (tree gets more space)
+        left_splitter.setStretchFactor(0, 3)
+        left_splitter.setStretchFactor(1, 1)
+
+        left_layout.addWidget(left_splitter)
 
         splitter.addWidget(left)
 
