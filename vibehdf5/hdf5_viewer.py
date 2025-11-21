@@ -4200,6 +4200,9 @@ class HDF5Viewer(QMainWindow):
                 if self._current_csv_group_path and self.model:
                     self.model.set_csv_filtered_indices(self._current_csv_group_path, None)
 
+            # Reset scrollbar to top when switching CSV datasets
+            self.preview_table.verticalScrollBar().setValue(0)
+
         except Exception as exc:
             if progress:
                 progress.close()
