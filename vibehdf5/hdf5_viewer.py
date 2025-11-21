@@ -5778,12 +5778,12 @@ class HDF5Viewer(QMainWindow):
         # Get the data with filtering applied
         columns_to_load = y_names if x_idx is None else [x_name] + y_names
         col_data = {name: self._csv_data_dict[name] for name in columns_to_load if name in self._csv_data_dict}
-        
+
         # Handle non-array data
         for name in list(col_data.keys()):
             if not isinstance(col_data[name], np.ndarray):
                 col_data[name] = np.array([col_data[name]])
-        
+
         # Apply filtered indices with bounds checking
         col_data = self._apply_filtered_indices_to_data(col_data, filtered_indices, start_row, end_row)
 
@@ -5972,7 +5972,7 @@ class HDF5Viewer(QMainWindow):
             filtered_indices = plot_config.get("filtered_indices")
             start_row = plot_config.get("start_row", 0)
             end_row = plot_config.get("end_row", -1)
-            
+
             # Apply filtered indices with bounds checking
             col_data = self._apply_filtered_indices_to_data(col_data, filtered_indices, start_row, end_row)
 
