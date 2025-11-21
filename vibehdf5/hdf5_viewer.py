@@ -1526,7 +1526,7 @@ class PlotOptionsDialog(QDialog):
         filters_sort_layout.addLayout(sort_buttons_layout)
 
         filters_sort_layout.addStretch()
-        tabs.addTab(filters_sort_tab, "Filters/Sort")
+        tabs.addTab(filters_sort_tab, "Data")
 
         # Dialog buttons
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -5676,6 +5676,39 @@ class HDF5Viewer(QMainWindow):
                         item.setText(old_name)
                         self._saved_plots[row]["name"] = old_name
 
+    def _apply_filtered_indices_to_data(self, col_data_dict, filtered_indices, start_row=0, end_row=-1):
+        """Apply filtered indices to column data with bounds checking.
+
+        Args:
+            col_data_dict: Dictionary of column name -> numpy array
+            filtered_indices: List of row indices to include, or None
+            start_row: Starting row for backward compatibility (used if filtered_indices is None)
+            end_row: Ending row for backward compatibility (used if filtered_indices is None)
+
+        Returns:
+            Dictionary with filtered data
+        """
+        result = {}
+        for col_name, col_array in col_data_dict.items():
+            if isinstance(col_array, np.ndarray) and len(col_array) > 0:
+                if filtered_indices is not None:
+                    # Use the stored filtered indices (handles non-contiguous filtering)
+                    filtered_indices_array = np.array(filtered_indices, dtype=int)
+                    # Filter out any indices that are out of bounds for the current data
+                    valid_indices = filtered_indices_array[filtered_indices_array < len(col_array)]
+                    if len(valid_indices) > 0:
+                        result[col_name] = col_array[valid_indices]
+                    else:
+                        result[col_name] = np.array([])
+                elif end_row >= 0 and end_row < len(col_array):
+                    # Backward compatibility: use row range
+                    result[col_name] = col_array[start_row : end_row + 1]
+                else:
+                    result[col_name] = col_array[start_row:]
+            else:
+                result[col_name] = col_array
+        return result
+
     def _apply_saved_plot(self, item=None):
         """Apply a saved plot configuration.
 
@@ -5742,24 +5775,17 @@ class HDF5Viewer(QMainWindow):
 
         # Get the data with filtering applied
         col_data = {}
+        # Get the data with filtering applied
         columns_to_load = y_names if x_idx is None else [x_name] + y_names
-        for name in columns_to_load:
-            if name in self._csv_data_dict:
-                full_data = self._csv_data_dict[name]
-
-                if isinstance(full_data, np.ndarray):
-                    # Use filtered_indices if available, otherwise fall back to start_row/end_row
-                    if filtered_indices is not None:
-                        # Use the stored filtered indices (handles non-contiguous filtering)
-                        filtered_indices_array = np.array(filtered_indices, dtype=int)
-                        col_data[name] = full_data[filtered_indices_array]
-                    elif end_row >= 0 and end_row < len(full_data):
-                        # Backward compatibility: use row range
-                        col_data[name] = full_data[start_row : end_row + 1]
-                    else:
-                        col_data[name] = full_data[start_row:]
-                else:
-                    col_data[name] = np.array([full_data])
+        col_data = {name: self._csv_data_dict[name] for name in columns_to_load if name in self._csv_data_dict}
+        
+        # Handle non-array data
+        for name in list(col_data.keys()):
+            if not isinstance(col_data[name], np.ndarray):
+                col_data[name] = np.array([col_data[name]])
+        
+        # Apply filtered indices with bounds checking
+        col_data = self._apply_filtered_indices_to_data(col_data, filtered_indices, start_row, end_row)
 
         if not any(name in col_data for name in y_names):
             QMessageBox.warning(self, "Plot Error", "Failed to get column data for plotting.")
@@ -5944,34 +5970,11 @@ class HDF5Viewer(QMainWindow):
             # Apply filtering if specified in plot config
             # This ensures filtered data is used during export (respects filters from when plot was saved)
             filtered_indices = plot_config.get("filtered_indices")
-
-            if filtered_indices is not None:
-                # Use the stored filtered indices array (handles non-contiguous filtering)
-                filtered_indices_array = np.array(filtered_indices, dtype=int)
-                filtered_col_data = {}
-                for col_name, col_array in col_data.items():
-                    if isinstance(col_array, np.ndarray) and len(col_array) > 0:
-                        # Apply filtering using the saved indices
-                        filtered_col_data[col_name] = col_array[filtered_indices_array]
-                    else:
-                        filtered_col_data[col_name] = col_array
-                col_data = filtered_col_data
-            else:
-                # Backward compatibility: use start_row/end_row if filtered_indices not available
-                start_row = plot_config.get("start_row", 0)
-                end_row = plot_config.get("end_row")
-
-                if end_row is not None and end_row >= start_row:
-                    # Filter all columns to the saved row range
-                    filtered_col_data = {}
-                    for col_name, col_array in col_data.items():
-                        if isinstance(col_array, np.ndarray) and len(col_array) > 0:
-                            # Apply slice [start_row:end_row+1] to get inclusive range
-                            actual_end = min(end_row + 1, len(col_array))
-                            filtered_col_data[col_name] = col_array[start_row:actual_end]
-                        else:
-                            filtered_col_data[col_name] = col_array
-                    col_data = filtered_col_data
+            start_row = plot_config.get("start_row", 0)
+            end_row = plot_config.get("end_row", -1)
+            
+            # Apply filtered indices with bounds checking
+            col_data = self._apply_filtered_indices_to_data(col_data, filtered_indices, start_row, end_row)
 
             # Get plot options
             plot_options = plot_config.get("plot_options", {})
