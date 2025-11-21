@@ -2183,6 +2183,9 @@ class HDF5Viewer(QMainWindow):
         self.attrs_table.setAlternatingRowColors(True)
         self.attrs_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.attrs_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        # Enable context menu for attributes table
+        self.attrs_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.attrs_table.customContextMenuRequested.connect(self._on_attrs_context_menu)
         attrs_layout.addWidget(self.attrs_table)
 
         self.bottom_tabs.addTab(attrs_widget, "Attributes")
@@ -6072,6 +6075,153 @@ class HDF5Viewer(QMainWindow):
                 "Copy Failed",
                 f"Failed to copy plot JSON to clipboard.\n\nError: {e}"
             )
+
+    def _on_attrs_context_menu(self, point):
+        """Show context menu for attributes table."""
+        item = self.attrs_table.itemAt(point)
+        if item is None:
+            return
+
+        row = item.row()
+        col = item.column()
+
+        menu = QMenu(self)
+
+        # Only show copy if a value cell is clicked (column 1)
+        if col == 1:
+            act_copy = menu.addAction("Copy Value")
+        else:
+            act_copy = None
+
+        # Always show paste option for value cells
+        if col == 1:
+            act_paste = menu.addAction("Paste Value")
+        else:
+            act_paste = None
+
+        if act_copy is None and act_paste is None:
+            return  # No actions available
+
+        global_pos = self.attrs_table.viewport().mapToGlobal(point)
+        chosen = menu.exec(global_pos)
+
+        if chosen == act_copy:
+            # Copy full attribute value from HDF5 file (not truncated display text)
+            name_item = self.attrs_table.item(row, 0)
+            if not name_item:
+                return
+
+            attr_name = name_item.text()
+
+            # Get the current object path from selection
+            sel = self.tree.selectionModel().selectedIndexes()
+            if not sel:
+                return
+
+            index = sel[0].sibling(sel[0].row(), 0)
+            item = self.model.itemFromIndex(index)
+            if item is None:
+                return
+
+            obj_path = item.data(self.model.ROLE_PATH)
+            if not obj_path:
+                return
+
+            # Read the full attribute value from the HDF5 file
+            fpath = self.model.filepath
+            if not fpath:
+                return
+
+            try:
+                with h5py.File(fpath, "r") as h5:
+                    obj = h5[obj_path]
+                    if attr_name in obj.attrs:
+                        attr_value = obj.attrs[attr_name]
+                        # Convert to string for clipboard
+                        if isinstance(attr_value, (np.ndarray, list)):
+                            # For arrays/lists, use repr to get full representation
+                            value_str = repr(attr_value)
+                        else:
+                            value_str = str(attr_value)
+
+                        clipboard = QApplication.clipboard()
+                        clipboard.setText(value_str)
+                        self.statusBar().showMessage("Full attribute value copied to clipboard", 2000)
+            except Exception as exc:
+                self.statusBar().showMessage(f"Failed to copy attribute: {exc}", 3000)
+        elif chosen == act_paste:
+            # Paste value from system clipboard
+            clipboard = QApplication.clipboard()
+            clipboard_text = clipboard.text().strip()
+            if not clipboard_text:
+                QMessageBox.warning(self, "Paste", "Clipboard is empty.")
+                return
+
+            # Get attribute name
+            name_item = self.attrs_table.item(row, 0)
+            if not name_item:
+                return
+
+            attr_name = name_item.text()
+
+            # Get the current object path from selection
+            sel = self.tree.selectionModel().selectedIndexes()
+            if not sel:
+                QMessageBox.warning(self, "Paste", "No item selected in tree.")
+                return
+
+            index = sel[0].sibling(sel[0].row(), 0)
+            item = self.model.itemFromIndex(index)
+            if item is None:
+                return
+
+            obj_path = item.data(self.model.ROLE_PATH)
+            if not obj_path:
+                return
+
+            # Update the attribute in the HDF5 file
+            fpath = self.model.filepath
+            if not fpath:
+                QMessageBox.warning(self, "Paste", "No HDF5 file loaded.")
+                return
+
+            try:
+                with h5py.File(fpath, "r+") as h5:
+                    obj = h5[obj_path]
+
+                    # Simply store as string - no parsing or conversion
+                    obj.attrs[attr_name] = clipboard_text
+
+                # Update the table display
+                value_item = self.attrs_table.item(row, 1)
+                if value_item:
+                    value_item.setText(clipboard_text)
+
+                self.statusBar().showMessage(f"Updated attribute '{attr_name}' in HDF5 file", 3000)
+
+                # Refresh the display to reflect any changes
+                kind = item.data(self.model.ROLE_KIND)
+                if kind == "dataset":
+                    self.preview_dataset(obj_path)
+                elif kind == "group":
+                    self.preview_group(obj_path)
+                elif kind == "attr":
+                    # If we're on an attr node, refresh its parent
+                    parent_path = item.data(self.model.ROLE_PATH)
+                    if parent_path:
+                        # Determine if parent is dataset or group
+                        try:
+                            with h5py.File(fpath, "r") as h5:
+                                parent_obj = h5[parent_path]
+                                if isinstance(parent_obj, h5py.Dataset):
+                                    self.preview_dataset(parent_path)
+                                elif isinstance(parent_obj, h5py.Group):
+                                    self.preview_group(parent_path)
+                        except Exception:
+                            pass
+
+            except Exception as exc:
+                QMessageBox.critical(self, "Paste Failed", f"Failed to update attribute:\n{exc}")
 
     def _on_saved_plots_context_menu(self, point):
         """Show context menu for saved plots list."""
