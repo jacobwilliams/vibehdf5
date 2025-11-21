@@ -7,9 +7,9 @@ import tempfile
 import h5py
 import numpy as np
 import csv
-from qtpy.QtCore import QMimeData, Qt, QUrl
+from qtpy.QtCore import QMimeData, Qt, QUrl, QFileInfo
 from qtpy.QtGui import QIcon, QPainter, QPixmap, QColor, QStandardItem, QStandardItemModel
-from qtpy.QtWidgets import QApplication, QStyle
+from qtpy.QtWidgets import QApplication, QStyle, QFileIconProvider
 
 
 class HDF5TreeModel(QStandardItemModel):
@@ -32,6 +32,7 @@ class HDF5TreeModel(QStandardItemModel):
         super().__init__(parent)
         self.setHorizontalHeaderLabels(["Name", "Info"])
         self._style = QApplication.instance().style() if QApplication.instance() else None
+        self._icon_provider = QFileIconProvider()  # For system file icons
         self._filepath: str | None = None
         self._csv_filtered_indices = {}  # Dict mapping CSV group path to filtered row indices
         self._csv_visible_columns = {}  # Dict mapping CSV group path to list of visible column names
@@ -121,6 +122,38 @@ class HDF5TreeModel(QStandardItemModel):
                 painter.end()
 
             return QIcon(thumbnail)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _get_system_icon_for_extension(self, filename: str, has_attrs: bool) -> QIcon | None:
+        """Get the operating system's icon for a file extension.
+
+        Args:
+            filename: Name of the file (with extension)
+            has_attrs: Whether to add red dot indicator
+
+        Returns:
+            QIcon with system icon (and optional red dot), or None if not available
+        """
+        try:
+            # Create a temporary file with the extension to get the system icon
+            # QFileIconProvider needs a real file path to determine the icon
+            ext = os.path.splitext(filename)[1].lower()
+            if not ext:
+                return None
+
+            # Create a QFileInfo with just the filename (no actual file needed on modern Qt)
+            file_info = QFileInfo(filename)
+            icon = self._icon_provider.icon(file_info)
+
+            if icon.isNull():
+                return None
+
+            # Add red dot indicator if item has attributes
+            if has_attrs:
+                return self._create_icon_with_indicator(icon, has_attrs)
+
+            return icon
         except Exception:  # noqa: BLE001
             return None
 
@@ -573,16 +606,24 @@ class HDF5TreeModel(QStandardItemModel):
                     d_info = QStandardItem(f"dataset | shape={space} | dtype={dtype}")
                     if self._style:
                         has_attrs = len(obj.attrs) > 0
+                        icon_set = False
+
                         # Try to use PNG thumbnail for .png datasets
                         if name.lower().endswith(".png"):
                             png_icon = self._create_png_thumbnail_icon(obj, has_attrs)
                             if png_icon:
                                 d_item.setIcon(png_icon)
-                            else:
-                                # Fallback to standard file icon if thumbnail fails
-                                base_icon = self._style.standardIcon(QStyle.SP_FileIcon)
-                                d_item.setIcon(self._create_icon_with_indicator(base_icon, has_attrs))
-                        else:
+                                icon_set = True
+
+                        # If no PNG thumbnail, try system icon for the file extension
+                        if not icon_set:
+                            sys_icon = self._get_system_icon_for_extension(name, has_attrs)
+                            if sys_icon:
+                                d_item.setIcon(sys_icon)
+                                icon_set = True
+
+                        # Fallback to standard file icon if no system icon available
+                        if not icon_set:
                             base_icon = self._style.standardIcon(QStyle.SP_FileIcon)
                             d_item.setIcon(self._create_icon_with_indicator(base_icon, has_attrs))
                     parent_item.appendRow([d_item, d_info])
