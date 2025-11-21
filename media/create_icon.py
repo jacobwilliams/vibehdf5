@@ -15,10 +15,10 @@ def create_icon():
     draw = ImageDraw.Draw(img)
 
     # Background gradient (blue theme for data/files)
-    for y in range(size):
-        color_value = int(50 + (y / size) * 100)
-        draw.rectangle([(0, y), (size, y+1)],
-                      fill=(30, color_value, 150, 255))
+    # for y in range(size):
+    #     color_value = int(50 + (y / size) * 100)
+    #     draw.rectangle([(0, y), (size, y+1)],
+    #                   fill=(30, color_value, 150, 255))
 
     # Draw a stylized folder/file icon
     margin = size // 8
