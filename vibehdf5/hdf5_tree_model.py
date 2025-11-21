@@ -67,6 +67,63 @@ class HDF5TreeModel(QStandardItemModel):
 
         return QIcon(pixmap)
 
+    def _create_png_thumbnail_icon(self, dataset: h5py.Dataset, has_attrs: bool) -> QIcon | None:
+        """Create a thumbnail icon from PNG dataset data.
+
+        Args:
+            dataset: HDF5 dataset containing PNG image data
+            has_attrs: Whether to add the red dot indicator
+
+        Returns:
+            QIcon with thumbnail, or None if data cannot be read
+        """
+        try:
+            data = dataset[()]
+
+            # Check if this is compressed binary data
+            if "compressed" in dataset.attrs and dataset.attrs["compressed"] == "gzip":
+                encoding = dataset.attrs.get("original_encoding", "utf-8")
+                if isinstance(encoding, bytes):
+                    encoding = encoding.decode("utf-8")
+                if encoding == "binary" and isinstance(data, np.ndarray) and data.dtype == np.uint8:
+                    # Decompress the binary data
+                    compressed_bytes = data.tobytes()
+                    img_bytes = gzip.decompress(compressed_bytes)
+                elif isinstance(data, bytes):
+                    img_bytes = data
+                elif hasattr(data, "tobytes"):
+                    img_bytes = data.tobytes()
+                else:
+                    return None
+            elif isinstance(data, bytes):
+                img_bytes = data
+            elif hasattr(data, "tobytes"):
+                img_bytes = data.tobytes()
+            else:
+                return None
+
+            # Create pixmap from image data
+            pixmap = QPixmap()
+            if not pixmap.loadFromData(img_bytes):
+                return None
+
+            # Scale to thumbnail size (16x16 for tree view)
+            thumbnail = pixmap.scaled(16, 16, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+            # Add red dot indicator if has attributes
+            if has_attrs:
+                painter = QPainter(thumbnail)
+                painter.setRenderHint(QPainter.Antialiasing)
+                dot_size = 5
+                painter.setBrush(QColor(255, 0, 0))  # Red
+                painter.setPen(Qt.NoPen)
+                painter.drawEllipse(1, thumbnail.height() - dot_size - 1, dot_size, dot_size)
+                painter.end()
+
+            return QIcon(thumbnail)
+        except Exception:  # noqa: BLE001
+            return None
+
     def load_file(self, filepath: str) -> None:
         """Load the HDF5 file and populate the model."""
         self.clear()
@@ -516,8 +573,18 @@ class HDF5TreeModel(QStandardItemModel):
                     d_info = QStandardItem(f"dataset | shape={space} | dtype={dtype}")
                     if self._style:
                         has_attrs = len(obj.attrs) > 0
-                        base_icon = self._style.standardIcon(QStyle.SP_FileIcon)
-                        d_item.setIcon(self._create_icon_with_indicator(base_icon, has_attrs))
+                        # Try to use PNG thumbnail for .png datasets
+                        if name.lower().endswith(".png"):
+                            png_icon = self._create_png_thumbnail_icon(obj, has_attrs)
+                            if png_icon:
+                                d_item.setIcon(png_icon)
+                            else:
+                                # Fallback to standard file icon if thumbnail fails
+                                base_icon = self._style.standardIcon(QStyle.SP_FileIcon)
+                                d_item.setIcon(self._create_icon_with_indicator(base_icon, has_attrs))
+                        else:
+                            base_icon = self._style.standardIcon(QStyle.SP_FileIcon)
+                            d_item.setIcon(self._create_icon_with_indicator(base_icon, has_attrs))
                     parent_item.appendRow([d_item, d_info])
                     d_item.setData(obj.name, self.ROLE_PATH)
                     d_item.setData("dataset", self.ROLE_KIND)
