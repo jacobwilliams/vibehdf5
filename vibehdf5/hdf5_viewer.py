@@ -5153,62 +5153,15 @@ class HDF5Viewer(QMainWindow):
                 QMessageBox.warning(self, "Plot", "No data to plot.")
                 return
 
-            # Handle X-axis data
-            if x_idx is None:
-                # Single column mode: use point count as x-axis
-                x_arr = np.arange(min_len)
-                x_num = x_arr.astype(float)
-                x_is_string = False
-                xaxis_datetime = False
-            else:
-                # Coerce X to numeric
-                x_arr = col_data[x_name]
-                # Ensure 1-D
-                x_arr = x_arr.ravel()
-                min_len = min(len(x_arr), min_len)
-                if min_len <= 0:
-                    QMessageBox.warning(self, "Plot", "No data to plot.")
-                    return
+            # Process X-axis data using helper method (reuses logic from saved plots)
+            plot_options = {}  # Quick plot uses default options
+            x_arr, x_num, x_is_string, xaxis_datetime, min_len = self._process_x_axis_data(
+                x_idx, col_data, y_names, x_name, plot_options
+            )
 
-                # Check if x_arr contains strings (automatic date detection)
-                x_is_string = False
-                xaxis_datetime = False
-                if len(x_arr) > 0:
-                    first_val = x_arr[0]
-                    x_is_string = isinstance(first_val, str) or (
-                        hasattr(first_val, "dtype") and first_val.dtype.kind in ("U", "O")
-                    )
-
-            # If x-axis is strings, try auto-parsing as dates
-            if x_idx is not None and x_is_string:
-                try:
-                    # Try to parse as datetime without explicit format (pandas will infer)
-                    x_data = pd.to_datetime(pd.Series(x_arr[:min_len]), errors="coerce")
-                    # Check if parsing was successful (not all NaT/null)
-                    valid_dates = x_data.notna()
-                    if valid_dates.sum() > 0:
-                        # Successfully parsed as dates - use datetime mode
-                        # Convert to matplotlib date numbers using pandas
-                        # Convert pandas datetime to matplotlib float dates
-                        x_num = np.array([mdates.date2num(d) if pd.notna(d) else np.nan
-                                         for d in x_data])
-                        xaxis_datetime = True
-                    else:
-                        # Parsing failed - treat as categorical/text
-                        # Use integer indices for x-axis
-                        x_num = np.arange(min_len, dtype=float)
-                        xaxis_datetime = False
-                except Exception:
-                    # If auto-parsing fails, use integer indices
-                    x_num = np.arange(min_len, dtype=float)
-                    xaxis_datetime = False
-            elif x_idx is not None:
-                # Try numeric conversion for non-string x data
-                x_num = (
-                    pd.to_numeric(pd.Series(x_arr[:min_len]), errors="coerce")
-                    .astype(float)
-                    .to_numpy()
-                )
+            if min_len <= 0:
+                QMessageBox.warning(self, "Plot", "No data to plot.")
+                return
 
             # Clear the previous plot
             self.plot_figure.clear()
@@ -5236,6 +5189,7 @@ class HDF5Viewer(QMainWindow):
                 QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
                 return
 
+            # Set axis labels and title
             ax.set_xlabel(x_name)
             ax.set_ylabel(", ".join(y_names))
 
@@ -5255,9 +5209,6 @@ class HDF5Viewer(QMainWindow):
                 title_obj.set_color('black')
             except Exception:
                 pass
-
-            ax.set_xlabel(x_name)
-            ax.set_ylabel(", ".join(y_names))
             ax.legend()
             ax.grid(True)
 
@@ -5276,6 +5227,14 @@ class HDF5Viewer(QMainWindow):
             import traceback
             tb_str = traceback.format_exc()
             QMessageBox.critical(self, "Plot error", f"Failed to plot data:\n{exc}\n\nTraceback:\n{tb_str}")
+
+    def _get_hdf5_file_path(self):
+        """Get the currently loaded HDF5 file path, or None if no file is loaded.
+
+        Returns:
+            str or None: File path if a file is loaded, None otherwise
+        """
+        return self.model.filepath if self.model else None
 
     def _configure_filters_dialog(self):
         """Open dialog to configure column filters."""
