@@ -86,6 +86,14 @@ class SyntaxHighlighter(QSyntaxHighlighter):
             pattern = QRegularExpression(patterns["number_pattern"])
             self.highlighting_rules.append((pattern, self.number_format))
 
+        # Operators (before strings and comments so they don't override them)
+        if "operators" in patterns:
+            for operator in patterns["operators"]:
+                # Escape all special regex characters to match literally
+                escaped = re.escape(operator)
+                pattern = QRegularExpression(escaped)
+                self.highlighting_rules.append((pattern, self.operator_format))
+
         # Strings (must come before comments to avoid highlighting strings in comments)
         if "string_patterns" in patterns:
             for str_pattern in patterns["string_patterns"]:
@@ -97,14 +105,6 @@ class SyntaxHighlighter(QSyntaxHighlighter):
             for comment_pattern in patterns["comment_patterns"]:
                 pattern = QRegularExpression(comment_pattern)
                 self.highlighting_rules.append((pattern, self.comment_format))
-
-        # Operators
-        if "operators" in patterns:
-            for operator in patterns["operators"]:
-                # Escape all special regex characters to match literally
-                escaped = re.escape(operator)
-                pattern = QRegularExpression(escaped)
-                self.highlighting_rules.append((pattern, self.operator_format))
 
     def highlightBlock(self, text):
         """Apply syntax highlighting to a block of text."""
@@ -539,7 +539,7 @@ LANGUAGE_PATTERNS = {
         "function_pattern": r"\b[A-Za-z_][A-Za-z0-9_]*(?=\s*\()",
         "number_pattern": r"\b[0-9]+\.?[0-9]*([dDeE][+-]?[0-9]+)?\b",
         "string_patterns": [r'"[^"]*"', r"'[^']*'"],
-        "comment_patterns": [r"![^\n]*"],
+        "comment_patterns": [r"!.*"],
         "operators": ["+", "-", "*", "/", "**", "=", "==", "/=", "<", ">", "<=", ">="],
     },
     "yaml": {
