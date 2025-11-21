@@ -37,6 +37,114 @@ class HDF5TreeModel(QStandardItemModel):
         self._csv_filtered_indices = {}  # Dict mapping CSV group path to filtered row indices
         self._csv_visible_columns = {}  # Dict mapping CSV group path to list of visible column names
 
+    def flags(self, index):
+        """Return item flags, enabling editing for groups and datasets."""
+        if not index.isValid():
+            return Qt.NoItemFlags
+
+        # Only allow editing the name column
+        if index.column() != self.COL_NAME:
+            return super().flags(index)
+
+        item = self.itemFromIndex(index)
+        if item is None:
+            return super().flags(index)
+
+        kind = item.data(self.ROLE_KIND)
+
+        # Allow editing for groups and datasets (but not root, attrs-folder, or attr)
+        if kind in ("group", "dataset"):
+            path = item.data(self.ROLE_PATH)
+            # Don't allow editing the root group
+            if kind == "group" and path == "/":
+                return super().flags(index)
+            return super().flags(index) | Qt.ItemIsEditable
+
+        return super().flags(index)
+
+    def setData(self, index, value, role=Qt.EditRole):
+        """Handle data changes, including renaming groups and datasets in the HDF5 file."""
+        if not index.isValid() or role != Qt.EditRole:
+            return False
+
+        if index.column() != self.COL_NAME:
+            return False
+
+        item = self.itemFromIndex(index)
+        if item is None:
+            return False
+
+        kind = item.data(self.ROLE_KIND)
+        old_path = item.data(self.ROLE_PATH)
+
+        # Only handle groups and datasets
+        if kind not in ("group", "dataset") or not old_path or old_path == "/":
+            return False
+
+        new_name = str(value).strip()
+        if not new_name or new_name == item.text():
+            return False
+
+        # Validate new name (no slashes, not empty)
+        if "/" in new_name:
+            return False
+
+        # Calculate new path
+        parent_path = os.path.dirname(old_path)
+        if parent_path == "":
+            parent_path = "/"
+        new_path = f"{parent_path}/{new_name}" if parent_path != "/" else f"/{new_name}"
+
+        # Perform the rename in the HDF5 file
+        if not self._filepath:
+            return False
+
+        try:
+            with h5py.File(self._filepath, "r+") as h5:
+                # Check if new path already exists
+                if new_path in h5:
+                    return False
+
+                # Perform the move (rename)
+                h5.move(old_path, new_path)
+
+            # Update the item
+            item.setText(new_name)
+            item.setData(new_path, self.ROLE_PATH)
+
+            # Update all descendant items' paths recursively
+            self._update_descendant_paths(item, old_path, new_path)
+
+            # Emit dataChanged signal
+            self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole])
+            return True
+
+        except Exception as e:  # noqa: BLE001
+            print(f"Error renaming {old_path} to {new_path}: {e}")
+            return False
+
+    def _update_descendant_paths(self, parent_item, old_parent_path, new_parent_path):
+        """Recursively update the ROLE_PATH data for all descendants after a rename.
+
+        Args:
+            parent_item: The item that was renamed
+            old_parent_path: The old HDF5 path
+            new_parent_path: The new HDF5 path
+        """
+        for row in range(parent_item.rowCount()):
+            child_item = parent_item.child(row, self.COL_NAME)
+            if child_item is None:
+                continue
+
+            old_child_path = child_item.data(self.ROLE_PATH)
+            if old_child_path and old_child_path.startswith(old_parent_path):
+                # Replace the old parent path prefix with the new one
+                new_child_path = old_child_path.replace(old_parent_path, new_parent_path, 1)
+                child_item.setData(new_child_path, self.ROLE_PATH)
+
+                # Recursively update descendants
+                self._update_descendant_paths(child_item, old_child_path, new_child_path)
+
     def _create_icon_with_indicator(self, base_icon: QIcon, has_attrs: bool) -> QIcon:
         """Create an icon with a red dot indicator if item has attributes.
 

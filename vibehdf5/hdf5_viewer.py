@@ -2184,6 +2184,9 @@ class HDF5Viewer(QMainWindow):
         self.tree.setSortingEnabled(True)
         self.tree.sortByColumn(0, Qt.AscendingOrder)
 
+        # Enable editing via double-click for renaming
+        self.tree.setEditTriggers(QAbstractItemView.DoubleClicked)
+
         # Enable drag-and-drop (both export and external import)
         self.tree.setDragEnabled(True)  # allow dragging out
         self.tree.setAcceptDrops(True)  # allow external drops
@@ -2193,6 +2196,9 @@ class HDF5Viewer(QMainWindow):
         # Context menu on tree
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.on_tree_context_menu)
+
+        # Connect to model data changes to handle renames
+        self.model.dataChanged.connect(self._on_tree_item_renamed)
 
         # Preview panel (right)
         right = QWidget(self)
@@ -3815,6 +3821,47 @@ class HDF5Viewer(QMainWindow):
             self._saved_plots = []
             self._refresh_saved_plots_list()
             self._clear_plot_display()
+
+    def _on_tree_item_renamed(self, topLeft, bottomRight, roles):
+        """Handle when a tree item is renamed.
+
+        Update internal references if the currently viewed CSV group was renamed.
+
+        Args:
+            topLeft: Top-left index of changed data
+            bottomRight: Bottom-right index of changed data
+            roles: List of roles that changed
+        """
+        # Check if this is an edit role change (rename)
+        if Qt.EditRole not in roles and Qt.DisplayRole not in roles:
+            return
+
+        # Get the renamed item
+        item = self.model.itemFromIndex(topLeft)
+        if item is None:
+            return
+
+        new_path = item.data(self.model.ROLE_PATH)
+
+        # If the currently viewed CSV group was renamed, update the reference
+        if self._current_csv_group_path and new_path:
+            # Check if we need to update the current CSV group path
+            # This could be the group itself or a parent group
+            old_path = self._current_csv_group_path
+
+            # Try to determine the old path by checking against the new path
+            # The model's setData already updated paths, so we need to check
+            # if this rename affects our currently viewed path
+            # For now, just clear it to be safe - the user can reselect
+            # A more sophisticated approach would track the old path before rename
+
+            # Actually, let's just refresh the selection to update paths correctly
+            current_index = self.tree.currentIndex()
+            if current_index.isValid():
+                self.on_selection_changed(
+                    self.tree.selectionModel().selection(),
+                    self.tree.selectionModel().selection()
+                )
 
     # Context menu handling
     def on_tree_context_menu(self, point) -> None:
