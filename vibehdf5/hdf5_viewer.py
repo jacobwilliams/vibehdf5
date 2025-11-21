@@ -1460,6 +1460,74 @@ class PlotOptionsDialog(QDialog):
 
         tabs.addTab(reflines_tab, "Reference Lines")
 
+        # Tab 6: Filters & Sort
+        filters_sort_tab = QWidget()
+        filters_sort_layout = QVBoxLayout(filters_sort_tab)
+
+        # Filters section
+        filters_label = QLabel("<b>Data Filters:</b>")
+        filters_sort_layout.addWidget(filters_label)
+
+        filters_info = QLabel("Configure which rows from the CSV are included in this plot.")
+        filters_info.setWordWrap(True)
+        filters_sort_layout.addWidget(filters_info)
+
+        # Store filters and sort in dialog - use list() to create proper copies
+        self.csv_filters = list(self.plot_config.get("csv_filters", []))
+        self.csv_sort = list(self.plot_config.get("csv_sort", []))
+
+        # Filter status display
+        self.filter_status_label = QLabel(self._get_filter_status_text())
+        self.filter_status_label.setWordWrap(True)
+        filters_sort_layout.addWidget(self.filter_status_label)
+
+        # Filter buttons
+        filter_buttons_layout = QHBoxLayout()
+        edit_filters_btn = QPushButton("Configure Filters...")
+        edit_filters_btn.setToolTip("Add or modify filter conditions")
+        edit_filters_btn.clicked.connect(self._edit_filters)
+        filter_buttons_layout.addWidget(edit_filters_btn)
+
+        clear_filters_btn = QPushButton("Clear Filters")
+        clear_filters_btn.setToolTip("Remove all filter conditions")
+        clear_filters_btn.clicked.connect(self._clear_filters)
+        filter_buttons_layout.addWidget(clear_filters_btn)
+
+        filter_buttons_layout.addStretch()
+        filters_sort_layout.addLayout(filter_buttons_layout)
+
+        # Sort section
+        filters_sort_layout.addSpacing(20)
+        sort_label = QLabel("<b>Data Sorting:</b>")
+        filters_sort_layout.addWidget(sort_label)
+
+        sort_info = QLabel("Configure how the data is sorted before plotting.")
+        sort_info.setWordWrap(True)
+        filters_sort_layout.addWidget(sort_info)
+
+        # Sort status display
+        self.sort_status_label = QLabel(self._get_sort_status_text())
+        self.sort_status_label.setWordWrap(True)
+        filters_sort_layout.addWidget(self.sort_status_label)
+
+        # Sort buttons
+        sort_buttons_layout = QHBoxLayout()
+        edit_sort_btn = QPushButton("Configure Sort...")
+        edit_sort_btn.setToolTip("Configure multi-column sorting")
+        edit_sort_btn.clicked.connect(self._edit_sort)
+        sort_buttons_layout.addWidget(edit_sort_btn)
+
+        clear_sort_btn = QPushButton("Clear Sort")
+        clear_sort_btn.setToolTip("Remove all sorting")
+        clear_sort_btn.clicked.connect(self._clear_sort)
+        sort_buttons_layout.addWidget(clear_sort_btn)
+
+        sort_buttons_layout.addStretch()
+        filters_sort_layout.addLayout(sort_buttons_layout)
+
+        filters_sort_layout.addStretch()
+        tabs.addTab(filters_sort_tab, "Filters/Sort")
+
         # Dialog buttons
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
@@ -1802,6 +1870,50 @@ class PlotOptionsDialog(QDialog):
             self.reflines_layout.removeWidget(widget)
             widget.deleteLater()
 
+    def _get_filter_status_text(self):
+        """Get status text for filters."""
+        if not self.csv_filters:
+            return "No filters applied"
+        return f"{len(self.csv_filters)} filter(s) applied: " + ", ".join(
+            f"{col} {op} {val}" for col, op, val in self.csv_filters[:3]
+        ) + ("..." if len(self.csv_filters) > 3 else "")
+
+    def _get_sort_status_text(self):
+        """Get status text for sort."""
+        if not self.csv_sort:
+            return "No sorting applied"
+        return f"Sorted by {len(self.csv_sort)} column(s): " + ", ".join(
+            f"{col} ({order})" for col, order in self.csv_sort[:3]
+        ) + ("..." if len(self.csv_sort) > 3 else "")
+
+    def _edit_filters(self):
+        """Open the filter configuration dialog."""
+        dialog = ColumnFilterDialog(self.column_names, self)
+        dialog.set_filters(self.csv_filters)
+
+        if dialog.exec() == QDialog.Accepted:
+            self.csv_filters = dialog.get_filters()
+            self.filter_status_label.setText(self._get_filter_status_text())
+
+    def _clear_filters(self):
+        """Clear all filters."""
+        self.csv_filters = []
+        self.filter_status_label.setText(self._get_filter_status_text())
+
+    def _edit_sort(self):
+        """Open the sort configuration dialog."""
+        dialog = ColumnSortDialog(self.column_names, self)
+        dialog.set_sort_specs(self.csv_sort)
+
+        if dialog.exec() == QDialog.Accepted:
+            self.csv_sort = dialog.get_sort_specs()
+            self.sort_status_label.setText(self._get_sort_status_text())
+
+    def _clear_sort(self):
+        """Clear all sorting."""
+        self.csv_sort = []
+        self.sort_status_label.setText(self._get_sort_status_text())
+
     def get_plot_config(self):
         """Return updated plot configuration."""
         # Update name
@@ -1899,6 +2011,10 @@ class PlotOptionsDialog(QDialog):
                 "trendline_mode": widget._trend_mode_combo.currentData(),
             }
         plot_opts["series"] = series_opts
+
+        # Save filters and sort
+        self.plot_config["csv_filters"] = self.csv_filters
+        self.plot_config["csv_sort"] = self.csv_sort
 
         return self.plot_config
 
@@ -5402,6 +5518,8 @@ class HDF5Viewer(QMainWindow):
             "filtered_indices": filtered_indices,  # Store actual filtered row indices
             "start_row": start_row,  # Keep for backward compatibility
             "end_row": end_row,  # Keep for backward compatibility
+            "csv_filters": self._csv_filters.copy() if self._csv_filters else [],  # Store filter specs
+            "csv_sort": self._csv_sort_specs.copy() if hasattr(self, '_csv_sort_specs') and self._csv_sort_specs else [],  # Store sort specs
             "timestamp": time.time(),
             "plot_options": {
                 "title": "",
@@ -6031,6 +6149,17 @@ class HDF5Viewer(QMainWindow):
         if dialog.exec() == QDialog.Accepted:
             # Update the configuration with the new options
             updated_config = dialog.get_plot_config()
+
+            # Check if filters or sort changed - if so, recalculate filtered_indices
+            old_filters = plot_config.get("csv_filters", [])
+            old_sort = plot_config.get("csv_sort", [])
+            new_filters = updated_config.get("csv_filters", [])
+            new_sort = updated_config.get("csv_sort", [])
+
+            if old_filters != new_filters or old_sort != new_sort:
+                # Recalculate filtered_indices based on new filters and sort
+                self._recalculate_plot_filtered_indices(updated_config)
+
             self._saved_plots[current_row] = updated_config
 
             # Save to HDF5
@@ -6048,6 +6177,139 @@ class HDF5Viewer(QMainWindow):
             self.statusBar().showMessage(
                 f"Updated plot options: {updated_config.get('name', 'Unnamed')}", 3000
             )
+
+    def _recalculate_plot_filtered_indices(self, plot_config):
+        """Recalculate filtered_indices for a plot based on its filter and sort settings.
+
+        Args:
+            plot_config: Plot configuration dictionary to update
+        """
+        if not self._csv_data_dict or not self._csv_column_names:
+            return
+
+        # Get filters and sort from plot config
+        csv_filters = plot_config.get("csv_filters", [])
+        csv_sort = plot_config.get("csv_sort", [])
+
+        # Get total row count
+        max_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
+
+        if max_rows == 0:
+            plot_config["filtered_indices"] = None
+            return
+
+        # Start with all rows
+        filtered_indices = np.arange(max_rows)
+
+        # Apply filters
+        if csv_filters:
+            for col_name, operator, value_str in csv_filters:
+                if col_name not in self._csv_data_dict:
+                    continue
+
+                col_data = self._csv_data_dict[col_name]
+
+                # Only filter on rows we haven't already filtered out
+                valid_mask = np.ones(len(filtered_indices), dtype=bool)
+
+                for i, row_idx in enumerate(filtered_indices):
+                    if row_idx >= len(col_data):
+                        valid_mask[i] = False
+                        continue
+
+                    cell_value = col_data[row_idx]
+
+                    # Try to parse value_str for comparison
+                    try:
+                        if operator in ("=", "!=", "<", "<=", ">", ">="):
+                            # Numeric comparison
+                            numeric_cell = float(cell_value)
+                            numeric_value = float(value_str)
+
+                            if operator == "=":
+                                matches = numeric_cell == numeric_value
+                            elif operator == "!=":
+                                matches = numeric_cell != numeric_value
+                            elif operator == "<":
+                                matches = numeric_cell < numeric_value
+                            elif operator == "<=":
+                                matches = numeric_cell <= numeric_value
+                            elif operator == ">":
+                                matches = numeric_cell > numeric_value
+                            elif operator == ">=":
+                                matches = numeric_cell >= numeric_value
+                            else:
+                                matches = True
+                        elif operator == "contains":
+                            matches = value_str.lower() in str(cell_value).lower()
+                        elif operator == "starts with":
+                            matches = str(cell_value).lower().startswith(value_str.lower())
+                        elif operator == "ends with":
+                            matches = str(cell_value).lower().endswith(value_str.lower())
+                        else:
+                            matches = True
+
+                        valid_mask[i] = matches
+                    except (ValueError, TypeError):
+                        # If comparison fails, exclude the row
+                        valid_mask[i] = False
+
+                # Update filtered_indices to only include rows that passed this filter
+                filtered_indices = filtered_indices[valid_mask]
+
+        # Apply sort
+        if csv_sort and len(filtered_indices) > 0:
+            # Build a structured array for sorting
+            sort_data = []
+            for col_name, order in csv_sort:
+                if col_name in self._csv_data_dict:
+                    col_data = self._csv_data_dict[col_name]
+                    # Extract data for filtered rows
+                    sort_column = np.array([col_data[i] if i < len(col_data) else "" for i in filtered_indices])
+                    sort_data.append((col_name, sort_column))
+
+            if sort_data:
+                # Sort using lexsort (sorts by last column first, then previous, etc.)
+                sort_arrays = []
+                for col_name, order in reversed(csv_sort):
+                    for stored_name, stored_array in sort_data:
+                        if stored_name == col_name:
+                            # Normalize order to boolean: True = ascending, False = descending
+                            # Handle various formats: "asc"/"desc", "Asc"/"Desc", True/False
+                            if isinstance(order, bool):
+                                is_ascending = order
+                            elif isinstance(order, str):
+                                is_ascending = order.lower() not in ('desc', 'descending')
+                            else:
+                                is_ascending = True  # Default to ascending
+
+                            # Convert to numeric if possible for better sorting
+                            try:
+                                numeric_array = pd.to_numeric(pd.Series(stored_array), errors='coerce')
+                                if not is_ascending:
+                                    sort_arrays.append(-numeric_array.to_numpy())
+                                else:
+                                    sort_arrays.append(numeric_array.to_numpy())
+                            except Exception:
+                                # Fall back to string sorting
+                                str_array = np.array([str(x) for x in stored_array])
+                                # For string sorting, we'll handle descending after lexsort
+                                sort_arrays.append(str_array)
+                            break
+
+                if sort_arrays:
+                    sort_idx = np.lexsort(tuple(sort_arrays))
+                    filtered_indices = filtered_indices[sort_idx]
+
+        # Update plot config with new filtered indices
+        if len(filtered_indices) > 0:
+            plot_config["filtered_indices"] = filtered_indices.tolist()
+            plot_config["start_row"] = int(filtered_indices[0])
+            plot_config["end_row"] = int(filtered_indices[-1])
+        else:
+            plot_config["filtered_indices"] = []
+            plot_config["start_row"] = 0
+            plot_config["end_row"] = 0
 
     def _copy_plot_json_to_clipboard(self):
         """Copy the selected plot's JSON configuration to clipboard."""
