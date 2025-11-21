@@ -5594,69 +5594,67 @@ class HDF5Viewer(QMainWindow):
                 f"Showing {shown_rows:,} of {total_rows:,} rows (filtered)", 5000
             )
 
+    def _compare_values(self, left_value, operator, right_value):
+        """Compare two values using the specified operator.
+
+        Handles numeric, datetime, and string comparisons.
+
+        Args:
+            left_value: Left side value (can be numeric, datetime, or string)
+            operator: Comparison operator (==, !=, <, <=, >, >=)
+            right_value: Right side value to compare against
+
+        Returns:
+            bool: Result of comparison, or True if comparison fails
+        """
+        # Mapping of operators to lambda functions for cleaner code
+        ops = {
+            "==": lambda a, b: a == b,
+            "=": lambda a, b: a == b,  # Support both = and ==
+            "!=": lambda a, b: a != b,
+            "<": lambda a, b: a < b,
+            "<=": lambda a, b: a <= b,
+            ">": lambda a, b: a > b,
+            ">=": lambda a, b: a >= b,
+        }
+
+        if operator not in ops:
+            return True
+
+        try:
+            # Try numeric comparison first
+            left_num = float(left_value)
+            right_num = float(right_value)
+            return ops[operator](left_num, right_num)
+        except (ValueError, TypeError):
+            # Try datetime comparison
+            try:
+                left_dt = pd.to_datetime(str(left_value), errors="coerce")
+                right_dt = pd.to_datetime(str(right_value), errors="coerce")
+                if not pd.isna(left_dt) and not pd.isna(right_dt):
+                    return ops[operator](left_dt, right_dt)
+            except (ValueError, TypeError):
+                pass
+
+            # Fall back to string comparison
+            try:
+                return ops[operator](str(left_value), str(right_value))
+            except Exception:
+                return True
+
     def _evaluate_filter(self, col_data, operator, value_str):
         """Evaluate a filter condition on column data.
 
         Returns a boolean mask of the same length as col_data.
         """
         try:
-            # Try numeric comparison first
-            if operator in ["==", "!=", ">", ">=", "<", "<="]:
-                try:
-                    # Try to convert to numeric
-                    value_num = float(value_str)
-                    if isinstance(col_data, np.ndarray):
-                        # Try numeric comparison
-                        col_numeric = pd.to_numeric(pd.Series(col_data), errors="coerce")
-                        if operator == "==":
-                            return col_numeric == value_num
-                        elif operator == "!=":
-                            return col_numeric != value_num
-                        elif operator == ">":
-                            return col_numeric > value_num
-                        elif operator == ">=":
-                            return col_numeric >= value_num
-                        elif operator == "<":
-                            return col_numeric < value_num
-                        elif operator == "<=":
-                            return col_numeric <= value_num
-                except (ValueError, TypeError):
-                    # Not numeric, try date/time comparison for string columns
-                    if operator in ["==", "!=", ">", ">=", "<", "<="]:
-                        try:
-                            # Convert to string array first
-                            if isinstance(col_data, np.ndarray):
-                                str_array = np.array(
-                                    [
-                                        str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace")
-                                        for v in col_data
-                                    ]
-                                )
-                            else:
-                                str_array = np.array([str(v) for v in col_data])
-
-                            # Try to parse as datetime
-                            col_dates = pd.to_datetime(pd.Series(str_array), errors="coerce")
-                            value_date = pd.to_datetime(value_str, errors="coerce")
-
-                            # Check if parsing was successful (not all NaT and value is not NaT)
-                            if not pd.isna(value_date) and not col_dates.isna().all():
-                                # Use datetime comparison
-                                if operator == "==":
-                                    return col_dates == value_date
-                                elif operator == "!=":
-                                    return col_dates != value_date
-                                elif operator == ">":
-                                    return col_dates > value_date
-                                elif operator == ">=":
-                                    return col_dates >= value_date
-                                elif operator == "<":
-                                    return col_dates < value_date
-                                elif operator == "<=":
-                                    return col_dates <= value_date
-                        except (ValueError, TypeError):
-                            # Fall back to string comparison
-                            pass
+            # Handle comparison operators using helper method
+            if operator in ["==", "=", "!=", ">", ">=", "<", "<="]:
+                # Use vectorized comparison via helper
+                if isinstance(col_data, np.ndarray):
+                    return np.array([self._compare_values(val, operator, value_str) for val in col_data])
+                else:
+                    return np.array([self._compare_values(val, operator, value_str) for val in col_data])
 
             # String-based operations
             if isinstance(col_data, np.ndarray):
@@ -6488,27 +6486,11 @@ class HDF5Viewer(QMainWindow):
 
                     cell_value = col_data[row_idx]
 
-                    # Try to parse value_str for comparison
+                    # Apply filter using helper methods
                     try:
-                        if operator in ("=", "!=", "<", "<=", ">", ">="):
-                            # Numeric comparison
-                            numeric_cell = float(cell_value)
-                            numeric_value = float(value_str)
-
-                            if operator == "=":
-                                matches = numeric_cell == numeric_value
-                            elif operator == "!=":
-                                matches = numeric_cell != numeric_value
-                            elif operator == "<":
-                                matches = numeric_cell < numeric_value
-                            elif operator == "<=":
-                                matches = numeric_cell <= numeric_value
-                            elif operator == ">":
-                                matches = numeric_cell > numeric_value
-                            elif operator == ">=":
-                                matches = numeric_cell >= numeric_value
-                            else:
-                                matches = True
+                        if operator in ("=", "==", "!=", "<", "<=", ">", ">="):
+                            # Use comparison helper
+                            matches = self._compare_values(cell_value, operator, value_str)
                         elif operator == "contains":
                             matches = value_str.lower() in str(cell_value).lower()
                         elif operator == "starts with":
