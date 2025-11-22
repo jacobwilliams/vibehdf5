@@ -2411,6 +2411,7 @@ class HDF5Viewer(QMainWindow):
 
         # Connect saved plots list selection changed
         self.saved_plots_list.itemSelectionChanged.connect(self._on_saved_plot_selection_changed)
+        self.saved_plots_list.itemClicked.connect(self._on_saved_plot_clicked)
         self.saved_plots_list.itemChanged.connect(self._on_plot_item_renamed)
 
         # Track current search pattern
@@ -6640,6 +6641,16 @@ class HDF5Viewer(QMainWindow):
         current_item = self.saved_plots_list.currentItem()
         if current_item is not None:
             self._apply_saved_plot(current_item)
+
+    def _on_saved_plot_clicked(self, item: QListWidgetItem) -> None:
+        """Handle clicking on a saved plot item (even if already selected).
+
+        Args:
+            item: The list item that was clicked
+        """
+        # Apply the plot even if it's already selected
+        if item is not None:
+            self._apply_saved_plot(item)
 
     def _on_plot_item_renamed(self, item: QListWidgetItem):
         """Handle when a plot item is renamed by the user.
