@@ -4283,13 +4283,13 @@ class HDF5Viewer(QMainWindow):
                     return
                 ds = obj
                 text, note = _dataset_to_text(ds, limit_bytes=1_000_000)
-                header = f"shape={ds.shape}, dtype={ds.dtype}"
                 if note:
-                    header += f"\n{note}"
-
+                    note = note.strip('()')  # Remove parentheses from note
+                    # add the note after the file name:
+                    self.preview_label.setText(f"Dataset: {os.path.basename(dspath)} ({note})")
                 # Apply syntax highlighting based on file extension
                 language = get_language_from_path(dspath)
-                self._set_preview_text(header + "\n\n" + text, language=language)
+                self._set_preview_text(text=text, language=language)
                 self.preview_edit.setVisible(True)
                 self.preview_image.setVisible(False)
                 # Show attributes for the dataset
