@@ -3701,6 +3701,10 @@ class HDF5Viewer(QMainWindow):
             column_dataset_names.append(ds_name)
 
             # Convert pandas Series to numpy array with appropriate dtype
+            # Determine optimal chunk size for compression
+            data_len = len(col_data)
+            chunk_size = min(10000, data_len) if data_len > 1000 else None
+            
             if col_data.dtype == "object":
                 # For object dtype, convert to Python list then create dataset
                 # This avoids numpy unicode string issues
@@ -3713,24 +3717,29 @@ class HDF5Viewer(QMainWindow):
                         data=str_list,
                         dtype=h5py.string_dtype(encoding="utf-8"),
                         compression="gzip",
-                        compression_opts=4  # Compression level 1-9 (4 is good balance)
+                        compression_opts=6,  # Higher compression for text (1-9, 6 is good balance)
+                        chunks=(chunk_size,) if chunk_size else True  # Enable chunking for compression
                     )
                 except Exception:  # noqa: BLE001
-                    # Fallback: convert to bytes
+                    # Fallback: convert to bytes with compression
                     str_list = [str(x) for x in col_data.values]
                     grp.create_dataset(
-                        ds_name, data=str_list, dtype=h5py.string_dtype(encoding="utf-8")
+                        ds_name,
+                        data=str_list,
+                        dtype=h5py.string_dtype(encoding="utf-8"),
+                        compression="gzip",
+                        compression_opts=6,
+                        chunks=(chunk_size,) if chunk_size else True
                     )
             else:
                 # Numeric or other numpy-supported dtypes with compression
                 # Use chunking to enable compression and improve I/O for partial reads
-                chunk_size = min(10000, len(col_data))  # Reasonable chunk size
                 grp.create_dataset(
                     ds_name,
                     data=col_data.values,
                     compression="gzip",
-                    compression_opts=4,  # Compression level 1-9 (4 is good balance)
-                    chunks=(chunk_size,) if len(col_data) > 1000 else None
+                    compression_opts=4,  # Moderate compression for numeric data (1-9)
+                    chunks=(chunk_size,) if chunk_size else True
                 )
 
         # Persist the actual dataset names used for each column (same order as column_names)
