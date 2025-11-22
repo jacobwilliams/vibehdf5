@@ -5932,10 +5932,10 @@ class HDF5Viewer(QMainWindow):
                         self._saved_plots[row]["name"] = old_name
 
     def _apply_filtered_indices_to_data(
-        self, 
-        col_data_dict: dict[str, np.ndarray], 
-        filtered_indices: list[int] | None, 
-        start_row: int = 0, 
+        self,
+        col_data_dict: dict[str, np.ndarray],
+        filtered_indices: list[int] | None,
+        start_row: int = 0,
         end_row: int = -1
     ) -> dict[str, np.ndarray]:
         """Apply filtered indices to column data with bounds checking.
