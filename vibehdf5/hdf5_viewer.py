@@ -2539,6 +2539,62 @@ class HDF5Viewer(QMainWindow):
 
         return np.arange(min_len, dtype=float), False
 
+    def _make_legend_interactive(self, ax: plt.Axes, legend) -> None:
+        """Make the legend interactive so clicking on labels toggles line visibility.
+
+        Args:
+            ax: Matplotlib axes object
+            legend: Legend object to make interactive
+        """
+        if not legend:
+            return
+
+        # Get the figure from the axes
+        fig = ax.get_figure()
+        if not fig:
+            return
+
+        # Map legend lines to plot lines
+        line_dict = {}
+        for legend_line, orig_line in zip(legend.get_lines(), ax.get_lines()):
+            legend_line.set_picker(True)
+            legend_line.set_pickradius(5)
+            line_dict[legend_line] = orig_line
+
+        # Connect pick event
+        def on_pick(event):
+            legend_line = event.artist
+            if legend_line not in line_dict:
+                return
+
+            orig_line = line_dict[legend_line]
+            visible = not orig_line.get_visible()
+            orig_line.set_visible(visible)
+
+            # Update legend line appearance
+            if visible:
+                legend_line.set_alpha(1.0)
+            else:
+                legend_line.set_alpha(0.2)
+
+            # Use the figure's canvas to redraw
+            if fig.canvas:
+                fig.canvas.draw_idle()
+
+        # Store the connection ID to avoid multiple connections
+        if not hasattr(self, '_legend_pick_cid'):
+            self._legend_pick_cid = None
+
+        # Disconnect previous connection if exists
+        if self._legend_pick_cid is not None:
+            try:
+                self.plot_figure.canvas.mpl_disconnect(self._legend_pick_cid)
+            except Exception:
+                pass
+
+        # Connect new pick event to the current figure
+        self._legend_pick_cid = fig.canvas.mpl_connect('pick_event', on_pick)
+
     def _process_x_axis_data(self, x_idx: int | None, col_data: dict, y_names: list[str],
                             x_name: str, plot_options: dict) -> tuple[np.ndarray, np.ndarray, bool, bool, int]:
         """Process X-axis data for plotting, handling single-column, datetime, and string data.
@@ -2827,6 +2883,7 @@ class HDF5Viewer(QMainWindow):
         plot_config: dict,
         plot_options: dict,
         use_dark: bool,
+        interactive_legend: bool = True,
     ) -> None:
         """Apply labels, fonts, grid, legend, log scale, and reference lines to a plot.
 
@@ -2838,6 +2895,7 @@ class HDF5Viewer(QMainWindow):
             plot_config: Plot configuration dictionary
             plot_options: Plot options dictionary
             use_dark: Whether dark background is enabled
+            interactive_legend: Whether to make legend interactive (only for UI plots)
         """
         # Apply custom labels or use defaults
         xlabel = plot_options.get("xlabel", "").strip() or x_name
@@ -2872,6 +2930,9 @@ class HDF5Viewer(QMainWindow):
             # Apply font family to legend text
             for text in legend.get_texts():
                 text.set_fontfamily(font_family)
+            # Make legend interactive (only for UI plots, not exports)
+            if interactive_legend:
+                self._make_legend_interactive(ax, legend)
 
         # Apply log scale
         if plot_options.get("xlog", False):
@@ -5846,7 +5907,8 @@ class HDF5Viewer(QMainWindow):
                 title_obj.set_color('black')
             except Exception:
                 pass
-            ax.legend()
+            legend = ax.legend()
+            self._make_legend_interactive(ax, legend)
             ax.grid(True)
 
             # Format x-axis (datetime or categorical strings)
@@ -6903,8 +6965,9 @@ class HDF5Viewer(QMainWindow):
             self._apply_axis_limits(ax, plot_options)
 
             # Apply labels, fonts, grid, legend, log scale, and reference lines
+            # Note: interactive_legend=False for export to avoid event handler issues
             self._apply_plot_labels_and_formatting(
-                ax, fig, x_name, y_names, plot_config, plot_options, use_dark
+                ax, fig, x_name, y_names, plot_config, plot_options, use_dark, interactive_legend=False
             )
 
             # Save to file
