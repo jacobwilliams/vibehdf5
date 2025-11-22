@@ -4364,6 +4364,193 @@ class HDF5Viewer(QMainWindow):
                 f"Failed to retrieve file properties:\n\n{exc}"
             )
 
+    def _show_dataset_info_dialog(self, dataset_path: str) -> None:
+        """Show a dialog with detailed dataset information.
+
+        Args:
+            dataset_path: HDF5 path to the dataset
+        """
+        if not self.model or not self.model.filepath:
+            QMessageBox.information(self, "No File", "No HDF5 file is currently loaded.")
+            return
+
+        try:
+            with h5py.File(self.model.filepath, 'r') as h5:
+                if dataset_path not in h5:
+                    QMessageBox.warning(self, "Not Found", f"Dataset '{dataset_path}' not found.")
+                    return
+
+                ds = h5[dataset_path]
+                if not isinstance(ds, h5py.Dataset):
+                    QMessageBox.warning(self, "Not a Dataset", f"'{dataset_path}' is not a dataset.")
+                    return
+
+                # Gather dataset information
+                info = {}
+
+                # Basic info
+                info['Name'] = ds.name
+                info['Shape'] = str(ds.shape)
+                info['Data Type'] = str(ds.dtype)
+                info['Size'] = f"{ds.size:,} elements"
+
+                # Memory size
+                if hasattr(ds, 'nbytes'):
+                    info['Memory Size'] = f"{self._format_file_size(ds.nbytes)} ({ds.nbytes:,} bytes)"
+
+                # Storage size (actual disk space used)
+                try:
+                    storage_size = ds.id.get_storage_size()
+                    if storage_size > 0:
+                        info['Storage Size'] = f"{self._format_file_size(storage_size)} ({storage_size:,} bytes)"
+                        # Calculate compression ratio
+                        if hasattr(ds, 'nbytes') and ds.nbytes > 0:
+                            ratio = ds.nbytes / storage_size
+                            info['Compression Ratio'] = f"{ratio:.2f}:1"
+                except Exception:
+                    pass
+
+                # Chunks
+                if ds.chunks:
+                    info['Chunks'] = str(ds.chunks)
+                    info['Chunked'] = 'Yes'
+                else:
+                    info['Chunked'] = 'No (Contiguous)'
+
+                # Compression
+                compression = ds.compression
+                if compression:
+                    info['Compression'] = compression
+                    if ds.compression_opts:
+                        info['Compression Options'] = str(ds.compression_opts)
+                else:
+                    info['Compression'] = 'None'
+
+                # Filters
+                try:
+                    if ds.scaleoffset:
+                        info['Scale-Offset Filter'] = str(ds.scaleoffset)
+                except Exception:
+                    pass
+
+                try:
+                    if ds.shuffle:
+                        info['Shuffle Filter'] = 'Enabled'
+                except Exception:
+                    pass
+
+                try:
+                    if ds.fletcher32:
+                        info['Fletcher32 Checksum'] = 'Enabled'
+                except Exception:
+                    pass
+
+                # Fill value
+                try:
+                    fillvalue = ds.fillvalue
+                    if fillvalue is not None:
+                        info['Fill Value'] = str(fillvalue)
+                except Exception:
+                    pass
+
+                # Attributes
+                num_attrs = len(ds.attrs)
+                info['Attributes'] = f"{num_attrs:,}"
+                if num_attrs > 0:
+                    attr_names = []
+                    for key in list(ds.attrs.keys())[:5]:  # Show first 5
+                        attr_names.append(key)
+                    info['Attribute Names'] = ', '.join(attr_names)
+                    if num_attrs > 5:
+                        info['Attribute Names'] += f" (+{num_attrs - 5} more)"
+
+                # External storage
+                try:
+                    external = ds.external
+                    if external:
+                        info['External Storage'] = f"{len(external)} file(s)"
+                except Exception:
+                    pass
+
+                # Dimensions (for multidimensional datasets)
+                if len(ds.shape) > 1:
+                    info['Dimensions'] = f"{len(ds.shape)}D"
+                    for i, dim_size in enumerate(ds.shape):
+                        info[f'  Dimension {i}'] = f"{dim_size:,}"
+
+                # For numeric data, show value range if dataset is small enough
+                if ds.size > 0 and ds.size <= 1000000 and ds.dtype.kind in ('i', 'u', 'f'):
+                    try:
+                        data = ds[:]
+                        if data.size > 0:
+                            info['Min Value'] = str(np.min(data))
+                            info['Max Value'] = str(np.max(data))
+                            if ds.dtype.kind == 'f':
+                                info['Mean Value'] = f"{np.mean(data):.6g}"
+                                info['Std Dev'] = f"{np.std(data):.6g}"
+                    except Exception:
+                        pass
+
+                # Create dialog
+                dialog = QDialog(self)
+                dialog.setWindowTitle(f"Dataset Information: {ds.name.split('/')[-1]}")
+                dialog.setMinimumWidth(500)
+
+                layout = QVBoxLayout(dialog)
+
+                # Add header label
+                header = QLabel(f"<b>Dataset: {dataset_path}</b>")
+                header.setStyleSheet("font-size: 14px; padding: 5px;")
+                layout.addWidget(header)
+
+                # Create table for properties
+                table = QTableWidget()
+                table.setColumnCount(2)
+                table.setHorizontalHeaderLabels(["Property", "Value"])
+                table.horizontalHeader().setStretchLastSection(True)
+                table.setAlternatingRowColors(True)
+                table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+                table.setSelectionBehavior(QAbstractItemView.SelectRows)
+                table.verticalHeader().setVisible(False)
+
+                # Populate table
+                table.setRowCount(len(info))
+                for i, (key, value) in enumerate(info.items()):
+                    # Property name
+                    key_item = QTableWidgetItem(key)
+                    if not key.startswith('  '):  # Don't bold sub-items
+                        key_item.setFont(QFont(key_item.font().family(), -1, QFont.Bold))
+                    table.setItem(i, 0, key_item)
+
+                    # Property value
+                    value_item = QTableWidgetItem(str(value))
+                    table.setItem(i, 1, value_item)
+
+                table.resizeColumnsToContents()
+                table.setColumnWidth(0, 180)  # Fixed width for property names
+
+                layout.addWidget(table)
+
+                # Add buttons
+                button_box = QHBoxLayout()
+                button_box.addStretch()
+
+                close_btn = QPushButton("Close")
+                close_btn.clicked.connect(dialog.accept)
+                close_btn.setDefault(True)
+                button_box.addWidget(close_btn)
+
+                layout.addLayout(button_box)
+
+                dialog.exec()
+
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to retrieve dataset information:\n\n{exc}"
+            )
+
     def _merge_file_dialog(self) -> None:
         """Dialog to select and merge another HDF5 file into the current file."""
         if not self.model or not self.model.filepath:
@@ -4823,6 +5010,12 @@ class HDF5Viewer(QMainWindow):
 
         menu = QMenu(self)
 
+        # Add dataset information option
+        act_info = None
+        if kind == "dataset":
+            act_info = menu.addAction(f"Dataset Information...")
+            menu.addSeparator()
+
         # Add CSV group expand/collapse option
         act_toggle_csv = None
         if is_csv_group:
@@ -4837,13 +5030,15 @@ class HDF5Viewer(QMainWindow):
             act_delete = menu.addAction(label)
 
         # If no actions available, don't show menu
-        if not act_toggle_csv and not act_delete:
+        if not act_info and not act_toggle_csv and not act_delete:
             return
 
         global_pos = self.tree.viewport().mapToGlobal(point)
         chosen = menu.exec(global_pos)
 
-        if chosen == act_toggle_csv:
+        if chosen and chosen == act_info and act_info is not None:
+            self._show_dataset_info_dialog(path)
+        elif chosen == act_toggle_csv:
             self.model.toggle_csv_group_expansion(item)
         elif chosen == act_delete:
             # Confirm destructive action
