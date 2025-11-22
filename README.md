@@ -1,6 +1,8 @@
 # vibehdf5 - HDF5 File Viewer & Manager
 
-![vibehdf5 screenshot](media/screenshot.png)
+<h1 align="center">
+<img src="https://raw.githubusercontent.com/jacobwilliams/vibehdf5/master/media/screenshot.png" width=800">
+</h1>
 
 A powerful, lightweight GUI application for browsing, managing, and visualizing HDF5 file structures. Built with PySide6, it provides an intuitive tree-based interface for exploring groups, datasets, and attributes, with advanced features for content management and data preview.
 
@@ -477,3 +479,7 @@ Built with:
 * [hdf5view](https://github.com/tgwoodcock/hdf5view/)
 * [hdf5-viewer](https://github.com/loenard97/hdf5-viewer)
 * [argos](https://github.com/titusjan/argos)
+
+## Other links
+
+* [vibehdf5 on PyPi](https://pypi.org/project/vibehdf5/)
