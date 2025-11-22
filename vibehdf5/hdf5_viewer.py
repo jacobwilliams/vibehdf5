@@ -2981,6 +2981,11 @@ class HDF5Viewer(QMainWindow):
         self.act_repack.setToolTip("Reclaim space from deleted items by repacking the HDF5 file")
         self.act_repack.triggered.connect(self._repack_file_dialog)
 
+        # File properties action
+        self.act_file_properties = QAction("File Properties...", self)
+        self.act_file_properties.setToolTip("View detailed information about the HDF5 file")
+        self.act_file_properties.triggered.connect(self._show_file_properties_dialog)
+
         # Create recent file actions (will be populated dynamically)
         for i in range(self.max_recent_files):
             action = QAction(self)
@@ -3029,6 +3034,7 @@ class HDF5Viewer(QMainWindow):
         file_menu.addAction(self.act_add_folder)
         file_menu.addAction(self.act_new_folder)
         file_menu.addSeparator()
+        file_menu.addAction(self.act_file_properties)
         file_menu.addAction(self.act_repack)
         file_menu.addSeparator()
         file_menu.addAction(self.act_quit)
@@ -4080,6 +4086,168 @@ class HDF5Viewer(QMainWindow):
                 self,
                 "Repack Failed",
                 f"Failed to repack the file:\n\n{exc}\n\nThe original file has not been modified."
+            )
+
+    def _show_file_properties_dialog(self) -> None:
+        """Show a dialog with detailed file properties and metadata."""
+        if not self.model or not self.model.filepath:
+            QMessageBox.information(self, "No File", "No HDF5 file is currently loaded.")
+            return
+
+        file_path = Path(self.model.filepath)
+        if not file_path.exists():
+            QMessageBox.warning(self, "File Not Found", "The current file no longer exists.")
+            return
+
+        try:
+            # Gather file information
+            info = {}
+
+            # Basic file info
+            info['File Path'] = str(file_path.absolute())
+            info['File Name'] = file_path.name
+
+            # File size
+            file_size = file_path.stat().st_size
+            info['File Size'] = f"{self._format_file_size(file_size)} ({file_size:,} bytes)"
+
+            # File timestamps
+            import datetime
+            mtime = datetime.datetime.fromtimestamp(file_path.stat().st_mtime)
+            info['Modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
+            ctime = datetime.datetime.fromtimestamp(file_path.stat().st_ctime)
+            info['Created'] = ctime.strftime('%Y-%m-%d %H:%M:%S')
+
+            # HDF5-specific information
+            with h5py.File(str(file_path), 'r') as h5:
+                # Count items
+                num_groups = 0
+                num_datasets = 0
+                num_attrs = len(h5.attrs)
+                total_datasets_size = 0
+
+                def count_items(group):
+                    nonlocal num_groups, num_datasets, num_attrs, total_datasets_size
+                    for key in group.keys():
+                        if isinstance(group[key], h5py.Group):
+                            num_groups += 1
+                            num_attrs += len(group[key].attrs)
+                            count_items(group[key])
+                        elif isinstance(group[key], h5py.Dataset):
+                            num_datasets += 1
+                            num_attrs += len(group[key].attrs)
+                            try:
+                                # Estimate dataset size
+                                ds = group[key]
+                                if hasattr(ds, 'nbytes'):
+                                    total_datasets_size += ds.nbytes
+                            except Exception:
+                                pass
+
+                count_items(h5)
+
+                info['Groups'] = f"{num_groups:,}"
+                info['Datasets'] = f"{num_datasets:,}"
+                info['Attributes'] = f"{num_attrs:,}"
+                info['Total Items'] = f"{num_groups + num_datasets:,}"
+
+                # Dataset storage info
+                if total_datasets_size > 0:
+                    info['Dataset Size'] = f"{self._format_file_size(total_datasets_size)} ({total_datasets_size:,} bytes)"
+                    overhead = file_size - total_datasets_size
+                    if overhead > 0:
+                        overhead_pct = (overhead / file_size) * 100
+                        info['Metadata Overhead'] = f"{self._format_file_size(overhead)} ({overhead_pct:.1f}%)"
+
+                # HDF5 library version
+                try:
+                    info['HDF5 Library'] = h5py.version.hdf5_version
+                except Exception:
+                    pass
+
+                # h5py version
+                try:
+                    info['h5py Version'] = h5py.version.version
+                except Exception:
+                    pass
+
+                # File format version
+                try:
+                    # Try to get userblock size
+                    fid = h5.id
+                    fcpl = fid.get_create_plist()
+                    userblock_size = fcpl.get_userblock()
+                    if userblock_size > 0:
+                        info['Userblock Size'] = f"{self._format_file_size(userblock_size)}"
+                except Exception:
+                    pass
+
+                # Root attributes
+                if len(h5.attrs) > 0:
+                    root_attrs = []
+                    for key in list(h5.attrs.keys())[:5]:  # Show first 5
+                        root_attrs.append(key)
+                    info['Root Attributes'] = ', '.join(root_attrs)
+                    if len(h5.attrs) > 5:
+                        info['Root Attributes'] += f" (+{len(h5.attrs) - 5} more)"
+
+            # Create dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle("File Properties")
+            dialog.setMinimumWidth(500)
+
+            layout = QVBoxLayout(dialog)
+
+            # Add header label
+            header = QLabel(f"<b>HDF5 File Information</b>")
+            header.setStyleSheet("font-size: 14px; padding: 5px;")
+            layout.addWidget(header)
+
+            # Create table for properties
+            table = QTableWidget()
+            table.setColumnCount(2)
+            table.setHorizontalHeaderLabels(["Property", "Value"])
+            table.horizontalHeader().setStretchLastSection(True)
+            table.setAlternatingRowColors(True)
+            table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            table.setSelectionBehavior(QAbstractItemView.SelectRows)
+            table.verticalHeader().setVisible(False)
+
+            # Populate table
+            table.setRowCount(len(info))
+            for i, (key, value) in enumerate(info.items()):
+                # Property name
+                key_item = QTableWidgetItem(key)
+                key_item.setFont(QFont(key_item.font().family(), -1, QFont.Bold))
+                table.setItem(i, 0, key_item)
+
+                # Property value
+                value_item = QTableWidgetItem(str(value))
+                table.setItem(i, 1, value_item)
+
+            table.resizeColumnsToContents()
+            table.setColumnWidth(0, 180)  # Fixed width for property names
+
+            layout.addWidget(table)
+
+            # Add buttons
+            button_box = QHBoxLayout()
+            button_box.addStretch()
+
+            close_btn = QPushButton("Close")
+            close_btn.clicked.connect(dialog.accept)
+            close_btn.setDefault(True)
+            button_box.addWidget(close_btn)
+
+            layout.addLayout(button_box)
+
+            dialog.exec()
+
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to retrieve file properties:\n\n{exc}"
             )
 
     # Search/Filter handling
