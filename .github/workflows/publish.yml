@@ -24,6 +24,6 @@ jobs:
           manifest-path: env/pixi.toml
       - name: Build package
         run: |
-          hatch build
+          pixi run --manifest-path ./env/pixi.toml hatch build
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
