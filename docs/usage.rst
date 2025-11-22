@@ -55,6 +55,8 @@ Opening Files
 1. Click **Open HDF5…** or press ``Ctrl+O``
 2. Select an HDF5 file (``.h5`` or ``.hdf5``)
 3. The tree will populate with the file structure
+4. Recently opened files appear in **File > Open Recent** menu
+5. Clear recent files list via **File > Open Recent > Clear Recent Files**
 
 Adding Content
 --------------
@@ -184,6 +186,25 @@ Column Statistics
    * Sum (numeric only)
    * Unique Values count
 
+Column Visibility
+~~~~~~~~~~~~~~~~~
+
+1. Click **Columns…** above the table
+2. Choose "Show All Columns" or "Show Selected Columns"
+3. Check/uncheck columns to show or hide them
+4. Visibility settings are saved to the HDF5 file
+5. Hidden columns are excluded from CSV exports
+6. Each CSV group maintains independent settings
+
+Unique Values
+~~~~~~~~~~~~~
+
+1. Right-click on any column header in the CSV table
+2. Select **Show Unique Values in '[column name]'**
+3. View all unique values in a sortable dialog
+4. Shows count of unique values for data inspection
+5. Respects active filters (shows unique values from filtered data)
+
 Plotting Data
 ~~~~~~~~~~~~~
 
@@ -197,9 +218,38 @@ Plot Customization
 ~~~~~~~~~~~~~~~~~~
 
 1. Select a saved plot and click **Edit Options**
-2. **General Tab**: Set title, axis labels, grid, legend
-3. **Series Styles Tab**: Configure colors, line styles, markers
-4. Click **OK** to apply changes
+2. **General Tab**:
+
+   * Set title, axis labels, grid, legend
+   * Enable dark background
+   * Set axis limits (X/Y min/max)
+   * Configure figure size and export DPI
+   * Choose export format (PNG, PDF, SVG, EPS)
+
+3. **Fonts & Styling Tab**:
+
+   * Set font sizes for title, axes, ticks, legend
+   * Enable logarithmic scale for X/Y axes
+   * Add horizontal/vertical reference lines
+
+4. **Series Styles Tab**:
+
+   * Configure colors, line styles, markers
+   * Adjust line width and marker size
+   * Apply smoothing with moving average
+
+5. Click **OK** to apply changes
+
+Plot Management
+~~~~~~~~~~~~~~~
+
+* **Auto-Apply**: Click any plot to instantly display it
+* **Rename**: Double-click a plot name to rename inline
+* **Duplicate**: Right-click and select **Duplicate** to copy
+* **Export Single**: Drag plot to file manager to export
+* **Export All**: Right-click and select **Export All Plots**
+* **Copy JSON**: Right-click and select **Copy Plot JSON**
+* **Delete**: Click **Delete** or right-click to remove
 
 Plot Features:
 
@@ -222,6 +272,9 @@ Keyboard Shortcuts
 * ``Ctrl+O``: Open HDF5 file
 * ``Ctrl+Shift+F``: Add files
 * ``Ctrl+Shift+D``: Add folder
+* ``Ctrl++``: Increase GUI font size
+* ``Ctrl+-``: Decrease GUI font size
+* ``Ctrl+0``: Reset GUI font size
 * ``Ctrl+Q``: Quit
 
 Tips & Best Practices
@@ -248,26 +301,3 @@ CSV Data Management
 * Each CSV group maintains independent settings
 * Use filters before exporting for specific data subsets
 * Create multiple plot views with different styling
-
-Troubleshooting
----------------
-
-Application Won't Start
-~~~~~~~~~~~~~~~~~~~~~~~
-
-* Ensure PySide6 is installed: ``pip install PySide6``
-* On Apple Silicon Macs, use native ARM64 build
-
-Drag-and-Drop Not Working
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-* Ensure you're dropping onto the tree view
-* Verify file is opened in read-write mode
-* Check file permissions
-
-Image Preview Not Working
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-* Check dataset name ends with ``.png``
-* Verify dataset contains valid PNG binary data
-* Re-import images with proper encoding

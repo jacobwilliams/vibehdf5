@@ -26,6 +26,8 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 ### 📈 **CSV Data, Filtering & Plotting**
 - **CSV Import**: Import CSV files as HDF5 groups with one dataset per column
 - **Table Display**: View CSV data in an interactive table with column headers
+- **Column Visibility**: Show/hide columns with settings saved in HDF5
+- **Unique Values**: Right-click column headers to view unique values in filtered data
 - **Column Filtering**: Apply multiple filters to CSV tables (==, !=, >, >=, <, <=, contains, startswith, endswith)
 - **Filter Persistence**: Filters are automatically saved in the HDF5 file and restored when reopening
 - **Multi-Column Sorting**: Sort CSV data by multiple columns with ascending/descending options
@@ -33,13 +35,15 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 - **Column Statistics**: View statistical summaries (count, min, max, mean, median, std dev, sum, unique values) for filtered data
 - **Saved Plot Configurations**: Save multiple plot configurations per CSV group with customizable styling
 - **Interactive Plotting**: Embedded matplotlib plots with full navigation toolbar (zoom, pan, save)
-- **Plot Management**: Create, edit, delete, and instantly switch between saved plot configurations
-- **Comprehensive Styling**: Customize plot titles, axis labels, grid, legend, and per-series styling
-- **Series Customization**: Configure line color, style, marker type, line width, and marker size for each data series
+- **Plot Management**: Create, edit, rename, duplicate, delete, and instantly switch between saved plot configurations
+- **Plot Export**: Drag-and-drop plots to filesystem or batch export all plots to a folder
+- **Advanced Plot Styling**: Axis limits, logarithmic scales, reference lines, dark background, custom fonts
+- **Series Customization**: Configure line color, style, marker type, line width, marker size, and smoothing for each data series
+- **Figure Configuration**: Set output resolution (DPI), figure size, and export format (PNG, PDF, SVG, EPS)
 - **Plot Persistence**: All plot configurations stored in HDF5 and restored when reopening files
-- **Export Filtered Data**: Drag-and-drop CSV export includes only filtered rows
+- **Export Filtered Data**: Drag-and-drop CSV export includes only filtered rows and visible columns
 - **Filter Management**: Configure, clear, and view active filters with real-time table updates
-- **Independent Settings**: Each CSV group maintains its own filters, sort configurations, and plot configurations
+- **Independent Settings**: Each CSV group maintains its own filters, sort configurations, column visibility, and plot configurations
 
 ### ✏️ **Content Management**
 - **Add Files**: Import individual files into the HDF5 archive via toolbar or drag-and-drop
@@ -59,11 +63,19 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 ### 🎨 **User Interface**
 - **Split Panel Layout**: Adjustable splitter between tree view and preview panel
 - **Toolbar Actions**: Quick access to common operations
+### 🎨 **User Interface**
+- **Split Panel Layout**: Adjustable splitter between tree view and preview panel
+- **Recent Files**: Quick access to recently opened files via File menu
+- **Adjustable Font Size**: Increase/decrease GUI font size with Ctrl+/Ctrl- keyboard shortcuts
+- **Toolbar Actions**: Quick access to common operations
 - **Keyboard Shortcuts**:
   - `Ctrl+N`: Create new HDF5 file
   - `Ctrl+O`: Open HDF5 file
   - `Ctrl+Shift+F`: Add files
   - `Ctrl+Shift+D`: Add folder
+  - `Ctrl++`: Increase GUI font size
+  - `Ctrl+-`: Decrease GUI font size
+  - `Ctrl+0`: Reset GUI font size
   - `Ctrl+Q`: Quit
 - **Status Bar**: Real-time feedback on operations
 - **Alternating Row Colors**: Enhanced readability
@@ -142,6 +154,8 @@ python -m vibehdf5 [file.h5]
 1. Click **Open HDF5…** in the toolbar or press `Ctrl+O`
 2. Select an HDF5 file (.h5 or .hdf5)
 3. The tree will populate with the file structure
+4. Recently opened files appear in **File > Open Recent** menu for quick access
+5. Clear recent files list via **File > Open Recent > Clear Recent Files**
 
 ### Adding Content
 
@@ -229,6 +243,21 @@ python -m vibehdf5 [file.h5]
 - Sorting respects active filters (sorts filtered data)
 - Works with numeric, string, and mixed-type columns
 
+**Column Visibility:**
+1. Click **Columns…** above the table to control which columns are displayed
+2. Choose "Show All Columns" or "Show Selected Columns"
+3. Check/uncheck columns to show or hide them in the table
+4. Visibility settings are automatically saved to the HDF5 file
+5. Hidden columns are excluded from drag-and-drop CSV exports
+6. Each CSV group maintains independent visibility settings
+
+**Unique Values:**
+1. Right-click on any column header in the CSV table
+2. Select **Show Unique Values in '[column name]'**
+3. View all unique values in a sortable dialog
+4. Shows count of unique values for quick data inspection
+5. Respects active filters (shows unique values from filtered data only)
+
 **Column Statistics:**
 1. Click **Statistics…** above the table to view column summaries
 2. Statistics computed for filtered data only
@@ -256,7 +285,12 @@ python -m vibehdf5 [file.h5]
 2. **Auto-Apply**: Click any plot in the list to instantly display it
 3. **Edit Options**: Click **Edit Options** to customize plot styling
 4. **Delete**: Click **Delete** or right-click to remove a plot configuration
-5. **Persistence**: All plots are saved in the HDF5 file and restored on reopening
+5. **Rename**: Double-click a plot name to rename it inline
+6. **Duplicate**: Right-click and select **Duplicate** to create a copy with different settings
+7. **Export Single Plot**: Drag a plot from the list to your file manager to export as image
+8. **Export All Plots**: Right-click and select **Export All Plots** to batch export to a folder
+9. **Copy JSON**: Right-click and select **Copy Plot JSON** to copy configuration to clipboard
+10. **Persistence**: All plots are saved in the HDF5 file and restored on reopening
 
 **Customizing Plot Appearance:**
 1. Select a saved plot and click **Edit Options**
@@ -265,14 +299,24 @@ python -m vibehdf5 [file.h5]
    - Set custom plot title (or leave blank for auto-generated)
    - Set X-axis and Y-axis labels (or leave blank for column names)
    - Toggle grid and legend on/off
-3. **Series Styles Tab**:
+   - Enable dark background for better visibility
+   - Set axis limits (X min/max, Y min/max) or leave blank for auto
+   - Configure figure size (width and height in inches)
+   - Set export DPI (resolution for saved images)
+   - Choose export format: PNG, PDF, SVG, or EPS
+3. **Fonts & Styling Tab**:
+   - Set font sizes for title, axis labels, tick labels, and legend
+   - Enable logarithmic scale for X and/or Y axes
+   - Add horizontal and vertical reference lines with custom colors
+4. **Series Styles Tab**:
    - Configure each data series independently
    - Choose from 10 colors: blue, red, green, orange, purple, brown, pink, gray, olive, cyan
    - Select line style: Solid, Dashed, Dash-dot, Dotted, or None
    - Choose marker: Circle, Square, Triangle, Diamond, Star, Plus, X, Point, or None
    - Adjust line width (0.5 to 5.0)
    - Set marker size (1.0 to 20.0)
-4. Click **OK** to apply changes - the plot updates immediately
+   - Apply smoothing (moving average) with configurable window size
+5. Click **OK** to apply changes - the plot updates immediately
 
 **Plot Features:**
 - **Interactive Navigation**: Full matplotlib toolbar with zoom, pan, reset, and save-to-file
@@ -389,27 +433,6 @@ vibehdf5/
 - Use plot styling to create publication-ready figures directly from HDF5 data
 - Share HDF5 files with embedded plots and filters for reproducible analysis
 
-## Troubleshooting
-
-**Application won't start:**
-- Ensure PySide6 is installed: `pip install PySide6`
-- On Apple Silicon Macs, use the pixi environment or install the native ARM64 build
-
-**Drag-and-drop not working:**
-- Ensure you're dropping onto the tree view itself
-- Check that the HDF5 file is opened in read-write mode (it should be by default)
-- Verify file permissions allow modification
-
-**Image preview not working:**
-- Check that the dataset name ends with `.png`
-- Verify the dataset contains valid PNG binary data (stored as uint8 array)
-- Use the utilities module to re-import images with proper encoding
-
-**Import errors about Qt modules:**
-- These are often harmless linter/type-checker warnings
-- The application uses qtpy for compatibility, which will use whatever Qt binding is available
-- At runtime, the code should work fine as long as PySide6 or PyQt6 is installed
-
 ## Development
 
 ### Launching from the pixi environment
@@ -422,7 +445,7 @@ python -m vibehdf5
 ### Running Tests
 ```bash
 # From the project root
-pytest
+pytest tests/
 ```
 
 ### Code Style
@@ -439,7 +462,7 @@ ruff check vibehdf5/
 python -m build
 ```
 
-### Building Standalone Executable
+### Building Standalone Executable [EXPERIMENTAL]
 
 Create a standalone executable that doesn't require Python to be installed:
 
