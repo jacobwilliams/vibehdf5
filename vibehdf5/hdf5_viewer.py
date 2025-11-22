@@ -2986,6 +2986,11 @@ class HDF5Viewer(QMainWindow):
         self.act_file_properties.setToolTip("View detailed information about the HDF5 file")
         self.act_file_properties.triggered.connect(self._show_file_properties_dialog)
 
+        # Merge file action
+        self.act_merge_file = QAction("Merge File...", self)
+        self.act_merge_file.setToolTip("Import contents from another HDF5 file into the current file")
+        self.act_merge_file.triggered.connect(self._merge_file_dialog)
+
         # Create recent file actions (will be populated dynamically)
         for i in range(self.max_recent_files):
             action = QAction(self)
@@ -3033,6 +3038,8 @@ class HDF5Viewer(QMainWindow):
         file_menu.addAction(self.act_add_files)
         file_menu.addAction(self.act_add_folder)
         file_menu.addAction(self.act_new_folder)
+        file_menu.addSeparator()
+        file_menu.addAction(self.act_merge_file)
         file_menu.addSeparator()
         file_menu.addAction(self.act_file_properties)
         file_menu.addAction(self.act_repack)
@@ -4248,6 +4255,244 @@ class HDF5Viewer(QMainWindow):
                 self,
                 "Error",
                 f"Failed to retrieve file properties:\n\n{exc}"
+            )
+
+    def _merge_file_dialog(self) -> None:
+        """Dialog to select and merge another HDF5 file into the current file."""
+        if not self.model or not self.model.filepath:
+            QMessageBox.information(self, "No File", "No HDF5 file is currently loaded. Open or create a file first.")
+            return
+
+        current_path = Path(self.model.filepath)
+        if not current_path.exists():
+            QMessageBox.warning(self, "File Not Found", "The current file no longer exists.")
+            return
+
+        # Select source file to merge from
+        source_file, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select HDF5 File to Merge",
+            str(current_path.parent),
+            "HDF5 Files (*.h5 *.hdf5);;All Files (*)"
+        )
+
+        if not source_file:
+            return  # User cancelled
+
+        source_path = Path(source_file)
+
+        # Don't allow merging file with itself
+        if source_path.absolute() == current_path.absolute():
+            QMessageBox.warning(self, "Invalid Selection", "Cannot merge a file with itself.")
+            return
+
+        # Get basic info about source file
+        try:
+            with h5py.File(str(source_path), 'r') as src_h5:
+                num_groups = 0
+                num_datasets = 0
+
+                def count_items(group):
+                    nonlocal num_groups, num_datasets
+                    for key in group.keys():
+                        if isinstance(group[key], h5py.Group):
+                            num_groups += 1
+                            count_items(group[key])
+                        elif isinstance(group[key], h5py.Dataset):
+                            num_datasets += 1
+
+                count_items(src_h5)
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Cannot Read File",
+                f"Failed to read source file:\n\n{exc}"
+            )
+            return
+
+        # Confirm merge operation
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Question)
+        msg.setWindowTitle("Confirm Merge")
+        msg.setText(
+            f"Merge contents from:\n{source_path.name}\n\n"
+            f"Into current file:\n{current_path.name}\n\n"
+            f"Source contains: {num_groups} group(s), {num_datasets} dataset(s)\n\n"
+            "Note: If items with the same path exist in both files, "
+            "you will be prompted for each conflict."
+        )
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.setDefaultButton(QMessageBox.Yes)
+
+        if msg.exec() != QMessageBox.Yes:
+            return
+
+        # Perform the merge
+        try:
+            conflicts = []
+            items_copied = 0
+
+            # Show progress dialog
+            progress = QProgressDialog(
+                "Merging files...\nThis may take a moment for large files.",
+                "Cancel",
+                0,
+                num_groups + num_datasets,
+                self
+            )
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
+            QApplication.processEvents()
+
+            items_processed = 0
+
+            with h5py.File(str(source_path), 'r') as src_h5:
+                with h5py.File(str(current_path), 'r+') as dst_h5:
+
+                    def merge_recursively(src_group, dst_group, path="/"):
+                        nonlocal items_copied, items_processed, conflicts
+
+                        if progress.wasCanceled():
+                            return False
+
+                        for key in src_group.keys():
+                            if progress.wasCanceled():
+                                return False
+
+                            src_path = posixpath.join(path, key)
+
+                            if isinstance(src_group[key], h5py.Group):
+                                items_processed += 1
+                                progress.setValue(items_processed)
+                                progress.setLabelText(f"Merging: {src_path}")
+                                QApplication.processEvents()
+
+                                # Check if group exists
+                                if key in dst_group:
+                                    if isinstance(dst_group[key], h5py.Group):
+                                        # Merge into existing group
+                                        if not merge_recursively(src_group[key], dst_group[key], src_path):
+                                            return False
+                                    else:
+                                        # Conflict: target is a dataset
+                                        conflicts.append(f"{src_path} (group conflicts with existing dataset)")
+                                else:
+                                    # Create new group and copy attributes
+                                    new_group = dst_group.create_group(key)
+                                    for attr_key, attr_val in src_group[key].attrs.items():
+                                        try:
+                                            new_group.attrs[attr_key] = attr_val
+                                        except Exception:
+                                            pass
+                                    items_copied += 1
+                                    # Recurse into subgroup
+                                    if not merge_recursively(src_group[key], new_group, src_path):
+                                        return False
+
+                            elif isinstance(src_group[key], h5py.Dataset):
+                                items_processed += 1
+                                progress.setValue(items_processed)
+                                progress.setLabelText(f"Merging: {src_path}")
+                                QApplication.processEvents()
+
+                                # Check if dataset exists
+                                if key in dst_group:
+                                    # Ask user what to do
+                                    reply = QMessageBox.question(
+                                        self,
+                                        "Item Exists",
+                                        f"Item already exists: {src_path}\n\nOverwrite?",
+                                        QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                                        QMessageBox.No
+                                    )
+
+                                    if reply == QMessageBox.Cancel:
+                                        return False
+                                    elif reply == QMessageBox.Yes:
+                                        # Delete existing and copy new
+                                        del dst_group[key]
+                                        src_ds = src_group[key]
+                                        dst_group.create_dataset(
+                                            key,
+                                            data=src_ds[()],
+                                            dtype=src_ds.dtype,
+                                            compression=src_ds.compression,
+                                            compression_opts=src_ds.compression_opts
+                                        )
+                                        # Copy attributes
+                                        for attr_key, attr_val in src_ds.attrs.items():
+                                            try:
+                                                dst_group[key].attrs[attr_key] = attr_val
+                                            except Exception:
+                                                pass
+                                        items_copied += 1
+                                    else:
+                                        # Skip this item
+                                        conflicts.append(f"{src_path} (skipped - already exists)")
+                                else:
+                                    # Copy dataset
+                                    src_ds = src_group[key]
+                                    dst_group.create_dataset(
+                                        key,
+                                        data=src_ds[()],
+                                        dtype=src_ds.dtype,
+                                        compression=src_ds.compression,
+                                        compression_opts=src_ds.compression_opts
+                                    )
+                                    # Copy attributes
+                                    for attr_key, attr_val in src_ds.attrs.items():
+                                        try:
+                                            dst_group[key].attrs[attr_key] = attr_val
+                                        except Exception:
+                                            pass
+                                    items_copied += 1
+
+                        return True
+
+                    # Copy root attributes if they don't exist
+                    for attr_key, attr_val in src_h5.attrs.items():
+                        if attr_key not in dst_h5.attrs:
+                            try:
+                                dst_h5.attrs[attr_key] = attr_val
+                            except Exception:
+                                pass
+
+                    # Merge contents
+                    success = merge_recursively(src_h5, dst_h5)
+
+            progress.close()
+
+            if not success:
+                QMessageBox.information(self, "Merge Cancelled", "Merge operation was cancelled.")
+                # Still reload to show any partial changes
+                self.model.load_file(str(current_path))
+                self.tree.expandToDepth(2)
+                self._update_file_size_display()
+                return
+
+            # Reload the file
+            self.model.load_file(str(current_path))
+            self.tree.expandToDepth(2)
+            self._update_file_size_display()
+
+            # Show results
+            result_msg = f"Merge complete!\n\nItems copied: {items_copied}"
+
+            if conflicts:
+                result_msg += f"\n\nConflicts/Skipped: {len(conflicts)}"
+                if len(conflicts) <= 10:
+                    result_msg += "\n" + "\n".join(conflicts)
+                else:
+                    result_msg += "\n" + "\n".join(conflicts[:10]) + f"\n... and {len(conflicts) - 10} more"
+
+            QMessageBox.information(self, "Merge Complete", result_msg)
+
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Merge Failed",
+                f"Failed to merge files:\n\n{exc}"
             )
 
     # Search/Filter handling
