@@ -3704,7 +3704,7 @@ class HDF5Viewer(QMainWindow):
             # Determine optimal chunk size for compression
             data_len = len(col_data)
             chunk_size = min(10000, data_len) if data_len > 1000 else None
-            
+
             if col_data.dtype == "object":
                 # For object dtype, convert to Python list then create dataset
                 # This avoids numpy unicode string issues
