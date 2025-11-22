@@ -3015,52 +3015,65 @@ class HDF5Viewer(QMainWindow):
 
     def _create_actions(self) -> None:
         """Create all QAction objects for menu and toolbar items."""
+        # Get standard icon theme
+        style = self.style()
+
         self.act_new = QAction("New HDF5 File…", self)
+        self.act_new.setIcon(style.standardIcon(QStyle.SP_FileIcon))
         self.act_new.setShortcut("Ctrl+N")
         self.act_new.setToolTip("Create a new empty HDF5 file (Ctrl+N)")
         self.act_new.triggered.connect(self.new_file_dialog)
 
         self.act_open = QAction("Open HDF5…", self)
+        self.act_open.setIcon(style.standardIcon(QStyle.SP_DirOpenIcon))
         self.act_open.setShortcut("Ctrl+O")
         self.act_open.setToolTip("Open an existing HDF5 file for browsing and editing (Ctrl+O)")
         self.act_open.triggered.connect(self.open_file_dialog)
 
         # Add files/folder actions
         self.act_add_files = QAction("Add Files…", self)
+        self.act_add_files.setIcon(style.standardIcon(QStyle.SP_FileDialogNewFolder))
         self.act_add_files.setShortcut("Ctrl+Shift+F")
         self.act_add_files.setToolTip("Import one or more files into the HDF5 archive (Ctrl+Shift+F)")
         self.act_add_files.triggered.connect(self.add_files_dialog)
 
         self.act_add_folder = QAction("Add Folder…", self)
+        self.act_add_folder.setIcon(style.standardIcon(QStyle.SP_FileDialogNewFolder))
         self.act_add_folder.setShortcut("Ctrl+Shift+D")
         self.act_add_folder.setToolTip("Import an entire folder structure recursively into the HDF5 archive (Ctrl+Shift+D)")
         self.act_add_folder.triggered.connect(self.add_folder_dialog)
 
         self.act_new_folder = QAction("New Folder…", self)
+        self.act_new_folder.setIcon(style.standardIcon(QStyle.SP_FileDialogNewFolder))
         self.act_new_folder.setShortcut("Ctrl+Shift+N")
         self.act_new_folder.setToolTip("Create a new empty group (folder) in the selected location (Ctrl+Shift+N)")
         self.act_new_folder.triggered.connect(self.new_folder_dialog)
 
         self.act_expand = QAction("Expand All", self)
+        self.act_expand.setIcon(style.standardIcon(QStyle.SP_TitleBarUnshadeButton))
         self.act_expand.setToolTip("Expand all groups in the tree view to show full hierarchy")
         self.act_expand.triggered.connect(self.tree.expandAll)
 
         self.act_collapse = QAction("Collapse All", self)
+        self.act_collapse.setIcon(style.standardIcon(QStyle.SP_TitleBarShadeButton))
         self.act_collapse.setToolTip("Collapse all groups in the tree view to show only top level")
         self.act_collapse.triggered.connect(self.tree.collapseAll)
 
         self.act_quit = QAction("Quit", self)
+        self.act_quit.setIcon(style.standardIcon(QStyle.SP_DialogCloseButton))
         self.act_quit.setShortcut("Ctrl+Q")
         self.act_quit.setToolTip("Close the application (Ctrl+Q)")
         self.act_quit.triggered.connect(self.close)
 
         # About action
         self.act_about = QAction("About VibeHDF5", self)
+        self.act_about.setIcon(style.standardIcon(QStyle.SP_MessageBoxInformation))
         self.act_about.setToolTip("Show information about VibeHDF5")
         self.act_about.triggered.connect(self.show_about_dialog)
 
         # Plotting action for CSV tables
         self.act_plot_selected = QAction("Plot Selected Columns", self)
+        self.act_plot_selected.setIcon(style.standardIcon(QStyle.SP_FileDialogContentsView))
         self.act_plot_selected.setToolTip(
             "Plot selected table columns (1 column: Y vs point count; 2+ columns: first is X, others are Y)"
         )
@@ -3111,16 +3124,8 @@ class HDF5Viewer(QMainWindow):
         self.addToolBar(tb)
         tb.addAction(self.act_new)
         tb.addAction(self.act_open)
-        tb.addAction(self.act_add_files)
-        tb.addAction(self.act_add_folder)
-        tb.addAction(self.act_new_folder)
-        tb.addSeparator()
-        tb.addAction(self.act_expand)
-        tb.addAction(self.act_collapse)
         tb.addSeparator()
         tb.addAction(self.act_plot_selected)
-        tb.addSeparator()
-        tb.addAction(self.act_quit)
 
     def _create_menu_bar(self) -> None:
         """Create and populate the menu bar."""
