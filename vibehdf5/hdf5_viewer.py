@@ -354,6 +354,7 @@ class DropTreeView(QTreeView):
                 if fpath:
                     self.viewer.model.load_file(fpath)
                     self.viewer.tree.expandToDepth(2)
+                    self.viewer._update_file_size_display()
                 self.viewer.statusBar().showMessage(
                     f"Moved '{source_path}' to '{target_group}'", 5000
                 )
@@ -379,6 +380,7 @@ class DropTreeView(QTreeView):
             if fpath:
                 self.viewer.model.load_file(fpath)
                 self.viewer.tree.expandToDepth(2)
+                self.viewer._update_file_size_display()
             if errors:
                 QMessageBox.warning(self, "Completed with errors", "\n".join(errors))
             elif added:
@@ -2376,6 +2378,12 @@ class HDF5Viewer(QMainWindow):
         self._create_toolbar()
         self._create_menu_bar()
         self.setStatusBar(QStatusBar(self))
+
+        # Add permanent file size label to right side of status bar
+        self.file_size_label = QLabel()
+        self.file_size_label.setStyleSheet("QLabel { padding: 0 5px; }")
+        self.statusBar().addPermanentWidget(self.file_size_label)
+
         self.tree.selectionModel().selectionChanged.connect(self.on_selection_changed)
 
         # Track currently previewed CSV group (for plotting)
@@ -2445,6 +2453,9 @@ class HDF5Viewer(QMainWindow):
                                 del grp.attrs[attr_name]
                             if clear_msg:
                                 self.statusBar().showMessage(clear_msg, 3000)
+
+            # Update file size display after modification
+            self._update_file_size_display()
         except Exception as exc:  # noqa: BLE001
             print(f"Warning: Could not save {attr_name} to HDF5: {exc}")
 
@@ -2965,6 +2976,11 @@ class HDF5Viewer(QMainWindow):
         self.act_reset_font.setToolTip("Reset GUI font size to default (Ctrl+0)")
         self.act_reset_font.triggered.connect(self._reset_font_size)
 
+        # Repack file action
+        self.act_repack = QAction("Repack File...", self)
+        self.act_repack.setToolTip("Reclaim space from deleted items by repacking the HDF5 file")
+        self.act_repack.triggered.connect(self._repack_file_dialog)
+
         # Create recent file actions (will be populated dynamically)
         for i in range(self.max_recent_files):
             action = QAction(self)
@@ -3012,6 +3028,8 @@ class HDF5Viewer(QMainWindow):
         file_menu.addAction(self.act_add_files)
         file_menu.addAction(self.act_add_folder)
         file_menu.addAction(self.act_new_folder)
+        file_menu.addSeparator()
+        file_menu.addAction(self.act_repack)
         file_menu.addSeparator()
         file_menu.addAction(self.act_quit)
 
@@ -3161,6 +3179,9 @@ class HDF5Viewer(QMainWindow):
         elif added:
             self.statusBar().showMessage(f"Added {added} file(s) to {target_group}", 5000)
 
+        # Update file size display after adding files
+        self._update_file_size_display()
+
     def add_folder_dialog(self) -> None:
         """Open a folder selection dialog and add folder contents recursively to HDF5."""
         fpath = self.model.filepath
@@ -3178,6 +3199,9 @@ class HDF5Viewer(QMainWindow):
             QMessageBox.warning(self, "Completed with errors", "\n".join(errors))
         elif added:
             self.statusBar().showMessage(f"Added {added} item(s) under {target_group}", 5000)
+
+        # Update file size display after adding folder
+        self._update_file_size_display()
 
     def new_folder_dialog(self) -> None:
         """Create a new empty group (folder) in the HDF5 file."""
@@ -3223,6 +3247,9 @@ class HDF5Viewer(QMainWindow):
             self.model.load_file(fpath)
             self.tree.expandToDepth(2)
             self.statusBar().showMessage(f"Created folder: {new_group_path}", 5000)
+
+            # Update file size display after creating folder
+            self._update_file_size_display()
 
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to create folder: {exc}")
@@ -3637,6 +3664,7 @@ class HDF5Viewer(QMainWindow):
             # Load the newly created file
             self.load_hdf5(filepath)
             self.statusBar().showMessage(f"Created new HDF5 file: {filepath}", 5000)
+            self._update_file_size_display()
         except Exception as exc:
             QMessageBox.critical(
                 self,
@@ -3677,8 +3705,45 @@ class HDF5Viewer(QMainWindow):
         self.preview_label.setText("No selection")
         self._set_preview_text("")
 
+        # Update file size display
+        self._update_file_size_display()
+
         # Add to recent files
         self._add_recent_file(path)
+
+    def _update_file_size_display(self) -> None:
+        """Update the file size display in the status bar."""
+        if not self.model or not self.model.filepath:
+            self.file_size_label.setText("")
+            return
+
+        try:
+            file_path = Path(self.model.filepath)
+            if file_path.exists():
+                size_bytes = file_path.stat().st_size
+                size_str = self._format_file_size(size_bytes)
+                self.file_size_label.setText(f"File size: {size_str}")
+            else:
+                self.file_size_label.setText("")
+        except Exception:
+            self.file_size_label.setText("")
+
+    def _format_file_size(self, size_bytes: int) -> str:
+        """Format file size in human-readable format.
+
+        Args:
+            size_bytes: File size in bytes
+
+        Returns:
+            Formatted string like '1.5 MB' or '234 KB'
+        """
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size_bytes < 1024.0:
+                if unit == 'B':
+                    return f"{size_bytes:.0f} {unit}"
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.1f} PB"
 
     def _get_recent_files(self) -> list[str]:
         """Get the list of recent files from QSettings.
@@ -3884,6 +3949,138 @@ class HDF5Viewer(QMainWindow):
             self.preview_edit.setFont(fixed)
 
             self.statusBar().showMessage(f"Font size reset to default ({default_font.pointSize()}pt)", 2000)
+
+    def _repack_file_dialog(self) -> None:
+        """Dialog to repack the HDF5 file to reclaim space from deleted items."""
+        if not self.model or not self.model.filepath:
+            QMessageBox.information(self, "No File", "No HDF5 file is currently loaded.")
+            return
+
+        current_path = Path(self.model.filepath)
+        if not current_path.exists():
+            QMessageBox.warning(self, "File Not Found", "The current file no longer exists.")
+            return
+
+        # Get current file size
+        current_size = current_path.stat().st_size
+        current_size_str = self._format_file_size(current_size)
+
+        # Show confirmation dialog with explanation
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Information)
+        msg.setWindowTitle("Repack HDF5 File")
+        msg.setText(
+            "Repack the HDF5 file to reclaim space from deleted items?\n\n"
+            f"Current file size: {current_size_str}\n\n"
+            "Note: When you delete datasets or groups, HDF5 marks the space as unused "
+            "but doesn't immediately reclaim it. Repacking creates a new optimized file "
+            "that reclaims this space.\n\n"
+            "This operation may take a few moments for large files."
+        )
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.setDefaultButton(QMessageBox.Yes)
+
+        if msg.exec() != QMessageBox.Yes:
+            return
+
+        # Perform the repack
+        try:
+            import tempfile
+            import shutil
+
+            # Create a temporary file for the repacked version
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.h5', prefix='repack_')
+            os.close(temp_fd)  # Close the file descriptor, we'll let h5py handle it
+
+            # Show progress dialog
+            progress = QProgressDialog(
+                "Repacking file...\nThis may take a moment for large files.",
+                None,
+                0,
+                0,
+                self
+            )
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
+            QApplication.processEvents()
+
+            try:
+                # Copy all data to a new file (this automatically repacks)
+                with h5py.File(str(current_path), 'r') as source:
+                    with h5py.File(temp_path, 'w') as dest:
+                        # Copy all groups and datasets recursively
+                        def copy_recursively(src_group, dst_group):
+                            for key in src_group.keys():
+                                if isinstance(src_group[key], h5py.Group):
+                                    # Create group and copy attributes
+                                    new_group = dst_group.create_group(key)
+                                    for attr_key, attr_val in src_group[key].attrs.items():
+                                        new_group.attrs[attr_key] = attr_val
+                                    # Recurse into subgroup
+                                    copy_recursively(src_group[key], new_group)
+                                elif isinstance(src_group[key], h5py.Dataset):
+                                    # Copy dataset with compression if available
+                                    src_ds = src_group[key]
+                                    dst_group.create_dataset(
+                                        key,
+                                        data=src_ds[()],
+                                        dtype=src_ds.dtype,
+                                        compression=src_ds.compression,
+                                        compression_opts=src_ds.compression_opts
+                                    )
+                                    # Copy attributes
+                                    for attr_key, attr_val in src_ds.attrs.items():
+                                        dst_group[key].attrs[attr_key] = attr_val
+
+                        # Copy root attributes
+                        for attr_key, attr_val in source.attrs.items():
+                            dest.attrs[attr_key] = attr_val
+
+                        # Copy all contents
+                        copy_recursively(source, dest)
+
+                progress.close()
+
+                # Get new file size
+                new_size = Path(temp_path).stat().st_size
+                new_size_str = self._format_file_size(new_size)
+                saved_bytes = current_size - new_size
+                saved_str = self._format_file_size(saved_bytes) if saved_bytes > 0 else "0 B"
+
+                # Replace original file with repacked version
+                shutil.move(temp_path, str(current_path))
+
+                # Reload the file
+                self.load_hdf5(str(current_path))
+
+                # Show results
+                result_msg = (
+                    f"File successfully repacked!\n\n"
+                    f"Original size: {current_size_str}\n"
+                    f"New size: {new_size_str}\n"
+                    f"Space reclaimed: {saved_str}"
+                )
+
+                if saved_bytes <= 0:
+                    result_msg += "\n\nNo space was reclaimed. The file was already optimally packed."
+
+                QMessageBox.information(self, "Repack Complete", result_msg)
+
+            finally:
+                # Clean up temp file if it still exists
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except Exception:
+                        pass
+
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Repack Failed",
+                f"Failed to repack the file:\n\n{exc}\n\nThe original file has not been modified."
+            )
 
     # Search/Filter handling
     def _on_search_text_changed(self, text: str) -> None:
@@ -4178,6 +4375,9 @@ class HDF5Viewer(QMainWindow):
         try:
             self.model.load_file(fpath)
             self.tree.expandToDepth(1)
+
+            # Update file size display after deletion
+            self._update_file_size_display()
         except Exception as exc:
             QMessageBox.warning(
                 self, "Refresh failed", f"Deleted, but failed to refresh view: {exc}"
@@ -5830,6 +6030,9 @@ class HDF5Viewer(QMainWindow):
                             # Remove attribute if no plots
                             if "saved_plots" in grp.attrs:
                                 del grp.attrs["saved_plots"]
+
+            # Update file size display after modification
+            self._update_file_size_display()
         except Exception as exc:  # noqa: BLE001
             self.statusBar().showMessage(f"Warning: Could not save plot configs: {exc}", 5000)
 
