@@ -2094,6 +2094,7 @@ class HDF5Viewer(QMainWindow):
         splitter = CustomSplitter(self)
         splitter.setHandleWidth(4)  # Make handle slightly wider for easier grabbing
         splitter.setChildrenCollapsible(False)  # Prevent panels from collapsing completely
+        splitter.splitterMoved.connect(self._on_splitter_moved)
         central_layout.addWidget(splitter)
 
         # Tree view + model (left)
@@ -2214,6 +2215,7 @@ class HDF5Viewer(QMainWindow):
         right_splitter = CustomSplitter(Qt.Vertical, right)
         right_splitter.setHandleWidth(4)  # Make handle slightly wider for easier grabbing
         right_splitter.setChildrenCollapsible(False)  # Prevent panels from collapsing completely
+        right_splitter.splitterMoved.connect(self._on_splitter_moved)
         right_layout.addWidget(right_splitter)
 
         # Top section: main content preview
@@ -4389,8 +4391,17 @@ class HDF5Viewer(QMainWindow):
         scaled = pixmap.scaled(label_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.preview_image.setPixmap(scaled)
 
+    def updateCanvas(self):
+        """If plot canvas is visible, apply tight layout and redraw"""
+        if hasattr(self, 'plot_canvas') and self.plot_canvas.isVisible():
+            try:
+                self.plot_figure.tight_layout()
+                self.plot_canvas.draw()
+            except Exception:
+                pass  # Ignore layout errors during resize
+
     def resizeEvent(self, event):
-        """Handle window resize events to rescale displayed images.
+        """Handle window resize events to rescale displayed images and adjust plot layout.
 
         Args:
             event: QResizeEvent object
@@ -4398,7 +4409,20 @@ class HDF5Viewer(QMainWindow):
         # If an image is visible, rescale it to fit the new size
         if self.preview_image.isVisible():
             self._show_scaled_image()
+
+        self.updateCanvas()
+
         super().resizeEvent(event)
+
+    def _on_splitter_moved(self, pos: int, index: int) -> None:
+        """Handle splitter movement to adjust plot layout.
+
+        Args:
+            pos: New position of the splitter handle
+            index: Index of the splitter handle that was moved
+        """
+
+        self.updateCanvas()
 
     def preview_attribute(self, grouppath: str, key: str) -> None:
         """Preview an HDF5 attribute value.
