@@ -5228,7 +5228,7 @@ class HDF5Viewer(QMainWindow):
             tb_str = traceback.format_exc()
             QMessageBox.critical(self, "Plot error", f"Failed to plot data:\n{exc}\n\nTraceback:\n{tb_str}")
 
-    def _get_hdf5_file_path(self):
+    def _get_hdf5_file_path(self) -> str | None:
         """Get the currently loaded HDF5 file path, or None if no file is loaded.
 
         Returns:
@@ -5236,7 +5236,7 @@ class HDF5Viewer(QMainWindow):
         """
         return self.model.filepath if self.model else None
 
-    def _configure_filters_dialog(self):
+    def _configure_filters_dialog(self) -> None:
         """Open dialog to configure column filters."""
         if not self._csv_column_names:
             QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
@@ -5250,7 +5250,7 @@ class HDF5Viewer(QMainWindow):
             self._save_filters_to_hdf5()
             self._apply_filters()
 
-    def _show_statistics_dialog(self):
+    def _show_statistics_dialog(self) -> None:
         """Open dialog to show statistics for CSV columns."""
         if not self._csv_column_names or (not self._csv_data_dict and not self._csv_dataset_info):
             QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
@@ -5270,13 +5270,13 @@ class HDF5Viewer(QMainWindow):
         )
         dialog.exec()
 
-    def _clear_filters(self):
+    def _clear_filters(self) -> None:
         """Clear all active filters and show full dataset."""
         self._csv_filters = []
         self._save_filters_to_hdf5()
         self._apply_filters()
 
-    def _configure_sort_dialog(self):
+    def _configure_sort_dialog(self) -> None:
         """Open dialog to configure column sorting."""
         if not self._csv_column_names:
             QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
@@ -5290,19 +5290,19 @@ class HDF5Viewer(QMainWindow):
             self._save_sort_to_hdf5()
             self._apply_sort()
 
-    def _clear_sort(self):
+    def _clear_sort(self) -> None:
         """Clear all sorting and display data in original order."""
         self._csv_sort_specs = []
         self._save_sort_to_hdf5()
         self._apply_sort()
 
-    def _save_sort_to_hdf5(self):
+    def _save_sort_to_hdf5(self) -> None:
         """Save current sort specifications to the HDF5 file as a JSON attribute."""
         success_msg = f"Saved sort by {len(self._csv_sort_specs)} column(s) to HDF5 file" if self._csv_sort_specs else None
         clear_msg = "Cleared sort from HDF5 file"
         self._save_csv_attr_to_hdf5("csv_sort", self._csv_sort_specs, success_msg, clear_msg)
 
-    def _load_sort_from_hdf5(self, grp: h5py.Group):
+    def _load_sort_from_hdf5(self, grp: h5py.Group) -> list:
         """Load sort specifications from the HDF5 group attributes."""
         def validate_sort(specs):
             if isinstance(specs, list):
@@ -5310,7 +5310,7 @@ class HDF5Viewer(QMainWindow):
             return []
         return self._load_csv_attr_from_hdf5(grp, "csv_sort", validate_sort) or []
 
-    def _configure_columns_dialog(self):
+    def _configure_columns_dialog(self) -> None:
         """Open dialog to select which columns to display."""
         if not self._csv_column_names:
             QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
@@ -5331,7 +5331,7 @@ class HDF5Viewer(QMainWindow):
             if self._current_csv_group_path and self.model:
                 self.model.set_csv_visible_columns(self._current_csv_group_path, self._csv_visible_columns)
 
-    def _apply_column_visibility(self):
+    def _apply_column_visibility(self) -> None:
         """Apply column visibility to the table."""
         if not self._csv_column_names:
             return
@@ -5346,7 +5346,7 @@ class HDF5Viewer(QMainWindow):
             should_hide = col_name not in self._csv_visible_columns
             self.preview_table.setColumnHidden(col_idx, should_hide)
 
-    def _on_column_header_context_menu(self, pos):
+    def _on_column_header_context_menu(self, pos) -> None:
         """Handle right-click context menu on column header.
 
         Args:
@@ -5372,7 +5372,7 @@ class HDF5Viewer(QMainWindow):
         if chosen == act_unique:
             self._show_unique_values_dialog(col_name)
 
-    def _show_unique_values_dialog(self, col_name):
+    def _show_unique_values_dialog(self, col_name: str) -> None:
         """Show dialog with unique values for a specific column.
 
         Args:
@@ -5411,7 +5411,7 @@ class HDF5Viewer(QMainWindow):
         dialog = UniqueValuesDialog(col_name, unique_list, self)
         dialog.exec()
 
-    def _save_visible_columns_to_hdf5(self):
+    def _save_visible_columns_to_hdf5(self) -> None:
         """Save visible columns list to the HDF5 file as a JSON attribute."""
         # Only save if not all columns are visible
         value = self._csv_visible_columns if (self._csv_visible_columns and len(self._csv_visible_columns) < len(self._csv_column_names)) else None
@@ -5430,7 +5430,7 @@ class HDF5Viewer(QMainWindow):
         """
         return self._load_csv_attr_from_hdf5(grp, "csv_visible_columns", lambda v: v if isinstance(v, list) else None)
 
-    def _save_filters_to_hdf5(self):
+    def _save_filters_to_hdf5(self) -> None:
         """Save current filters to the HDF5 file as a JSON attribute."""
         success_msg = f"Saved {len(self._csv_filters)} filter(s) to HDF5 file" if self._csv_filters else None
         clear_msg = "Cleared filters from HDF5 file"
@@ -5451,7 +5451,7 @@ class HDF5Viewer(QMainWindow):
             return []
         return self._load_csv_attr_from_hdf5(grp, "csv_filters", validate_filters) or []
 
-    def _apply_sort(self):
+    def _apply_sort(self) -> None:
         """Apply current sort specifications to the CSV table."""
         if not self._csv_data_dict or not self._csv_column_names:
             return
@@ -5465,7 +5465,7 @@ class HDF5Viewer(QMainWindow):
         # After changing sort, reapply filters to update display
         self._apply_filters()
 
-    def _apply_filters(self):
+    def _apply_filters(self) -> None:
         """Apply current filters to the CSV table."""
         if not self._csv_data_dict and not self._csv_dataset_info:
             return
@@ -5594,7 +5594,7 @@ class HDF5Viewer(QMainWindow):
                 f"Showing {shown_rows:,} of {total_rows:,} rows (filtered)", 5000
             )
 
-    def _compare_values(self, left_value, operator, right_value):
+    def _compare_values(self, left_value: any, operator: str, right_value: any) -> bool:
         """Compare two values using the specified operator.
 
         Handles numeric, datetime, and string comparisons.
@@ -5642,7 +5642,7 @@ class HDF5Viewer(QMainWindow):
             except Exception:
                 return True
 
-    def _evaluate_filter(self, col_data, operator, value_str):
+    def _evaluate_filter(self, col_data: np.ndarray | list, operator: str, value_str: str) -> np.ndarray:
         """Evaluate a filter condition on column data.
 
         Returns a boolean mask of the same length as col_data.
@@ -5688,7 +5688,7 @@ class HDF5Viewer(QMainWindow):
 
     # ========== Plot Configuration Management ==========
 
-    def _save_plot_config_dialog(self):
+    def _save_plot_config_dialog(self) -> None:
         """Open dialog to save current plot configuration."""
         if not self._current_csv_group_path or not self.preview_table.isVisible():
             QMessageBox.information(
@@ -5787,7 +5787,7 @@ class HDF5Viewer(QMainWindow):
 
         self.statusBar().showMessage(f"Saved plot configuration: {plot_name}", 3000)
 
-    def _save_plot_configs_to_hdf5(self):
+    def _save_plot_configs_to_hdf5(self) -> None:
         """Save all plot configurations to the HDF5 file as a JSON attribute."""
         if not self._current_csv_group_path or not self.model or not self.model.filepath:
             return
@@ -5842,7 +5842,7 @@ class HDF5Viewer(QMainWindow):
         else:
             self._clear_plot_display()
 
-    def _refresh_saved_plots_list(self):
+    def _refresh_saved_plots_list(self) -> None:
         """Update the saved plots list widget with current configurations."""
         self.saved_plots_list.clear()
 
@@ -5864,12 +5864,12 @@ class HDF5Viewer(QMainWindow):
         # Update button states
         self._update_plot_buttons_state()
 
-    def _clear_plot_display(self):
+    def _clear_plot_display(self) -> None:
         """Clear the plot display area."""
         self.plot_figure.clear()
         self.plot_canvas.draw()
 
-    def _update_plot_buttons_state(self):
+    def _update_plot_buttons_state(self) -> None:
         """Enable/disable plot management buttons based on current state."""
         # Enable Save Plot button if CSV is loaded and columns are selected
         csv_loaded = self._current_csv_group_path is not None and self.preview_table.isVisible()
@@ -5881,7 +5881,7 @@ class HDF5Viewer(QMainWindow):
         self.btn_delete_plot.setEnabled(has_selection)
         self.btn_edit_plot_options.setEnabled(has_selection)
 
-    def _on_saved_plot_selection_changed(self):
+    def _on_saved_plot_selection_changed(self) -> None:
         """Handle selection change in saved plots list."""
         self._update_plot_buttons_state()
 
@@ -5931,7 +5931,13 @@ class HDF5Viewer(QMainWindow):
                         item.setText(old_name)
                         self._saved_plots[row]["name"] = old_name
 
-    def _apply_filtered_indices_to_data(self, col_data_dict, filtered_indices, start_row=0, end_row=-1):
+    def _apply_filtered_indices_to_data(
+        self, 
+        col_data_dict: dict[str, np.ndarray], 
+        filtered_indices: list[int] | None, 
+        start_row: int = 0, 
+        end_row: int = -1
+    ) -> dict[str, np.ndarray]:
         """Apply filtered indices to column data with bounds checking.
 
         Args:
@@ -5964,7 +5970,7 @@ class HDF5Viewer(QMainWindow):
                 result[col_name] = col_array
         return result
 
-    def _apply_saved_plot(self, item=None):
+    def _apply_saved_plot(self, item: QListWidgetItem | None = None) -> None:
         """Apply a saved plot configuration.
 
         Args:
@@ -6128,7 +6134,7 @@ class HDF5Viewer(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Plot Error", f"Failed to plot data:\n{exc}")
 
-    def _export_plot_to_file(self, plot_config, filepath):
+    def _export_plot_to_file(self, plot_config: dict, filepath: str) -> tuple[bool, str]:
         """Export a plot configuration to a file.
 
         Args:
@@ -6273,7 +6279,7 @@ class HDF5Viewer(QMainWindow):
             traceback.print_exc()
             return False, str(e)
 
-    def _export_all_plots(self):
+    def _export_all_plots(self) -> None:
         """Export all saved plots to a selected directory."""
         if not self._saved_plots:
             QMessageBox.information(self, "No Plots", "There are no saved plots to export.")
@@ -6363,7 +6369,7 @@ class HDF5Viewer(QMainWindow):
 
         self.statusBar().showMessage(f"Exported {exported_count} plot(s) to {output_dir}", 5000)
 
-    def _delete_plot_config(self):
+    def _delete_plot_config(self) -> None:
         """Delete the selected plot configuration."""
         current_row = self.saved_plots_list.currentRow()
         if current_row < 0 or current_row >= len(self._saved_plots):
@@ -6395,7 +6401,7 @@ class HDF5Viewer(QMainWindow):
 
         self.statusBar().showMessage(f"Deleted plot configuration: {plot_name}", 3000)
 
-    def _edit_plot_options_dialog(self):
+    def _edit_plot_options_dialog(self) -> None:
         """Open dialog to edit plot options for the selected plot configuration."""
         current_row = self.saved_plots_list.currentRow()
         if current_row < 0 or current_row >= len(self._saved_plots):
@@ -6445,7 +6451,7 @@ class HDF5Viewer(QMainWindow):
                 f"Updated plot options: {updated_config.get('name', 'Unnamed')}", 3000
             )
 
-    def _recalculate_plot_filtered_indices(self, plot_config):
+    def _recalculate_plot_filtered_indices(self, plot_config: dict) -> None:
         """Recalculate filtered_indices for a plot based on its filter and sort settings.
 
         Args:
