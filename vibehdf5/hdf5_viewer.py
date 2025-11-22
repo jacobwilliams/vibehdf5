@@ -107,8 +107,17 @@ class DraggablePlotListWidget(QListWidget):
 
         # Export the plot to a temporary file
         try:
-            # Get plot configuration
-            plot_config = self.parent_viewer._saved_plots[current_row]
+            # Get plot configuration and make a copy to capture current UI state
+            plot_config = self.parent_viewer._saved_plots[current_row].copy()
+
+            # Capture current visibility state from the displayed plot
+            series_visibility = self.parent_viewer._capture_plot_visibility_state()
+
+            # Update plot_config with current visibility state
+            plot_options = plot_config.get("plot_options", {}).copy()
+            plot_options["series_visibility"] = series_visibility
+            plot_config["plot_options"] = plot_options
+
             plot_name = plot_config.get("name", "plot")
             export_format = plot_config.get("plot_options", {}).get("export_format", "png")
 
@@ -2594,6 +2603,42 @@ class HDF5Viewer(QMainWindow):
 
         # Connect new pick event to the current figure
         self._legend_pick_cid = fig.canvas.mpl_connect('pick_event', on_pick)
+
+    def _capture_plot_visibility_state(self) -> dict[str, bool]:
+        """Capture current visibility state of all plot lines.
+
+        Returns:
+            Dictionary mapping series label to visibility state
+        """
+        series_visibility = {}
+        if hasattr(self, 'plot_figure') and self.plot_figure.axes:
+            ax = self.plot_figure.axes[0]
+            for line in ax.get_lines():
+                label = line.get_label()
+                if label and not label.startswith('_'):  # Ignore internal matplotlib labels
+                    series_visibility[label] = line.get_visible()
+        return series_visibility
+
+    def _apply_plot_visibility_state(self, ax: plt.Axes, y_names: list[str], series_visibility: dict[str, bool]) -> None:
+        """Apply visibility state to plot lines and update legend appearance.
+
+        Args:
+            ax: Matplotlib axes object
+            y_names: List of Y column names
+            series_visibility: Dictionary mapping series label to visibility state
+        """
+        # Apply visibility to plot lines
+        for line in ax.get_lines():
+            label = line.get_label()
+            if label in series_visibility:
+                line.set_visible(series_visibility[label])
+
+        # Update legend appearance to reflect hidden series
+        if series_visibility and ax.get_legend():
+            legend = ax.get_legend()
+            for legend_line, orig_line in zip(legend.get_lines(), ax.get_lines()):
+                if not orig_line.get_visible():
+                    legend_line.set_alpha(0.2)
 
     def _process_x_axis_data(self, x_idx: int | None, col_data: dict, y_names: list[str],
                             x_name: str, plot_options: dict) -> tuple[np.ndarray, np.ndarray, bool, bool, int]:
@@ -6453,6 +6498,9 @@ class HDF5Viewer(QMainWindow):
             for i in range(self.preview_table.columnCount())
         ]
 
+        # Capture current visibility state from plot if available
+        series_visibility = self._capture_plot_visibility_state()
+
         plot_config = {
             "name": plot_name,
             "csv_group_path": self._current_csv_group_path,
@@ -6472,6 +6520,7 @@ class HDF5Viewer(QMainWindow):
                 "grid": True,
                 "legend": True,
                 "series": {},  # Will be populated with per-series styles in the Edit Options dialog
+                "series_visibility": series_visibility,  # Store current visibility state
             },
         }
 
@@ -6784,6 +6833,7 @@ class HDF5Viewer(QMainWindow):
 
             # Get series styling options
             series_styles = plot_options.get("series", {})
+            series_visibility = plot_options.get("series_visibility", {})
 
             any_plotted = False
             for y_name in y_names:
@@ -6822,6 +6872,9 @@ class HDF5Viewer(QMainWindow):
             self._apply_plot_labels_and_formatting(
                 ax, self.plot_figure, x_name, y_names, modified_config, plot_options, use_dark
             )
+
+            # Apply saved visibility state AFTER formatting (so legend is already created)
+            self._apply_plot_visibility_state(ax, y_names, series_visibility)
 
             # Refresh canvas
             self.plot_canvas.draw()
@@ -6935,6 +6988,7 @@ class HDF5Viewer(QMainWindow):
 
             # Plot series with smoothing support
             series_styles = plot_options.get("series", {})
+            series_visibility = plot_options.get("series_visibility", {})
             any_plotted = False
 
             for y_name in y_names:
@@ -6969,6 +7023,9 @@ class HDF5Viewer(QMainWindow):
             self._apply_plot_labels_and_formatting(
                 ax, fig, x_name, y_names, plot_config, plot_options, use_dark, interactive_legend=False
             )
+
+            # Apply saved visibility state AFTER formatting (so legend is already created)
+            self._apply_plot_visibility_state(ax, y_names, series_visibility)
 
             # Save to file
             fig.savefig(filepath, dpi=dpi, bbox_inches='tight')
