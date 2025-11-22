@@ -36,7 +36,7 @@ Run directly from source:
 
 .. code-block:: bash
 
-   python -m vibehdf5.hdf5_viewer [file.h5]
+   python -m vibehdf5 [file.h5]
 
 Working with Files
 ------------------
