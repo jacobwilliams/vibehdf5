@@ -5191,6 +5191,7 @@ class HDF5Viewer(QMainWindow):
 
         # Add CSV group expand/collapse option
         act_toggle_csv = None
+        act_save_csv = None
         if is_csv_group:
             if csv_expanded:
                 act_toggle_csv = menu.addAction("Hide Internal Structure")
@@ -5198,6 +5199,10 @@ class HDF5Viewer(QMainWindow):
             else:
                 act_toggle_csv = menu.addAction("Show Internal Structure")
                 act_toggle_csv.setIcon(style.standardIcon(QStyle.SP_DirIcon))
+
+            # Add "Save as CSV..." option
+            act_save_csv = menu.addAction("Save as CSV...")
+            act_save_csv.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
             menu.addSeparator()
 
         act_delete = None
@@ -5206,7 +5211,7 @@ class HDF5Viewer(QMainWindow):
             act_delete.setIcon(style.standardIcon(QStyle.SP_TrashIcon))
 
         # If no actions available, don't show menu
-        if not act_info and not act_toggle_csv and not act_delete:
+        if not act_info and not act_toggle_csv and not act_save_csv and not act_delete:
             return
 
         global_pos = self.tree.viewport().mapToGlobal(point)
@@ -5216,6 +5221,8 @@ class HDF5Viewer(QMainWindow):
             self._show_dataset_info_dialog(path)
         elif chosen == act_toggle_csv:
             self.model.toggle_csv_group_expansion(item)
+        elif chosen == act_save_csv:
+            self._save_csv_group_as(path)
         elif chosen == act_delete:
             # Confirm destructive action
             target_desc = label.replace("Delete ", "") if label else "item"
@@ -5228,6 +5235,77 @@ class HDF5Viewer(QMainWindow):
             )
             if resp == QMessageBox.Yes:
                 self._perform_delete(kind, path, attr_key)
+
+    def _save_csv_group_as(self, csv_group_path: str) -> None:
+        """Save a CSV group to a CSV file using a save dialog.
+
+        Args:
+            csv_group_path: HDF5 path to the CSV group
+        """
+        if not self.model or not self.model.filepath:
+            QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
+            return
+
+        try:
+            with h5py.File(self.model.filepath, "r") as h5:
+                if csv_group_path not in h5:
+                    QMessageBox.warning(self, "Not found", f"Path '{csv_group_path}' not found in file.")
+                    return
+
+                group = h5[csv_group_path]
+                if not isinstance(group, h5py.Group):
+                    QMessageBox.warning(self, "Invalid", "Selected item is not a group.")
+                    return
+
+                # Determine default filename
+                source_file = group.attrs.get("source_file")
+                if isinstance(source_file, (bytes, bytearray)):
+                    try:
+                        source_file = source_file.decode("utf-8")
+                    except Exception:  # noqa: BLE001
+                        source_file = None
+
+                if isinstance(source_file, str) and source_file.lower().endswith(".csv"):
+                    default_name = source_file
+                else:
+                    default_name = (os.path.basename(csv_group_path) or "export") + ".csv"
+
+                # Show save dialog
+                save_path, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Save CSV File",
+                    default_name,
+                    "CSV Files (*.csv);;All Files (*)"
+                )
+
+                if not save_path:
+                    return
+
+                # Get filtered indices if this is the currently displayed CSV
+                filtered_indices = None
+                if csv_group_path == self._current_csv_group_path:
+                    filtered_indices = self.model.get_csv_filtered_indices(csv_group_path)
+
+                # Use the model's CSV reconstruction method to create the file
+                temp_path = self.model._reconstruct_csv_tempfile(group, csv_group_path, filtered_indices)
+                if not temp_path or not os.path.exists(temp_path):
+                    QMessageBox.warning(self, "Export Failed", "Failed to reconstruct CSV data.")
+                    return
+
+                # Copy the temp file to the user's chosen location
+                import shutil
+                shutil.copy2(temp_path, save_path)
+
+                # Clean up temp file
+                try:
+                    os.remove(temp_path)
+                except Exception:  # noqa: BLE001
+                    pass
+
+                self.statusBar().showMessage(f"Saved CSV to {save_path}", 5000)
+
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to save CSV: {exc}")
 
     def _perform_delete(self, kind: str, path: str, attr_key: str | None) -> None:
         """Delete an HDF5 item (dataset, group, or attribute).
