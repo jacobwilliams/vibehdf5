@@ -3050,12 +3050,12 @@ class HDF5Viewer(QMainWindow):
         self.act_new_folder.triggered.connect(self.new_folder_dialog)
 
         self.act_expand = QAction("Expand All", self)
-        self.act_expand.setIcon(style.standardIcon(QStyle.SP_TitleBarUnshadeButton))
+        self.act_expand.setIcon(style.standardIcon(QStyle.SP_ArrowDown))
         self.act_expand.setToolTip("Expand all groups in the tree view to show full hierarchy")
         self.act_expand.triggered.connect(self.tree.expandAll)
 
         self.act_collapse = QAction("Collapse All", self)
-        self.act_collapse.setIcon(style.standardIcon(QStyle.SP_TitleBarShadeButton))
+        self.act_collapse.setIcon(style.standardIcon(QStyle.SP_ArrowUp))
         self.act_collapse.setToolTip("Collapse all groups in the tree view to show only top level")
         self.act_collapse.triggered.connect(self.tree.collapseAll)
 
@@ -3098,11 +3098,13 @@ class HDF5Viewer(QMainWindow):
 
         # Repack file action
         self.act_repack = QAction("Repack File...", self)
+        self.act_repack.setIcon(style.standardIcon(QStyle.SP_BrowserReload))
         self.act_repack.setToolTip("Reclaim space from deleted items by repacking the HDF5 file")
         self.act_repack.triggered.connect(self._repack_file_dialog)
 
         # File properties action
         self.act_file_properties = QAction("File Properties...", self)
+        self.act_file_properties.setIcon(style.standardIcon(QStyle.SP_MessageBoxInformation))
         self.act_file_properties.setToolTip("View detailed information about the HDF5 file")
         self.act_file_properties.triggered.connect(self._show_file_properties_dialog)
 
@@ -5024,11 +5026,13 @@ class HDF5Viewer(QMainWindow):
             label = f"Delete attribute '{attr_key}'"
 
         menu = QMenu(self)
+        style = self.style()
 
         # Add dataset information option
         act_info = None
         if kind == "dataset":
             act_info = menu.addAction(f"Dataset Information...")
+            act_info.setIcon(style.standardIcon(QStyle.SP_MessageBoxInformation))
             menu.addSeparator()
 
         # Add CSV group expand/collapse option
@@ -5036,13 +5040,16 @@ class HDF5Viewer(QMainWindow):
         if is_csv_group:
             if csv_expanded:
                 act_toggle_csv = menu.addAction("Hide Internal Structure")
+                act_toggle_csv.setIcon(style.standardIcon(QStyle.SP_FileDialogDetailedView))
             else:
                 act_toggle_csv = menu.addAction("Show Internal Structure")
+                act_toggle_csv.setIcon(style.standardIcon(QStyle.SP_DirIcon))
             menu.addSeparator()
 
         act_delete = None
         if deletable and label:
             act_delete = menu.addAction(label)
+            act_delete.setIcon(style.standardIcon(QStyle.SP_TrashIcon))
 
         # If no actions available, don't show menu
         if not act_info and not act_toggle_csv and not act_delete:
