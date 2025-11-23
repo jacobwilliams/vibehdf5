@@ -5203,6 +5203,10 @@ class HDF5Viewer(QMainWindow):
             # Add "Save as CSV..." option
             act_save_csv = menu.addAction("Save as CSV...")
             act_save_csv.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
+
+            # Add "Save as JSON..." option
+            act_save_json = menu.addAction("Save as JSON...")
+            act_save_json.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
             menu.addSeparator()
 
         act_delete = None
@@ -5211,7 +5215,7 @@ class HDF5Viewer(QMainWindow):
             act_delete.setIcon(style.standardIcon(QStyle.SP_TrashIcon))
 
         # If no actions available, don't show menu
-        if not act_info and not act_toggle_csv and not act_save_csv and not act_delete:
+        if not act_info and not act_toggle_csv and not act_save_csv and not act_save_json and not act_delete:
             return
 
         global_pos = self.tree.viewport().mapToGlobal(point)
@@ -5222,7 +5226,9 @@ class HDF5Viewer(QMainWindow):
         elif chosen == act_toggle_csv:
             self.model.toggle_csv_group_expansion(item)
         elif chosen == act_save_csv:
-            self._save_csv_group_as(path)
+            self._save_csv_group_as(path, format="csv")
+        elif chosen == act_save_json:
+            self._save_csv_group_as(path, format="json")
         elif chosen == act_delete:
             # Confirm destructive action
             target_desc = label.replace("Delete ", "") if label else "item"
@@ -5236,11 +5242,12 @@ class HDF5Viewer(QMainWindow):
             if resp == QMessageBox.Yes:
                 self._perform_delete(kind, path, attr_key)
 
-    def _save_csv_group_as(self, csv_group_path: str) -> None:
-        """Save a CSV group to a CSV file using a save dialog.
+    def _save_csv_group_as(self, csv_group_path: str, format: str = "csv") -> None:
+        """Save a CSV group to a file using a save dialog.
 
         Args:
             csv_group_path: HDF5 path to the CSV group
+            format: Export format - "csv" or "json"
         """
         if not self.model or not self.model.filepath:
             QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
@@ -5266,16 +5273,25 @@ class HDF5Viewer(QMainWindow):
                         source_file = None
 
                 if isinstance(source_file, str) and source_file.lower().endswith(".csv"):
-                    default_name = source_file
+                    # Replace .csv extension with the target format
+                    default_name = source_file[:-4] + f".{format}"
                 else:
-                    default_name = (os.path.basename(csv_group_path) or "export") + ".csv"
+                    default_name = (os.path.basename(csv_group_path) or "export") + f".{format}"
+
+                # Configure dialog based on format
+                if format == "json":
+                    dialog_title = "Save JSON File"
+                    file_filter = "JSON Files (*.json);;All Files (*)"
+                else:
+                    dialog_title = "Save CSV File"
+                    file_filter = "CSV Files (*.csv);;All Files (*)"
 
                 # Show save dialog
                 save_path, _ = QFileDialog.getSaveFileName(
                     self,
-                    "Save CSV File",
+                    dialog_title,
                     default_name,
-                    "CSV Files (*.csv);;All Files (*)"
+                    file_filter
                 )
 
                 if not save_path:
@@ -5286,26 +5302,38 @@ class HDF5Viewer(QMainWindow):
                 if csv_group_path == self._current_csv_group_path:
                     filtered_indices = self.model.get_csv_filtered_indices(csv_group_path)
 
-                # Use the model's CSV reconstruction method to create the file
-                temp_path = self.model._reconstruct_csv_tempfile(group, csv_group_path, filtered_indices)
-                if not temp_path or not os.path.exists(temp_path):
+                # Use the model's CSV reconstruction method to create a temp CSV file
+                temp_csv_path = self.model._reconstruct_csv_tempfile(group, csv_group_path, filtered_indices)
+                if not temp_csv_path or not os.path.exists(temp_csv_path):
                     QMessageBox.warning(self, "Export Failed", "Failed to reconstruct CSV data.")
                     return
 
-                # Copy the temp file to the user's chosen location
-                import shutil
-                shutil.copy2(temp_path, save_path)
-
-                # Clean up temp file
+                # Export based on format
                 try:
-                    os.remove(temp_path)
-                except Exception:  # noqa: BLE001
-                    pass
+                    if format == "json":
+                        # Read CSV and export as JSON
+                        df = pd.read_csv(temp_csv_path)
+                        df.to_json(save_path, orient='records', indent=2)
+                        status_msg = f"Saved JSON to {save_path}"
+                    else:
+                        # Copy CSV file directly
+                        import shutil
+                        shutil.copy2(temp_csv_path, save_path)
+                        status_msg = f"Saved CSV to {save_path}"
+                except Exception as exc:
+                    QMessageBox.warning(self, "Export Failed", f"Failed to export as {format.upper()}: {exc}")
+                    return
+                finally:
+                    # Clean up temp CSV file
+                    try:
+                        os.remove(temp_csv_path)
+                    except Exception:  # noqa: BLE001
+                        pass
 
-                self.statusBar().showMessage(f"Saved CSV to {save_path}", 5000)
+                self.statusBar().showMessage(status_msg, 5000)
 
         except Exception as exc:
-            QMessageBox.critical(self, "Error", f"Failed to save CSV: {exc}")
+            QMessageBox.critical(self, "Error", f"Failed to save {format.upper()}: {exc}")
 
     def _perform_delete(self, kind: str, path: str, attr_key: str | None) -> None:
         """Delete an HDF5 item (dataset, group, or attribute).
