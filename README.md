@@ -10,9 +10,10 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 
 ### 🔍 **Browse & Explore**
 - **Hierarchical Tree View**: Navigate HDF5 file structure with expandable groups and datasets
-- **Dataset Information**: View shape, dtype, and content previews for all datasets
+- **Dataset Information Dialog**: Right-click any dataset to view comprehensive details including shape, dtype, size, compression ratio, chunking, filters, attributes, and statistics
 - **Attribute Display**: Browse attributes attached to groups and datasets
 - **Sorting & Search**: Sort tree columns and quickly locate items
+- **Visual Icons**: Toolbar with standard system icons for intuitive navigation
 
 ### 📊 **Data Preview**
 - **Text Preview**: View dataset contents as text with automatic truncation for large data
@@ -24,7 +25,7 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 - **Extensible Language Support**: Easy to add support for additional programming languages
 
 ### 📈 **CSV Data, Filtering & Plotting**
-- **CSV Import**: Import CSV files as HDF5 groups with one dataset per column
+- **CSV Import**: Import CSV files as HDF5 groups with one dataset per column and native gzip compression for space efficiency
 - **Table Display**: View CSV data in an interactive table with column headers
 - **Column Visibility**: Show/hide columns with settings saved in HDF5
 - **Unique Values**: Right-click column headers to view unique values in filtered data
@@ -40,7 +41,7 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 - **Advanced Plot Styling**: Axis limits, logarithmic scales, reference lines, dark background, custom fonts
 - **Series Customization**: Configure line color, style, marker type, line width, marker size, and smoothing for each data series
 - **Figure Configuration**: Set output resolution (DPI), figure size, and export format (PNG, PDF, SVG, EPS)
-- **Plot Persistence**: All plot configurations stored in HDF5 and restored when reopening files
+- **Plot Persistence**: All plot configurations stored in HDF5 with efficient range compression for filtered indices (up to 100% space savings)
 - **Export Filtered Data**: Drag-and-drop CSV export includes only filtered rows and visible columns
 - **Filter Management**: Configure, clear, and view active filters with real-time table updates
 - **Independent Settings**: Each CSV group maintains its own filters, sort configurations, column visibility, and plot configurations
@@ -205,14 +206,32 @@ python -m vibehdf5 [file.h5]
 - Text data displays with syntax highlighting
 - Binary data shows as hex dump
 
+**Dataset Information:**
+1. Right-click any dataset in the tree
+2. Select **Dataset Information...**
+3. View comprehensive details in a modal dialog:
+   - **Basic Info**: Shape, dtype, number of elements, memory size
+   - **Storage**: Actual storage size, compression ratio (if compressed)
+   - **Chunking**: Whether data is chunked and chunk dimensions
+   - **Compression**: Type (gzip, lzf, etc.) and compression level
+   - **Filters**: Scale-offset, shuffle, fletcher32 checksum
+   - **Fill Value**: Default value for uninitialized data
+   - **Attributes**: All custom attributes with values
+   - **Statistics**: Min, max, mean, standard deviation (for small numeric datasets)
+   - **External Storage**: External file information if applicable
+   - **Dimensions**: Detailed breakdown for multi-dimensional datasets
+
 ### Working with CSV Data
 
 **Importing CSV Files:**
 1. Use **Add Files…** or drag-and-drop to import a CSV file
 2. CSV files are automatically converted to HDF5 groups with:
    - One dataset per column preserving data types
+   - Native gzip compression (level 6 for text, level 4 for numeric data)
+   - Automatic chunking for optimal performance
    - Column names stored as group attributes
    - Source file metadata for reference
+   - Typical space savings: 50-90% depending on data patterns
 
 **Viewing CSV Tables:**
 1. Click on a CSV group in the tree (marked with `source_type='csv'` attribute)
@@ -396,6 +415,13 @@ vibehdf5/
 **Binary Files:**
 - Stored as 1D uint8 arrays using `np.frombuffer(data, dtype='uint8')`
 - Ensures proper preservation of binary content (PNG images, etc.)
+
+**CSV Data:**
+- String columns: gzip compression level 6 with automatic chunking
+- Numeric columns: gzip compression level 4 with automatic chunking
+- Chunk size: min(10000, data_length) for datasets > 1000 rows
+- Filtered plot indices: Compact range format (e.g., '0-9999' instead of 10000 individual indices)
+- Range compression provides up to 100% space savings for consecutive indices
 
 **Directory Structure:**
 - Folders map to HDF5 groups
