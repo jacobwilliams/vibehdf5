@@ -5207,6 +5207,14 @@ class HDF5Viewer(QMainWindow):
             # Add "Save as JSON..." option
             act_save_json = menu.addAction("Save as JSON...")
             act_save_json.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
+
+            # Add "Save as HTML..." option
+            act_save_html = menu.addAction("Save as HTML...")
+            act_save_html.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
+
+            # Add "Save as LaTeX..." option
+            act_save_latex = menu.addAction("Save as LaTeX...")
+            act_save_latex.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
             menu.addSeparator()
 
         act_delete = None
@@ -5215,7 +5223,7 @@ class HDF5Viewer(QMainWindow):
             act_delete.setIcon(style.standardIcon(QStyle.SP_TrashIcon))
 
         # If no actions available, don't show menu
-        if not act_info and not act_toggle_csv and not act_save_csv and not act_save_json and not act_delete:
+        if not act_info and not act_toggle_csv and not act_save_csv and not act_save_json and not act_save_html and not act_save_latex and not act_delete:
             return
 
         global_pos = self.tree.viewport().mapToGlobal(point)
@@ -5229,6 +5237,10 @@ class HDF5Viewer(QMainWindow):
             self._save_csv_group_as(path, format="csv")
         elif chosen == act_save_json:
             self._save_csv_group_as(path, format="json")
+        elif chosen == act_save_html:
+            self._save_csv_group_as(path, format="html")
+        elif chosen == act_save_latex:
+            self._save_csv_group_as(path, format="tex")
         elif chosen == act_delete:
             # Confirm destructive action
             target_desc = label.replace("Delete ", "") if label else "item"
@@ -5247,7 +5259,7 @@ class HDF5Viewer(QMainWindow):
 
         Args:
             csv_group_path: HDF5 path to the CSV group
-            format: Export format - "csv" or "json"
+            format: Export format - "csv", "json", "html", or "tex"
         """
         if not self.model or not self.model.filepath:
             QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
@@ -5282,6 +5294,12 @@ class HDF5Viewer(QMainWindow):
                 if format == "json":
                     dialog_title = "Save JSON File"
                     file_filter = "JSON Files (*.json);;All Files (*)"
+                elif format == "html":
+                    dialog_title = "Save HTML File"
+                    file_filter = "HTML Files (*.html);;All Files (*)"
+                elif format == "tex":
+                    dialog_title = "Save LaTeX File"
+                    file_filter = "LaTeX Files (*.tex);;All Files (*)"
                 else:
                     dialog_title = "Save CSV File"
                     file_filter = "CSV Files (*.csv);;All Files (*)"
@@ -5315,6 +5333,16 @@ class HDF5Viewer(QMainWindow):
                         df = pd.read_csv(temp_csv_path)
                         df.to_json(save_path, orient='records', indent=2)
                         status_msg = f"Saved JSON to {save_path}"
+                    elif format == "html":
+                        # Read CSV and export as HTML
+                        df = pd.read_csv(temp_csv_path)
+                        df.to_html(save_path, index=False, border=1, justify='left')
+                        status_msg = f"Saved HTML to {save_path}"
+                    elif format == "tex":
+                        # Read CSV and export as LaTeX
+                        df = pd.read_csv(temp_csv_path)
+                        df.to_latex(save_path, index=False)
+                        status_msg = f"Saved LaTeX to {save_path}"
                     else:
                         # Copy CSV file directly
                         import shutil
