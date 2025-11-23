@@ -82,10 +82,24 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 
 ## Installation
 
+Note that vibehdf5 requires a Qt library (PyQt6 or PySide6) to also be installed.
+
 ### Using pip
 
 ```bash
-pip install vibehdf5
+pip install vibehdf5 PySide6
+```
+
+### Using conda
+
+```bash
+conda install vibehdf5 pyside6
+```
+
+### Using pixi
+
+```bash
+pixi add pyside6 vibehdf5
 ```
 
 ### Documentation
@@ -106,8 +120,7 @@ pip install -e .
 ### Using pixi (for development)
 
 ```bash
-cd vibehdf5/env
-pixi shell
+pixi shell --manifest-path ./env/pixi.toml
 ```
 
 ## Usage
@@ -506,3 +519,5 @@ Built with:
 ## Other links
 
 * [vibehdf5 on PyPi](https://pypi.org/project/vibehdf5/)
+* [vibehdf5 on conda-forge](https://anaconda.org/channels/conda-forge/packages/vibehdf5/overview)
+  * [feedstock](https://github.com/conda-forge/vibehdf5-feedstock)
