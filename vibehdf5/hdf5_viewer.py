@@ -3270,6 +3270,18 @@ class HDF5Viewer(QMainWindow):
         tb.addAction(self.act_new)
         tb.addAction(self.act_open)
         tb.addSeparator()
+        tb.addAction(self.act_add_files)
+        tb.addAction(self.act_add_folder)
+        tb.addAction(self.act_new_folder)
+        tb.addSeparator()
+        tb.addAction(self.act_merge_file)
+        tb.addSeparator()
+        tb.addAction(self.act_file_properties)
+        tb.addAction(self.act_repack)
+        tb.addSeparator()
+        tb.addAction(self.act_expand)
+        tb.addAction(self.act_collapse)
+        tb.addSeparator()
         tb.addAction(self.act_plot_selected)
 
     def _create_menu_bar(self) -> None:
