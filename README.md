@@ -63,9 +63,6 @@ A powerful, lightweight GUI application for browsing, managing, and visualizing 
 
 ### 🎨 **User Interface**
 - **Split Panel Layout**: Adjustable splitter between tree view and preview panel
-- **Toolbar Actions**: Quick access to common operations
-### 🎨 **User Interface**
-- **Split Panel Layout**: Adjustable splitter between tree view and preview panel
 - **Recent Files**: Quick access to recently opened files via File menu
 - **Adjustable Font Size**: Increase/decrease GUI font size with Ctrl+/Ctrl- keyboard shortcuts
 - **Toolbar Actions**: Quick access to common operations
