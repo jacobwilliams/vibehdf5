@@ -22,7 +22,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.dates import AutoDateLocator, DateFormatter
 from matplotlib.figure import Figure
 from qtpy.QtCore import QMimeData, QSettings, QSize, QUrl, Qt
-from qtpy.QtGui import QAction, QColor, QDoubleValidator, QDrag, QFont, QFontDatabase, QPixmap
+from qtpy.QtGui import QAction, QColor, QDoubleValidator, QDrag, QFont, QFontDatabase, QIcon, QPixmap
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -3099,6 +3099,66 @@ class HDF5Viewer(QMainWindow):
         # Get standard icon theme
         style = self.style()
 
+        # Create a custom icon with "H5" text on file icon for HDF5-specific actions
+        def create_h5_file_icon():
+            """Create an icon with 'H5' drawn using lines on a standard file icon."""
+            from qtpy.QtCore import QPoint, QRect
+            from qtpy.QtGui import QPainter, QPen
+
+            base_icon = style.standardIcon(QStyle.SP_FileIcon)
+            pixmap = base_icon.pixmap(48, 48)
+
+            painter = QPainter(pixmap)
+            #painter.setRenderHint(QPainter.Antialiasing)
+
+            # Calculate center position - adjust to be more centered on the icon
+            center_x = pixmap.width() // 2 - 24  # Shift slightly left
+            center_y = pixmap.height() // 2 - 15  # Shift slightly up
+
+            # Draw white background rectangle for visibility
+            bg_rect = QRect(center_x - 14, center_y - 10, 28, 20)
+            painter.fillRect(bg_rect, QColor(255, 255, 255, 220))
+
+            # Set up pen for drawing lines
+            pen = QPen(QColor(0, 100, 200), 3)  # Blue, 3px wide
+            pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(pen)
+
+            # Draw "H" using lines (left vertical, horizontal bar, right vertical)
+            h_left_x = center_x - 12
+            h_right_x = center_x - 3
+            h_top_y = center_y - 8
+            h_bottom_y = center_y + 8
+            h_mid_y = center_y
+
+            # H - left vertical line
+            painter.drawLine(h_left_x, h_top_y, h_left_x, h_bottom_y)
+            # H - horizontal bar
+            painter.drawLine(h_left_x, h_mid_y, h_right_x, h_mid_y)
+            # H - right vertical line
+            painter.drawLine(h_right_x, h_top_y, h_right_x, h_bottom_y)
+
+            # Draw "5" using lines (top, curve, bottom)
+            five_left_x = center_x + 3
+            five_right_x = center_x + 12
+            five_top_y = center_y - 8
+            five_mid_y = center_y - 1
+            five_bottom_y = center_y + 8
+
+            # 5 - top horizontal line
+            painter.drawLine(five_left_x, five_top_y, five_right_x, five_top_y)
+            # 5 - left vertical line (top to middle)
+            painter.drawLine(five_left_x, five_top_y, five_left_x, five_mid_y)
+            # 5 - middle horizontal line
+            painter.drawLine(five_left_x, five_mid_y, five_right_x, five_mid_y)
+            # 5 - right vertical line (middle to bottom)
+            painter.drawLine(five_right_x, five_mid_y, five_right_x, five_bottom_y)
+            # 5 - bottom horizontal line
+            painter.drawLine(five_left_x, five_bottom_y, five_right_x, five_bottom_y)
+
+            painter.end()
+            return QIcon(pixmap)
+
         self.act_new = QAction("New HDF5 File…", self)
         self.act_new.setIcon(style.standardIcon(QStyle.SP_FileIcon))
         self.act_new.setShortcut("Ctrl+N")
@@ -3191,6 +3251,7 @@ class HDF5Viewer(QMainWindow):
 
         # Merge file action
         self.act_merge_file = QAction("Merge File...", self)
+        self.act_merge_file.setIcon(create_h5_file_icon())
         self.act_merge_file.setToolTip("Import contents from another HDF5 file into the current file")
         self.act_merge_file.triggered.connect(self._merge_file_dialog)
 
