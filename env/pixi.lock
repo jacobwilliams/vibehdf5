@@ -760,7 +760,7 @@ packages:
   sha256: 7378b5b9d81662d73a906fabfc2fb81daddffe8dc0680ed9cda7a9562af894b0
   md5: 814472b61da9792fae28156cb9ee54f5
   depends:
-  - exceptiongroup >=1.0.2
+  - exceptiongroup >=1.1.0
   - idna >=2.8
   - python >=3.10
   - sniffio >=1.1

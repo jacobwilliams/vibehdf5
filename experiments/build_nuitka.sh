@@ -62,8 +62,8 @@ python -m nuitka \
     --output-filename="$OUTPUT_NAME" \
     --company-name="Jacob Williams" \
     --product-name="vibehdf5" \
-    --file-version="1.0.2" \
-    --product-version="1.0.2" \
+    --file-version="1.1.0" \
+    --product-version="1.1.0" \
     --file-description="HDF5 File Viewer & Manager" \
     --copyright="Copyright (c) 2024 Jacob Williams" \
     $EXTRA_ARGS \

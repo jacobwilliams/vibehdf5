@@ -15,7 +15,7 @@ try:
     version = __version__
     release = __version__
 except ImportError:
-    version = '1.0.2'
+    version = '1.1.0'
     release = version
 
 # -- General configuration ---------------------------------------------------
