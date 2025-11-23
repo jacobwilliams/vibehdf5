@@ -65,6 +65,87 @@ from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
 from .utilities import excluded_dirs, excluded_files
 
 
+def _indices_to_ranges(indices: list[int] | np.ndarray) -> list[str | int]:
+    """Convert a list of indices to a compact range representation.
+
+    Consecutive indices are represented as 'start-end' strings, while
+    isolated indices remain as integers.
+
+    Args:
+        indices: List or array of sorted integers
+
+    Returns:
+        List of range strings and/or integers
+
+    Examples:
+        [1,2,3,4,5,10] -> ['1-5', 10]
+        [1,3,5,7,9] -> [1, 3, 5, 7, 9]
+        [1,2,3,10,11,12,20] -> ['1-3', '10-12', 20]
+    """
+    if not len(indices):
+        return []
+
+    if isinstance(indices, np.ndarray):
+        indices = indices.tolist()
+
+    result = []
+    start = indices[0]
+    end = indices[0]
+
+    for i in range(1, len(indices)):
+        if indices[i] == end + 1:
+            # Extend the current range
+            end = indices[i]
+        else:
+            # Save the current range and start a new one
+            if end > start:
+                result.append(f"{start}-{end}")
+            else:
+                result.append(start)
+            start = indices[i]
+            end = indices[i]
+
+    # Save the last range
+    if end > start:
+        result.append(f"{start}-{end}")
+    else:
+        result.append(start)
+
+    return result
+
+
+def _ranges_to_indices(ranges: list[str | int]) -> np.ndarray:
+    """Convert a compact range representation back to a list of indices.
+
+    Args:
+        ranges: List of range strings and/or integers
+
+    Returns:
+        Numpy array of integers
+
+    Examples:
+        ['1-5', 10] -> [1,2,3,4,5,10]
+        [1, 3, 5, 7, 9] -> [1,3,5,7,9]
+        ['1-3', '10-12', 20] -> [1,2,3,10,11,12,20]
+    """
+    if not ranges:
+        return np.array([], dtype=np.int64)
+
+    indices = []
+    for item in ranges:
+        if isinstance(item, str) and '-' in item:
+            # Parse range string
+            start_str, end_str = item.split('-', 1)
+            start = int(start_str)
+            end = int(end_str)
+            indices.extend(range(start, end + 1))
+        else:
+            # Single index
+            indices.append(int(item))
+
+    return np.array(indices, dtype=np.int64)
+
+
 class DraggablePlotListWidget(QListWidget):
     """QListWidget that supports drag-and-drop to export plots to filesystem."""
 
@@ -6691,20 +6772,26 @@ class HDF5Viewer(QMainWindow):
 
         # Store the complete filtered indices array to properly handle non-contiguous filtering
         if self._csv_filtered_indices is not None and len(self._csv_filtered_indices) > 0:
-            # Store as a list for JSON serialization
-            filtered_indices = self._csv_filtered_indices.tolist()
+            # Store as compact range format for space efficiency
+            filtered_indices = _indices_to_ranges(self._csv_filtered_indices)
             start_row = int(self._csv_filtered_indices[0])
             end_row = int(self._csv_filtered_indices[-1])
         else:
-            # No filtering - use full range
+            # No filtering - use full range in compressed format
             max_rows = (
                 max(len(self._csv_data_dict[col]) for col in self._csv_data_dict)
                 if self._csv_data_dict
                 else 0
             )
-            filtered_indices = None
-            start_row = 0
-            end_row = max_rows - 1 if max_rows > 0 else 0
+            if max_rows > 0:
+                # Store full range in compressed format (e.g., ['0-9999'] instead of all indices)
+                filtered_indices = [f"0-{max_rows - 1}"]
+                start_row = 0
+                end_row = max_rows - 1
+            else:
+                filtered_indices = []
+                start_row = 0
+                end_row = 0
 
         # Create plot configuration dictionary
 
@@ -6974,7 +7061,17 @@ class HDF5Viewer(QMainWindow):
         # Ensure y_idxs is a list (handle legacy configs where it might be an integer)
         if isinstance(y_idxs, int):
             y_idxs = [y_idxs]
-        filtered_indices = plot_config.get("filtered_indices")
+        filtered_indices_raw = plot_config.get("filtered_indices")
+        # Convert from compact range format if needed
+        if filtered_indices_raw is not None and len(filtered_indices_raw) > 0:
+            # Check if it's in the new compact format (contains strings or is a mixed list)
+            if any(isinstance(x, str) for x in filtered_indices_raw):
+                filtered_indices = _ranges_to_indices(filtered_indices_raw)
+            else:
+                # Legacy format: plain list of integers
+                filtered_indices = np.array(filtered_indices_raw, dtype=np.int64)
+        else:
+            filtered_indices = filtered_indices_raw
         start_row = plot_config.get("start_row", 0)
         end_row = plot_config.get("end_row", -1)
 
@@ -7182,7 +7279,17 @@ class HDF5Viewer(QMainWindow):
 
             # Apply filtering if specified in plot config
             # This ensures filtered data is used during export (respects filters from when plot was saved)
-            filtered_indices = plot_config.get("filtered_indices")
+            filtered_indices_raw = plot_config.get("filtered_indices")
+            # Convert from compact range format if needed
+            if filtered_indices_raw is not None and len(filtered_indices_raw) > 0:
+                # Check if it's in the new compact format (contains strings or is a mixed list)
+                if any(isinstance(x, str) for x in filtered_indices_raw):
+                    filtered_indices = _ranges_to_indices(filtered_indices_raw)
+                else:
+                    # Legacy format: plain list of integers
+                    filtered_indices = np.array(filtered_indices_raw, dtype=np.int64)
+            else:
+                filtered_indices = filtered_indices_raw
             start_row = plot_config.get("start_row", 0)
             end_row = plot_config.get("end_row", -1)
 
@@ -7548,7 +7655,7 @@ class HDF5Viewer(QMainWindow):
 
         # Update plot config with new filtered indices
         if len(filtered_indices) > 0:
-            plot_config["filtered_indices"] = filtered_indices.tolist()
+            plot_config["filtered_indices"] = _indices_to_ranges(filtered_indices)
             plot_config["start_row"] = int(filtered_indices[0])
             plot_config["end_row"] = int(filtered_indices[-1])
         else:
