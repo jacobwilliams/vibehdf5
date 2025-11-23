@@ -21,7 +21,7 @@ from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToo
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.dates import AutoDateLocator, DateFormatter
 from matplotlib.figure import Figure
-from qtpy.QtCore import QMimeData, QSettings, QUrl, Qt
+from qtpy.QtCore import QMimeData, QSettings, QSize, QUrl, Qt
 from qtpy.QtGui import QAction, QColor, QDoubleValidator, QDrag, QFont, QFontDatabase, QPixmap
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -3121,6 +3121,7 @@ class HDF5Viewer(QMainWindow):
     def _create_toolbar(self) -> None:
         """Create and populate the main toolbar."""
         tb = QToolBar("Main", self)
+        tb.setIconSize(QSize(16, 16))  # Smaller icon size
         self.addToolBar(tb)
         tb.addAction(self.act_new)
         tb.addAction(self.act_open)
