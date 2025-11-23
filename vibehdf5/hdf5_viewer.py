@@ -2103,7 +2103,7 @@ class HDF5Viewer(QMainWindow):
         self.setCentralWidget(central)
 
         splitter = CustomSplitter(self)
-        splitter.setHandleWidth(4)  # Make handle slightly wider for easier grabbing
+        splitter.setHandleWidth(8)  # Make handle wider for easier grabbing
         splitter.setChildrenCollapsible(False)  # Prevent panels from collapsing completely
         splitter.splitterMoved.connect(self._on_splitter_moved)
         central_layout.addWidget(splitter)
@@ -2129,7 +2129,7 @@ class HDF5Viewer(QMainWindow):
 
         # Create a vertical splitter for tree view and saved plots list
         left_splitter = QSplitter(Qt.Vertical)
-        left_splitter.setHandleWidth(4)
+        left_splitter.setHandleWidth(8)
         left_splitter.setChildrenCollapsible(False)
 
         # Tree view widget
@@ -2224,7 +2224,7 @@ class HDF5Viewer(QMainWindow):
 
         # Create a vertical splitter for content and attributes
         right_splitter = CustomSplitter(Qt.Vertical, right)
-        right_splitter.setHandleWidth(4)  # Make handle slightly wider for easier grabbing
+        right_splitter.setHandleWidth(8)  # Make handle wider for easier grabbing
         right_splitter.setChildrenCollapsible(False)  # Prevent panels from collapsing completely
         right_splitter.splitterMoved.connect(self._on_splitter_moved)
         right_layout.addWidget(right_splitter)
