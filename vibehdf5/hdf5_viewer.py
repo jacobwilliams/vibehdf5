@@ -5211,7 +5211,7 @@ class HDF5Viewer(QMainWindow):
             act_save_json = save_menu.addAction("JSON...")
             act_save_html = save_menu.addAction("HTML...")
             act_save_latex = save_menu.addAction("LaTeX...")
-            
+
             menu.addSeparator()
 
         act_delete = None
