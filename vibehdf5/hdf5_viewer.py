@@ -5192,6 +5192,9 @@ class HDF5Viewer(QMainWindow):
         # Add CSV group expand/collapse option
         act_toggle_csv = None
         act_save_csv = None
+        act_save_json = None
+        act_save_html = None
+        act_save_latex = None
         if is_csv_group:
             if csv_expanded:
                 act_toggle_csv = menu.addAction("Hide Internal Structure")
@@ -5200,21 +5203,15 @@ class HDF5Viewer(QMainWindow):
                 act_toggle_csv = menu.addAction("Show Internal Structure")
                 act_toggle_csv.setIcon(style.standardIcon(QStyle.SP_DirIcon))
 
-            # Add "Save as CSV..." option
-            act_save_csv = menu.addAction("Save as CSV...")
-            act_save_csv.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
+            # Add "Save as..." submenu with export options
+            save_menu = menu.addMenu("Save as...")
+            save_menu.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
 
-            # Add "Save as JSON..." option
-            act_save_json = menu.addAction("Save as JSON...")
-            act_save_json.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
-
-            # Add "Save as HTML..." option
-            act_save_html = menu.addAction("Save as HTML...")
-            act_save_html.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
-
-            # Add "Save as LaTeX..." option
-            act_save_latex = menu.addAction("Save as LaTeX...")
-            act_save_latex.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
+            act_save_csv = save_menu.addAction("CSV...")
+            act_save_json = save_menu.addAction("JSON...")
+            act_save_html = save_menu.addAction("HTML...")
+            act_save_latex = save_menu.addAction("LaTeX...")
+            
             menu.addSeparator()
 
         act_delete = None
