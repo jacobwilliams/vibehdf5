@@ -10,6 +10,7 @@ import csv
 from qtpy.QtCore import QMimeData, Qt, QUrl, QFileInfo
 from qtpy.QtGui import QIcon, QPainter, QPixmap, QColor, QStandardItem, QStandardItemModel
 from qtpy.QtWidgets import QApplication, QStyle, QFileIconProvider
+import pandas as pd
 
 
 class HDF5TreeModel(QStandardItemModel):
@@ -527,9 +528,9 @@ class HDF5TreeModel(QStandardItemModel):
             return "unnamed"
 
     def _reconstruct_csv_tempfile(
-        self, group: h5py.Group, group_path: str, row_indices: np.ndarray | None = None
+        self, group: h5py.Group, group_path: str, row_indices: np.ndarray | None = None, return_dataframe: bool = False
     ) -> str | None:
-        """Rebuild a CSV file from a CSV-derived group and return the temp file path.
+        """Rebuild a CSV file from a CSV-derived group and return the temp file path or DataFrame.
 
         Uses 'column_names' attribute to determine column ordering if present.
         Falls back to sorted dataset names. Each dataset is expected to be 1-D (same length).
@@ -538,6 +539,11 @@ class HDF5TreeModel(QStandardItemModel):
             group: HDF5 group containing the CSV data
             group_path: Path to the group in the HDF5 file
             row_indices: Optional numpy array of row indices to export. If None, exports all rows.
+            return_dataframe: If True, return a pandas DataFrame instead of writing a temp file.
+
+        Returns:
+            If return_dataframe is True, returns a pandas DataFrame or None on error.
+            If return_dataframe is False, returns the path to a temporary CSV file or None on error.
         """
         try:
             # Determine filename
@@ -637,6 +643,16 @@ class HDF5TreeModel(QStandardItemModel):
             else:
                 # Export all rows
                 export_indices = np.arange(max_len)
+
+            # Return DataFrame if requested
+            if return_dataframe:
+                # Build DataFrame from column data
+                data_dict = {}
+                for idx, col_name in enumerate(col_names):
+                    col_values = [column_data[idx][row_idx] if row_idx < len(column_data[idx]) else ""
+                                  for row_idx in export_indices]
+                    data_dict[col_name] = col_values
+                return pd.DataFrame(data_dict)
 
             # Write CSV
             with open(temp_path, "w", newline="", encoding="utf-8") as fout:

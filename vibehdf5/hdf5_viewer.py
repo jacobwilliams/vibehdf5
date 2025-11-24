@@ -5325,48 +5325,33 @@ class HDF5Viewer(QMainWindow):
                 if csv_group_path == self._current_csv_group_path:
                     filtered_indices = self.model.get_csv_filtered_indices(csv_group_path)
 
-                # Use the model's CSV reconstruction method to create a temp CSV file
-                temp_csv_path = self.model._reconstruct_csv_tempfile(group, csv_group_path, filtered_indices)
-                if not temp_csv_path or not os.path.exists(temp_csv_path):
+                # Get DataFrame directly from model
+                df = self.model._reconstruct_csv_tempfile(group, csv_group_path, filtered_indices, return_dataframe=True)
+                if df is None:
                     QMessageBox.warning(self, "Export Failed", "Failed to reconstruct CSV data.")
                     return
 
                 # Export based on format
                 try:
                     if format == "json":
-                        # Read CSV and export as JSON
-                        df = pd.read_csv(temp_csv_path)
                         df.to_json(save_path, orient='records', indent=2)
                         status_msg = f"Saved JSON to {save_path}"
                     elif format == "html":
-                        # Read CSV and export as HTML
-                        df = pd.read_csv(temp_csv_path)
                         df.to_html(save_path, index=False, border=1, justify='left')
                         status_msg = f"Saved HTML to {save_path}"
                     elif format == "tex":
-                        # Read CSV and export as LaTeX
-                        df = pd.read_csv(temp_csv_path)
                         df.to_latex(save_path, index=False)
                         status_msg = f"Saved LaTeX to {save_path}"
                     elif format == "md":
-                        # Read CSV and export as Markdown
-                        df = pd.read_csv(temp_csv_path)
                         df.to_markdown(save_path, index=False)
                         status_msg = f"Saved Markdown to {save_path}"
                     else:
-                        # Copy CSV file directly
-                        import shutil
-                        shutil.copy2(temp_csv_path, save_path)
+                        # Export as CSV
+                        df.to_csv(save_path, index=False)
                         status_msg = f"Saved CSV to {save_path}"
                 except Exception as exc:
                     QMessageBox.warning(self, "Export Failed", f"Failed to export as {format.upper()}: {exc}")
                     return
-                finally:
-                    # Clean up temp CSV file
-                    try:
-                        os.remove(temp_csv_path)
-                    except Exception:  # noqa: BLE001
-                        pass
 
                 self.statusBar().showMessage(status_msg, 5000)
 
