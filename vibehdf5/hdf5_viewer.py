@@ -35,6 +35,7 @@ from qtpy.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -5821,6 +5822,8 @@ class HDF5Viewer(QMainWindow):
 
             self.preview_table.setUpdatesEnabled(False)
             self.preview_table.setSortingEnabled(False)
+            # Block signals during setup for better performance
+            self.preview_table.blockSignals(True)
             # Clear existing table content efficiently
             self.preview_table.setRowCount(0)
             self.preview_table.setColumnCount(0)
@@ -5831,6 +5834,10 @@ class HDF5Viewer(QMainWindow):
             self.preview_table.setRowCount(max_rows)  # Set full row count for scrollbar
             self.preview_table.setColumnCount(len(col_names))
             self.preview_table.setHorizontalHeaderLabels(col_names)
+            # Use uniform row heights for better performance with large datasets
+            if max_rows > 1000:
+                self.preview_table.verticalHeader().setDefaultSectionSize(24)
+                self.preview_table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
 
             # Load only the data needed for first batch of rows
             initial_batch = min(self._table_batch_size, max_rows)
@@ -5847,14 +5854,23 @@ class HDF5Viewer(QMainWindow):
             self._populate_table_rows(0, initial_batch, self._csv_data_dict, col_names)
             self._table_loaded_rows = initial_batch
 
-            # Resize columns to content based on initial batch
-            progress.setLabelText("Resizing columns...")
-            progress.setValue(95)
-            QApplication.processEvents()
-
-            self.preview_table.resizeColumnsToContents()
+            # For large datasets, skip resizeColumnsToContents as it's very slow
+            # Use fixed column widths instead
+            if max_rows > 10000 or len(col_names) > 50:
+                progress.setLabelText("Setting column widths...")
+                progress.setValue(95)
+                QApplication.processEvents()
+                # Set uniform width for all columns
+                for col_idx in range(len(col_names)):
+                    self.preview_table.setColumnWidth(col_idx, 120)
+            else:
+                progress.setLabelText("Resizing columns...")
+                progress.setValue(95)
+                QApplication.processEvents()
+                self.preview_table.resizeColumnsToContents()
 
             # Re-enable updates and sorting
+            self.preview_table.blockSignals(False)
             self.preview_table.setUpdatesEnabled(True)
             # self.preview_table.setSortingEnabled(True)  # don't want sorting since it interfers with selecting columns for plotting.
 
@@ -6089,6 +6105,10 @@ class HDF5Viewer(QMainWindow):
             data_dict: Dictionary mapping column names to data arrays
             col_names: List of column names in display order
         """
+        # Temporarily block signals for better performance
+        was_blocked = self.preview_table.signalsBlocked()
+        self.preview_table.blockSignals(True)
+
         for col_idx, col_name in enumerate(col_names):
             if col_name in data_dict:
                 col_data = data_dict[col_name]
@@ -6112,7 +6132,7 @@ class HDF5Viewer(QMainWindow):
                         ]
                     else:
                         # Numeric or other types - use numpy's string conversion
-                        str_data = np.char.mod("%s", col_data[start_row:end_row])
+                        str_data = np.char.mod("%s", col_data[start_row:end_row]).tolist()
                 else:
                     # Handle bytes in non-array data
                     if isinstance(col_data, bytes):
@@ -6120,11 +6140,15 @@ class HDF5Viewer(QMainWindow):
                     else:
                         str_data = [str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace") for v in col_data[start_row:end_row]]
 
-                # Set items in table
+                # Set items in table - create items in batch for better performance
                 for i, value_str in enumerate(str_data):
                     row_idx = start_row + i
-                    item = QTableWidgetItem(value_str)
+                    item = QTableWidgetItem(str(value_str))
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)  # Make read-only
                     self.preview_table.setItem(row_idx, col_idx, item)
+
+        # Restore signal state
+        self.preview_table.blockSignals(was_blocked)
 
     def _on_table_scroll(self, value: int) -> None:
         """Handle table scroll events to load more rows as needed.

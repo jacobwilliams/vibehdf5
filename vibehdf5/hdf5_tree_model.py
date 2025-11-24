@@ -681,7 +681,6 @@ class HDF5TreeModel(QStandardItemModel):
 
             # Return DataFrame if requested
             if return_dataframe:
-                import pandas as pd
                 # Build DataFrame from column data, preserving numpy array types
                 data_dict = {}
                 for idx, col_name in enumerate(col_names):
@@ -725,7 +724,6 @@ class HDF5TreeModel(QStandardItemModel):
                 return df
 
             # Write CSV (with sorting applied if needed)
-            import pandas as pd
             # Build DataFrame from column data, preserving numpy array types
             data_dict = {}
             for idx, col_name in enumerate(col_names):
