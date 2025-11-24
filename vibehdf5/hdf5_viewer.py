@@ -6129,19 +6129,6 @@ class HDF5Viewer(QMainWindow):
                             data = data.decode("utf-8", errors="replace")
                         self._csv_data_dict[col_name] = np.array([data], dtype=object)
 
-    def _populate_table_rows(self, start_row: int, end_row: int, data_dict: dict, col_names: list[str]) -> None:
-        """Populate table rows from start_row to end_row (exclusive).
-
-        Args:
-            start_row: Starting row index (inclusive)
-            end_row: Ending row index (exclusive)
-            data_dict: Dictionary mapping column names to data arrays
-            col_names: List of column names in display order
-        """
-        # For QTableView, just update the model after loading new data
-        if self._csv_table_model:
-            self._csv_table_model.layoutChanged.emit()
-
     def _on_table_scroll(self, value: int) -> None:
         """Handle table scroll events to load more rows as needed.
 
@@ -6209,8 +6196,9 @@ class HDF5Viewer(QMainWindow):
                 except Exception as exc:
                     self.statusBar().showMessage(f"Error loading data: {exc}", 5000)
 
-            # Populate all rows up to target (no-op for QTableView, but triggers model refresh)
-            self._populate_table_rows(start_row, end_row, self._csv_data_dict, self._csv_column_names)
+            # model refresh
+            if self._csv_table_model:
+                self._csv_table_model.layoutChanged.emit()
 
             # Update loaded count
             self._table_loaded_rows = end_row
