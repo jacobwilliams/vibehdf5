@@ -5195,6 +5195,7 @@ class HDF5Viewer(QMainWindow):
         act_save_json = None
         act_save_html = None
         act_save_latex = None
+        act_save_markdown = None
         if is_csv_group:
             if csv_expanded:
                 act_toggle_csv = menu.addAction("Hide Internal Structure")
@@ -5209,8 +5210,10 @@ class HDF5Viewer(QMainWindow):
 
             act_save_csv = save_menu.addAction("CSV...")
             act_save_json = save_menu.addAction("JSON...")
+            save_menu.addSeparator()
             act_save_html = save_menu.addAction("HTML...")
             act_save_latex = save_menu.addAction("LaTeX...")
+            act_save_markdown = save_menu.addAction("Markdown...")
 
             menu.addSeparator()
 
@@ -5220,7 +5223,7 @@ class HDF5Viewer(QMainWindow):
             act_delete.setIcon(style.standardIcon(QStyle.SP_TrashIcon))
 
         # If no actions available, don't show menu
-        if not act_info and not act_toggle_csv and not act_save_csv and not act_save_json and not act_save_html and not act_save_latex and not act_delete:
+        if not act_info and not act_toggle_csv and not act_save_csv and not act_save_json and not act_save_html and not act_save_latex and not act_save_markdown and not act_delete:
             return
 
         global_pos = self.tree.viewport().mapToGlobal(point)
@@ -5238,6 +5241,8 @@ class HDF5Viewer(QMainWindow):
             self._save_csv_group_as(path, format="html")
         elif chosen == act_save_latex:
             self._save_csv_group_as(path, format="tex")
+        elif chosen == act_save_markdown:
+            self._save_csv_group_as(path, format="md")
         elif chosen == act_delete:
             # Confirm destructive action
             target_desc = label.replace("Delete ", "") if label else "item"
@@ -5256,7 +5261,7 @@ class HDF5Viewer(QMainWindow):
 
         Args:
             csv_group_path: HDF5 path to the CSV group
-            format: Export format - "csv", "json", "html", or "tex"
+            format: Export format - "csv", "json", "html", "tex", or "md"
         """
         if not self.model or not self.model.filepath:
             QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
@@ -5297,6 +5302,9 @@ class HDF5Viewer(QMainWindow):
                 elif format == "tex":
                     dialog_title = "Save LaTeX File"
                     file_filter = "LaTeX Files (*.tex);;All Files (*)"
+                elif format == "md":
+                    dialog_title = "Save Markdown File"
+                    file_filter = "Markdown Files (*.md);;All Files (*)"
                 else:
                     dialog_title = "Save CSV File"
                     file_filter = "CSV Files (*.csv);;All Files (*)"
@@ -5340,6 +5348,11 @@ class HDF5Viewer(QMainWindow):
                         df = pd.read_csv(temp_csv_path)
                         df.to_latex(save_path, index=False)
                         status_msg = f"Saved LaTeX to {save_path}"
+                    elif format == "md":
+                        # Read CSV and export as Markdown
+                        df = pd.read_csv(temp_csv_path)
+                        df.to_markdown(save_path, index=False)
+                        status_msg = f"Saved Markdown to {save_path}"
                     else:
                         # Copy CSV file directly
                         import shutil
