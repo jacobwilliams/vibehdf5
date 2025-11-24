@@ -22,6 +22,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.dates import AutoDateLocator, DateFormatter
 from matplotlib.figure import Figure
 from qtpy.QtCore import QMimeData, QSettings, QSize, QUrl, Qt
+from qtpy.QtCore import QAbstractTableModel, QModelIndex
 from qtpy.QtGui import QAction, QColor, QDoubleValidator, QDrag, QFont, QFontDatabase, QIcon, QPixmap
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -55,6 +56,7 @@ from qtpy.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QTableView,
     QToolBar,
     QTreeView,
     QVBoxLayout,
@@ -64,6 +66,75 @@ from qtpy.QtWidgets import (
 from .hdf5_tree_model import HDF5TreeModel
 from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
 from .utilities import excluded_dirs, excluded_files
+
+class CSVTableModel(QAbstractTableModel):
+    def set_row_indices(self, indices, total_rows=None):
+        """Update row indices and row count, then refresh view."""
+        if indices is None:
+            self._row_indices = None
+            self._row_count = total_rows if total_rows is not None else 0
+        else:
+            self._row_indices = indices
+            self._row_count = len(indices)
+        self.layoutChanged.emit()
+    def __init__(self, data_dict, col_names, row_indices=None, parent=None):
+        super().__init__(parent)
+        self._data_dict = data_dict
+        self._col_names = col_names
+        self._row_indices = row_indices if row_indices is not None else None
+        # Determine row count
+        if self._row_indices is not None:
+            self._row_count = len(self._row_indices)
+        elif col_names and col_names[0] in data_dict:
+            self._row_count = len(data_dict[col_names[0]])
+        else:
+            self._row_count = 0
+
+    def rowCount(self, parent=QModelIndex()):
+        return self._row_count
+
+    def columnCount(self, parent=QModelIndex()):
+        return len(self._col_names)
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid():
+            return None
+        if role == Qt.DisplayRole:
+            row = index.row()
+            col = index.column()
+            col_name = self._col_names[col]
+            col_data = self._data_dict.get(col_name, [])
+            # Use filtered indices if present
+            if self._row_indices is not None:
+                if row < len(self._row_indices):
+                    data_idx = self._row_indices[row]
+                else:
+                    return ""
+            else:
+                data_idx = row
+            if data_idx < len(col_data):
+                val = col_data[data_idx]
+                if isinstance(val, bytes):
+                    try:
+                        return val.decode("utf-8", errors="replace")
+                    except Exception:
+                        return str(val)
+                return str(val)
+            return ""
+        return None
+
+    def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if role == Qt.DisplayRole:
+            if orientation == Qt.Horizontal:
+                if section < len(self._col_names):
+                    return self._col_names[section]
+            elif orientation == Qt.Vertical:
+                return str(section + 1)
+        return None
+
+    def sort(self, column, order):
+        # Sorting is handled externally via filtered indices
+        pass
 
 
 def _indices_to_ranges(indices: list[int] | np.ndarray) -> list[str | int]:
@@ -2382,19 +2453,15 @@ class HDF5Viewer(QMainWindow):
         content_layout.addWidget(self.filter_panel)
 
         # Table widget for CSV/tabular data (hidden by default)
-        self.preview_table = QTableWidget(self)
-        self.preview_table.setVisible(False)
-        self.preview_table.setAlternatingRowColors(True)
-        self.preview_table.horizontalHeader().setStretchLastSection(False)
-        # Enable selecting multiple columns for plotting
-        self.preview_table.setSelectionBehavior(QAbstractItemView.SelectColumns)
+        # Replace QTableWidget with QTableView for CSV preview
+        self.preview_table = QTableView()
+        self.preview_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.preview_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.preview_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.preview_table.itemSelectionChanged.connect(self._update_plot_action_enabled)
-        # Connect scrollbar for lazy loading
-        self.preview_table.verticalScrollBar().valueChanged.connect(self._on_table_scroll)
-        # Enable context menu on horizontal header
-        self.preview_table.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
-        self.preview_table.horizontalHeader().customContextMenuRequested.connect(self._on_column_header_context_menu)
+        self.preview_table.setSortingEnabled(False)
+        self.preview_table.setAlternatingRowColors(True)
+        self.preview_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        #self.preview_table.customContextMenuRequested.connect(self._on_table_context_menu)
         content_layout.addWidget(self.preview_table)
 
         # Lazy loading state variables
@@ -5740,29 +5807,25 @@ class HDF5Viewer(QMainWindow):
             if "column_names" in grp.attrs:
                 try:
                     col_names = [str(c) for c in list(grp.attrs["column_names"])]
-                except Exception:  # noqa: BLE001
+                except Exception:
                     col_names = list(grp.keys())
             else:
                 col_names = list(grp.keys())
 
             # Optional mapping of columns to actual dataset names
-            col_ds_names: list[str] | None = None
+            col_ds_names = None
             if "column_dataset_names" in grp.attrs:
                 try:
                     col_ds_names = [str(c) for c in list(grp.attrs["column_dataset_names"])]
                     if len(col_ds_names) != len(col_names):
                         col_ds_names = None
-                except Exception:  # noqa: BLE001
+                except Exception:
                     col_ds_names = None
 
-            # Estimate total work for progress
             total_cols = len(col_names)
-
-            # Create progress dialog
             progress = self._create_progress_dialog("Loading CSV metadata...")
 
-            # First pass: only get metadata (dataset paths and row counts) - don't load data yet
-            dataset_info = {}  # Maps column name to (ds_key, th_grp_path, row_count, dtype)
+            dataset_info = {}
             max_rows = 0
             for idx, col_name in enumerate(col_names):
                 if progress.wasCanceled():
@@ -5770,18 +5833,15 @@ class HDF5Viewer(QMainWindow):
                     self._set_preview_text("(CSV display cancelled)")
                     return
 
-                # Update progress
                 progress_val = int((idx / total_cols) * 30)
                 progress.setValue(progress_val)
                 progress.setLabelText(f"Reading metadata {idx + 1}/{total_cols}: {col_name}")
                 QApplication.processEvents()
 
-                # Resolve dataset key for this column
                 ds_key = None
                 if col_ds_names is not None:
                     ds_key = col_ds_names[idx]
                 else:
-                    # Try sanitized version of the column name
                     cand = _sanitize_hdf5_name(str(col_name))
                     if cand in grp:
                         ds_key = cand
@@ -5792,12 +5852,10 @@ class HDF5Viewer(QMainWindow):
                 if ds_key and key_in_group:
                     ds = th_grp[ds_key]
                     if isinstance(ds, h5py.Dataset):
-                        # Only get shape and dtype, don't load data
                         if len(ds.shape) > 0:
                             row_count = ds.shape[0]
                         else:
                             row_count = 1
-                        # Store group path as string instead of group object
                         th_grp_path = th_grp.name
                         dataset_info[col_name] = (ds_key, th_grp_path, row_count, ds.dtype)
                         max_rows = max(max_rows, row_count)
@@ -5807,97 +5865,85 @@ class HDF5Viewer(QMainWindow):
                 self._set_preview_text("(No datasets found in CSV group)")
                 return
 
-            # Store dataset info and metadata for lazy loading
-            self._csv_dataset_info = dataset_info  # For lazy loading
-            self._csv_data_dict = {}  # Will be populated on-demand
-
+            self._csv_dataset_info = dataset_info
+            self._csv_data_dict = {}
             self._csv_column_names = col_names
             self._csv_total_rows = max_rows
-            self._csv_sort_specs = []  # Initialize sort specs
+            self._csv_sort_specs = []
 
-            # Setup table - disable updates for performance
-            progress.setLabelText("Setting up table...")
-            progress.setValue(40)
-            QApplication.processEvents()
-
-            self.preview_table.setUpdatesEnabled(False)
-            self.preview_table.setSortingEnabled(False)
-            # Block signals during setup for better performance
-            self.preview_table.blockSignals(True)
-            # Clear existing table content efficiently
-            self.preview_table.setRowCount(0)
-            self.preview_table.setColumnCount(0)
-            self.preview_table.clear()
-            # Reset lazy loading state
-            self._table_loaded_rows = 0
-            # Now set up the new table
-            self.preview_table.setRowCount(max_rows)  # Set full row count for scrollbar
-            self.preview_table.setColumnCount(len(col_names))
-            self.preview_table.setHorizontalHeaderLabels(col_names)
-            # Use uniform row heights for better performance with large datasets
-            if max_rows > 1000:
-                self.preview_table.verticalHeader().setDefaultSectionSize(24)
-                self.preview_table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
-
-            # Load only the data needed for first batch of rows
+            # Lazy load initial batch of data
             initial_batch = min(self._table_batch_size, max_rows)
             progress.setLabelText(f"Loading initial {initial_batch} rows...")
             progress.setValue(50)
             QApplication.processEvents()
 
-            # Lazy load columns as needed for initial batch
-            # Need to access file separately since grp is from outer context
             fpath = self.model.filepath
             if fpath:
                 with h5py.File(fpath, "r") as h5:
                     self._lazy_load_columns(col_names, 0, initial_batch, h5)
-            self._populate_table_rows(0, initial_batch, self._csv_data_dict, col_names)
             self._table_loaded_rows = initial_batch
 
-            # For large datasets, skip resizeColumnsToContents as it's very slow
-            # Use fixed column widths instead
+            # Create and set the CSVTableModel for QTableView
+            model = CSVTableModel(
+                data_dict=self._csv_data_dict,
+                col_names=col_names,
+                row_indices=None
+            )
+            # Set initial row count to loaded rows
+            model.set_row_indices(None, total_rows=self._table_loaded_rows)
+            self.preview_table.setModel(model)
+            self._csv_table_model = model
+            # Ensure column selection via header is enabled for plotting
+            self.preview_table.setSelectionBehavior(QAbstractItemView.SelectColumns)
+            self.preview_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+            self.preview_table.horizontalHeader().setSectionsClickable(True)
+            self.preview_table.horizontalHeader().setHighlightSections(True)
+            # Enable right-click context menu on column header
+            header = self.preview_table.horizontalHeader()
+            header.setContextMenuPolicy(Qt.CustomContextMenu)
+            header.customContextMenuRequested.connect(self._on_column_header_context_menu)
+            # Make last column resizable
+            header.setStretchLastSection(False)
+            # Connect selection change to plot button update
+            self.preview_table.selectionModel().selectionChanged.connect(lambda selected, deselected: self._update_plot_action_enabled())
+
+            # Set uniform row heights for large datasets
+            if max_rows > 1000:
+                self.preview_table.verticalHeader().setDefaultSectionSize(24)
+                self.preview_table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
+
+            # For large datasets, set fixed column widths
             if max_rows > 10000 or len(col_names) > 50:
                 progress.setLabelText("Setting column widths...")
                 progress.setValue(95)
                 QApplication.processEvents()
-                # Set uniform width for all columns
-                for col_idx in range(len(col_names)):
-                    self.preview_table.setColumnWidth(col_idx, 120)
+                model = self.preview_table.model()
+                if model:
+                    for col_idx in range(model.columnCount()):
+                        self.preview_table.setColumnWidth(col_idx, 120)
             else:
                 progress.setLabelText("Resizing columns...")
                 progress.setValue(95)
                 QApplication.processEvents()
                 self.preview_table.resizeColumnsToContents()
 
-            # Re-enable updates and sorting
-            self.preview_table.blockSignals(False)
-            self.preview_table.setUpdatesEnabled(True)
-            # self.preview_table.setSortingEnabled(True)  # don't want sorting since it interfers with selecting columns for plotting.
-
-            # Show table, hide others
-            progress.setValue(100)
             self.preview_table.setVisible(True)
             self.preview_edit.setVisible(False)
             self.preview_image.setVisible(False)
-
-            # Show filter panel for CSV tables
             self.filter_panel.setVisible(True)
-
-            # Show attributes for the CSV group
             self._show_attributes(grp)
 
-            # Show message about lazy loading
+            # Connect vertical scrollbar to dynamic row loading
+            self.preview_table.verticalScrollBar().valueChanged.connect(self._on_table_scroll)
+
             if max_rows > initial_batch:
                 self.statusBar().showMessage(
                     f"Loaded {initial_batch:,} of {max_rows:,} rows (more will load as you scroll)", 8000
                 )
 
-            # Enable/disable plotting action depending on visibility/selection
             self._update_plot_action_enabled()
-
             progress.close()
 
-            # Load saved filters from HDF5 group (or clear if none exist)
             saved_filters = self._load_filters_from_hdf5(grp)
             if saved_filters:
                 self._csv_filters = saved_filters
@@ -5907,7 +5953,6 @@ class HDF5Viewer(QMainWindow):
             else:
                 self._csv_filters = []
 
-            # Load saved sort from HDF5 group (or clear if none exist)
             saved_sort = self._load_sort_from_hdf5(grp)
             if saved_sort:
                 self._csv_sort_specs = saved_sort
@@ -5919,7 +5964,6 @@ class HDF5Viewer(QMainWindow):
                 self._csv_sort_specs = []
                 self.btn_clear_sort.setEnabled(False)
 
-            # Load saved column visibility from HDF5 group
             saved_visible_columns = self._load_visible_columns_from_hdf5(grp)
             if saved_visible_columns:
                 self._csv_visible_columns = saved_visible_columns
@@ -5927,40 +5971,29 @@ class HDF5Viewer(QMainWindow):
                     f"Loaded column visibility ({len(saved_visible_columns)}/{len(col_names)} columns) from HDF5 file", 5000
                 )
             else:
-                # Default to all columns visible
                 self._csv_visible_columns = col_names.copy()
 
-            # Always apply column visibility to ensure correct state
             self._apply_column_visibility()
 
-            # Update model with visible columns for drag-and-drop export
             if self._current_csv_group_path and self.model:
                 self.model.set_csv_visible_columns(self._current_csv_group_path, self._csv_visible_columns)
-                # Also update sort specs in model
                 self.model.set_csv_sort_specs(self._current_csv_group_path, self._csv_sort_specs)
 
-            # Load saved plot configurations from HDF5 group
             self._load_plot_configs_from_hdf5(grp)
 
-            # Apply any existing filters (this also applies sorting)
             if self._csv_filters:
                 self._apply_filters()
             else:
-                # No filters - all rows are visible, but still need to apply sorting if any
                 self.filter_status_label.setText("No filters applied")
                 self.btn_clear_filters.setEnabled(False)
 
                 if self._csv_sort_specs:
-                    # Apply sorting even without filters
-                    self._apply_filters()  # This will apply sorting to all rows
+                    self._apply_filters()
                 else:
-                    # No filters and no sorting - simple case
                     self._csv_filtered_indices = np.arange(max_rows)
-                    # Notify model that no filtering is active
                     if self._current_csv_group_path and self.model:
                         self.model.set_csv_filtered_indices(self._current_csv_group_path, None)
 
-            # Reset scrollbar to top when switching CSV datasets
             self.preview_table.verticalScrollBar().setValue(0)
 
         except Exception as exc:
@@ -6105,50 +6138,9 @@ class HDF5Viewer(QMainWindow):
             data_dict: Dictionary mapping column names to data arrays
             col_names: List of column names in display order
         """
-        # Temporarily block signals for better performance
-        was_blocked = self.preview_table.signalsBlocked()
-        self.preview_table.blockSignals(True)
-
-        for col_idx, col_name in enumerate(col_names):
-            if col_name in data_dict:
-                col_data = data_dict[col_name]
-                # Convert column slice to strings
-                if isinstance(col_data, np.ndarray):
-                    # Handle different data types
-                    if col_data.dtype.kind == "S":
-                        # Byte strings - decode to UTF-8
-                        str_data = [
-                            v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
-                            for v in col_data[start_row:end_row]
-                        ]
-                    elif col_data.dtype.kind == "U":
-                        # Unicode strings - already strings, just convert
-                        str_data = [str(v) for v in col_data[start_row:end_row]]
-                    elif col_data.dtype.kind == "O":
-                        # Object dtype - could be mixed, handle bytes if present
-                        str_data = [
-                            v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
-                            for v in col_data[start_row:end_row]
-                        ]
-                    else:
-                        # Numeric or other types - use numpy's string conversion
-                        str_data = np.char.mod("%s", col_data[start_row:end_row]).tolist()
-                else:
-                    # Handle bytes in non-array data
-                    if isinstance(col_data, bytes):
-                        str_data = [col_data.decode("utf-8", errors="replace")]
-                    else:
-                        str_data = [str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace") for v in col_data[start_row:end_row]]
-
-                # Set items in table - create items in batch for better performance
-                for i, value_str in enumerate(str_data):
-                    row_idx = start_row + i
-                    item = QTableWidgetItem(str(value_str))
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)  # Make read-only
-                    self.preview_table.setItem(row_idx, col_idx, item)
-
-        # Restore signal state
-        self.preview_table.blockSignals(was_blocked)
+        # For QTableView, just update the model after loading new data
+        if self._csv_table_model:
+            self._csv_table_model.layoutChanged.emit()
 
     def _on_table_scroll(self, value: int) -> None:
         """Handle table scroll events to load more rows as needed.
@@ -6217,11 +6209,15 @@ class HDF5Viewer(QMainWindow):
                 except Exception as exc:
                     self.statusBar().showMessage(f"Error loading data: {exc}", 5000)
 
-            # Populate all rows up to target
+            # Populate all rows up to target (no-op for QTableView, but triggers model refresh)
             self._populate_table_rows(start_row, end_row, self._csv_data_dict, self._csv_column_names)
 
             # Update loaded count
             self._table_loaded_rows = end_row
+
+            # Update model row count and refresh view
+            if self._csv_table_model:
+                self._csv_table_model.set_row_indices(self._csv_table_model._row_indices, total_rows=self._table_loaded_rows)
 
             # Re-enable updates
             self.preview_table.setUpdatesEnabled(True)
@@ -6380,7 +6376,8 @@ class HDF5Viewer(QMainWindow):
             y_idxs = sel_cols
         else:
             # Use current column as X if part of selection; else use the leftmost selected
-            current_col = self.preview_table.currentColumn()
+            current_index = self.preview_table.selectionModel().currentIndex()
+            current_col = current_index.column() if current_index.isValid() else None
             x_idx = current_col if current_col in sel_cols else min(sel_cols)
             y_idxs = [c for c in sel_cols if c != x_idx]
 
@@ -6388,13 +6385,11 @@ class HDF5Viewer(QMainWindow):
         if isinstance(y_idxs, int):
             y_idxs = [y_idxs]
 
-        # Column names from headers
-        headers = [
-            self.preview_table.horizontalHeaderItem(i).text()
-            if self.preview_table.horizontalHeaderItem(i) is not None
-            else f"col_{i}"
-            for i in range(self.preview_table.columnCount())
-        ]
+        model = self.preview_table.model()
+        if model:
+            headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
+        else:
+            headers = []
         try:
             x_name = headers[x_idx] if x_idx is not None else "Point"
             y_names = [headers[i] for i in y_idxs]
@@ -6627,8 +6622,10 @@ class HDF5Viewer(QMainWindow):
 
         # First, ensure all columns are visible (reset state)
         # This is important when switching between CSV groups
-        for col_idx in range(self.preview_table.columnCount()):
-            self.preview_table.setColumnHidden(col_idx, False)
+        model = self.preview_table.model()
+        if model:
+            for col_idx in range(model.columnCount()):
+                self.preview_table.setColumnHidden(col_idx, False)
 
         # Hide/show columns based on visibility list
         for col_idx, col_name in enumerate(self._csv_column_names):
@@ -6843,37 +6840,13 @@ class HDF5Viewer(QMainWindow):
                 # Set filtered indices
                 self.model.set_csv_filtered_indices(self._current_csv_group_path, filtered_indices)
 
-        # Update table with filtered data
-        self.preview_table.setUpdatesEnabled(False)
-        self.preview_table.setRowCount(len(filtered_indices))
 
-        for col_idx, col_name in enumerate(self._csv_column_names):
-            if col_name not in self._csv_data_dict:
-                continue
-
-            col_data = self._csv_data_dict[col_name]
-
-            # Get filtered data
-            if isinstance(col_data, np.ndarray):
-                filtered_data = col_data[filtered_indices]
-                # Convert to strings
-                if filtered_data.dtype.kind == "S" or filtered_data.dtype.kind == "U":
-                    str_data = [
-                        str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace")
-                        for v in filtered_data
-                    ]
-                else:
-                    str_data = np.char.mod("%s", filtered_data)
+        # For QTableView, update the model's row_indices and row_count using helper
+        if self._csv_table_model:
+            if len(filtered_indices) == max_rows:
+                self._csv_table_model.set_row_indices(None, total_rows=max_rows)
             else:
-                filtered_data = [col_data[i] for i in filtered_indices]
-                str_data = [str(v) for v in filtered_data]
-
-            # Set items
-            for row_idx, value_str in enumerate(str_data):
-                item = QTableWidgetItem(value_str)
-                self.preview_table.setItem(row_idx, col_idx, item)
-
-        self.preview_table.setUpdatesEnabled(True)
+                self._csv_table_model.set_row_indices(filtered_indices)
 
         # Update status message
         if self._csv_filters:
@@ -7000,7 +6973,8 @@ class HDF5Viewer(QMainWindow):
             x_idx = None  # Single column mode: use point count
             y_idxs = sel_cols
         else:
-            current_col = self.preview_table.currentColumn()
+            current_index = self.preview_table.selectionModel().currentIndex()
+            current_col = current_index.column() if current_index.isValid() else None
             x_idx = current_col if current_col in sel_cols else min(sel_cols)
             y_idxs = [c for c in sel_cols if c != x_idx]
 
@@ -7041,13 +7015,11 @@ class HDF5Viewer(QMainWindow):
 
         # Create plot configuration dictionary
 
-        # Get column names
-        column_names = [
-            self.preview_table.horizontalHeaderItem(i).text()
-            if self.preview_table.horizontalHeaderItem(i) is not None
-            else f"col_{i}"
-            for i in range(self.preview_table.columnCount())
-        ]
+        model = self.preview_table.model()
+        if model:
+            column_names = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
+        else:
+            column_names = []
 
         # Capture current visibility state from plot if available
         series_visibility = self._capture_plot_visibility_state()
@@ -7332,13 +7304,11 @@ class HDF5Viewer(QMainWindow):
             QMessageBox.information(self, "No Data", "CSV data is not loaded.")
             return
 
-        # Get column names
-        headers = [
-            self.preview_table.horizontalHeaderItem(i).text()
-            if self.preview_table.horizontalHeaderItem(i) is not None
-            else f"col_{i}"
-            for i in range(self.preview_table.columnCount())
-        ]
+        model = self.preview_table.model()
+        if model:
+            headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
+        else:
+            headers = []
 
         # Validate column indices
         if (x_idx is not None and x_idx >= len(headers)) or any(y_idx >= len(headers) for y_idx in y_idxs):
@@ -7493,12 +7463,11 @@ class HDF5Viewer(QMainWindow):
                 headers = stored_columns
             else:
                 # Fallback to current table headers (for older configs)
-                headers = [
-                    self.preview_table.horizontalHeaderItem(i).text()
-                    if self.preview_table.horizontalHeaderItem(i) is not None
-                    else f"col_{i}"
-                    for i in range(self.preview_table.columnCount())
-                ]
+                model = self.preview_table.model()
+                if model:
+                    headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
+                else:
+                    headers = []
 
             # Validate column indices (x_idx can be None for single-column plots)
             if x_idx is not None and x_idx >= len(headers):
@@ -7750,13 +7719,11 @@ class HDF5Viewer(QMainWindow):
 
         plot_config = self._saved_plots[current_row]
 
-        # Get column names from the preview table
-        headers = [
-            self.preview_table.horizontalHeaderItem(i).text()
-            if self.preview_table.horizontalHeaderItem(i) is not None
-            else f"col_{i}"
-            for i in range(self.preview_table.columnCount())
-        ]
+        model = self.preview_table.model()
+        if model:
+            headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
+        else:
+            headers = []
 
         # Show the options dialog (pass all headers so indices work correctly)
         dialog = PlotOptionsDialog(plot_config, headers, self)
