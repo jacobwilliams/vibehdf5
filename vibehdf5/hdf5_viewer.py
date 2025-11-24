@@ -5320,12 +5320,20 @@ class HDF5Viewer(QMainWindow):
                 if not save_path:
                     return
 
-                # Get filtered indices if this is the currently displayed CSV
+                # Get filtered indices and visible columns if this is the currently displayed CSV
                 filtered_indices = None
+                visible_columns = None
                 if csv_group_path == self._current_csv_group_path:
                     filtered_indices = self.model.get_csv_filtered_indices(csv_group_path)
+                    # Get the visible columns in their current visual order
+                    if hasattr(self, '_csv_visible_columns') and self._csv_visible_columns:
+                        visible_columns = self._csv_visible_columns
 
-                # Get DataFrame directly from model
+                # Temporarily set visible columns in model for export
+                if visible_columns:
+                    self.model.set_csv_visible_columns(csv_group_path, visible_columns)
+
+                # Get DataFrame directly from model (sorting is applied automatically via stored sort_specs)
                 df = self.model._reconstruct_csv_tempfile(group, csv_group_path, filtered_indices, return_dataframe=True)
                 if df is None:
                     QMessageBox.warning(self, "Export Failed", "Failed to reconstruct CSV data.")
@@ -5912,21 +5920,29 @@ class HDF5Viewer(QMainWindow):
             # Update model with visible columns for drag-and-drop export
             if self._current_csv_group_path and self.model:
                 self.model.set_csv_visible_columns(self._current_csv_group_path, self._csv_visible_columns)
+                # Also update sort specs in model
+                self.model.set_csv_sort_specs(self._current_csv_group_path, self._csv_sort_specs)
 
             # Load saved plot configurations from HDF5 group
             self._load_plot_configs_from_hdf5(grp)
 
-            # Apply any existing filters
+            # Apply any existing filters (this also applies sorting)
             if self._csv_filters:
                 self._apply_filters()
             else:
-                # No filters - all rows are visible
+                # No filters - all rows are visible, but still need to apply sorting if any
                 self.filter_status_label.setText("No filters applied")
                 self.btn_clear_filters.setEnabled(False)
-                self._csv_filtered_indices = np.arange(max_rows)
-                # Notify model that no filtering is active
-                if self._current_csv_group_path and self.model:
-                    self.model.set_csv_filtered_indices(self._current_csv_group_path, None)
+
+                if self._csv_sort_specs:
+                    # Apply sorting even without filters
+                    self._apply_filters()  # This will apply sorting to all rows
+                else:
+                    # No filters and no sorting - simple case
+                    self._csv_filtered_indices = np.arange(max_rows)
+                    # Notify model that no filtering is active
+                    if self._current_csv_group_path and self.model:
+                        self.model.set_csv_filtered_indices(self._current_csv_group_path, None)
 
             # Reset scrollbar to top when switching CSV datasets
             self.preview_table.verticalScrollBar().setValue(0)
@@ -6546,6 +6562,10 @@ class HDF5Viewer(QMainWindow):
         success_msg = f"Saved sort by {len(self._csv_sort_specs)} column(s) to HDF5 file" if self._csv_sort_specs else None
         clear_msg = "Cleared sort from HDF5 file"
         self._save_csv_attr_to_hdf5("csv_sort", self._csv_sort_specs, success_msg, clear_msg)
+
+        # Also update the model with sort specs for drag-and-drop
+        if self._current_csv_group_path and self.model:
+            self.model.set_csv_sort_specs(self._current_csv_group_path, self._csv_sort_specs)
 
     def _load_sort_from_hdf5(self, grp: h5py.Group) -> list:
         """Load sort specifications from the HDF5 group attributes."""

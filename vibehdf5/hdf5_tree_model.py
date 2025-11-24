@@ -37,6 +37,7 @@ class HDF5TreeModel(QStandardItemModel):
         self._filepath: str | None = None
         self._csv_filtered_indices = {}  # Dict mapping CSV group path to filtered row indices
         self._csv_visible_columns = {}  # Dict mapping CSV group path to list of visible column names
+        self._csv_sort_specs = {}  # Dict mapping CSV group path to list of (column_name, ascending) tuples
 
     def flags(self, index):
         """Return item flags, enabling editing for groups and datasets."""
@@ -317,15 +318,38 @@ class HDF5TreeModel(QStandardItemModel):
             self._csv_visible_columns[csv_group_path] = visible_columns
 
     def get_csv_visible_columns(self, csv_group_path: str) -> list[str] | None:
-        """Get the visible columns for a CSV group.
+        """Get the list of visible columns for a CSV group.
 
         Args:
             csv_group_path: HDF5 path to the CSV group
 
         Returns:
-            List of visible column names, or None if all columns should be shown
+            List of visible column names, or None if not set
         """
         return self._csv_visible_columns.get(csv_group_path)
+
+    def set_csv_sort_specs(self, csv_group_path: str, sort_specs: list[tuple[str, bool]] | None) -> None:
+        """Set the sort specifications for a CSV group.
+
+        Args:
+            csv_group_path: HDF5 path to the CSV group
+            sort_specs: List of (column_name, ascending) tuples, or None to clear
+        """
+        if sort_specs is None or not sort_specs:
+            self._csv_sort_specs.pop(csv_group_path, None)
+        else:
+            self._csv_sort_specs[csv_group_path] = sort_specs
+
+    def get_csv_sort_specs(self, csv_group_path: str) -> list[tuple[str, bool]] | None:
+        """Get the sort specifications for a CSV group.
+
+        Args:
+            csv_group_path: HDF5 path to the CSV group
+
+        Returns:
+            List of (column_name, ascending) tuples, or None if not set
+        """
+        return self._csv_sort_specs.get(csv_group_path)
 
     def get_csv_filtered_indices(self, csv_group_path: str) -> np.ndarray | None:
         """Get the filtered row indices for a CSV group.
@@ -528,7 +552,7 @@ class HDF5TreeModel(QStandardItemModel):
             return "unnamed"
 
     def _reconstruct_csv_tempfile(
-        self, group: h5py.Group, group_path: str, row_indices: np.ndarray | None = None, return_dataframe: bool = False
+        self, group: h5py.Group, group_path: str, row_indices: np.ndarray | None = None, return_dataframe: bool = False, sort_specs: list[tuple[str, bool]] | None = None
     ) -> str | None:
         """Rebuild a CSV file from a CSV-derived group and return the temp file path or DataFrame.
 
@@ -540,11 +564,15 @@ class HDF5TreeModel(QStandardItemModel):
             group_path: Path to the group in the HDF5 file
             row_indices: Optional numpy array of row indices to export. If None, exports all rows.
             return_dataframe: If True, return a pandas DataFrame instead of writing a temp file.
+            sort_specs: Optional list of (column_name, ascending) tuples for sorting. If None, checks stored sort specs.
 
         Returns:
             If return_dataframe is True, returns a pandas DataFrame or None on error.
             If return_dataframe is False, returns the path to a temporary CSV file or None on error.
         """
+        # If sort_specs not provided, check if we have stored sort specs
+        if sort_specs is None:
+            sort_specs = self.get_csv_sort_specs(group_path)
         try:
             # Determine filename
             source_file = group.attrs.get("source_file")
@@ -595,8 +623,8 @@ class HDF5TreeModel(QStandardItemModel):
                 except Exception:  # noqa: BLE001
                     col_ds_names = None
 
-            # Read columns
-            column_data: list[list[str]] = []
+            # Read columns - keep as numpy arrays to preserve types
+            column_data: list = []  # List of numpy arrays or lists
             max_len = 0
             for idx, col in enumerate(col_names):
                 if col_ds_names is not None:
@@ -614,22 +642,29 @@ class HDF5TreeModel(QStandardItemModel):
                     column_data.append([])
                     continue
                 data = obj[()]
-                # Normalize to list of strings
+
+                # Keep data in its original form (numpy array or scalar)
                 if isinstance(data, np.ndarray):
-                    # For byte strings or object, coerce each element
-                    entries = []
-                    for v in data.ravel().tolist():
-                        if isinstance(v, bytes):
-                            try:
-                                entries.append(v.decode("utf-8"))
-                            except Exception:  # noqa: BLE001
-                                entries.append(v.decode("utf-8", "replace"))
-                        else:
-                            entries.append(str(v))
-                    column_data.append(entries)
+                    # Decode byte strings if needed, but keep numeric types as-is
+                    if data.dtype.kind == 'S' or data.dtype.kind == 'O':
+                        # Byte strings or object arrays - decode to unicode
+                        entries = []
+                        for v in data.ravel().tolist():
+                            if isinstance(v, bytes):
+                                try:
+                                    entries.append(v.decode("utf-8"))
+                                except Exception:  # noqa: BLE001
+                                    entries.append(v.decode("utf-8", "replace"))
+                            else:
+                                entries.append(str(v))
+                        column_data.append(entries)
+                    else:
+                        # Numeric or other types - keep as numpy array
+                        column_data.append(data.ravel())
+                    max_len = max(max_len, len(column_data[-1]))
                 else:
                     column_data.append([str(data)])
-                max_len = max(max_len, len(column_data[-1]))
+                    max_len = max(max_len, 1)
 
             # Align columns (pad shorter columns with empty strings)
             for col_list in column_data:
@@ -646,22 +681,93 @@ class HDF5TreeModel(QStandardItemModel):
 
             # Return DataFrame if requested
             if return_dataframe:
-                # Build DataFrame from column data
+                import pandas as pd
+                # Build DataFrame from column data, preserving numpy array types
                 data_dict = {}
                 for idx, col_name in enumerate(col_names):
-                    col_values = [column_data[idx][row_idx] if row_idx < len(column_data[idx]) else ""
+                    col_arr = column_data[idx]
+                    # Apply row filtering
+                    if isinstance(col_arr, np.ndarray):
+                        # For numpy arrays, use fancy indexing
+                        valid_indices = [i for i in export_indices if i < len(col_arr)]
+                        if valid_indices:
+                            filtered = col_arr[valid_indices]
+                        else:
+                            filtered = np.array([])
+                        # Pad with NaN if needed (pandas will handle this correctly)
+                        if len(valid_indices) < len(export_indices):
+                            padding = [np.nan] * (len(export_indices) - len(valid_indices))
+                            filtered = np.concatenate([filtered, padding])
+                        data_dict[col_name] = filtered
+                    else:
+                        # For lists (string columns), use list comprehension
+                        col_values = [col_arr[row_idx] if row_idx < len(col_arr) else ""
+                                      for row_idx in export_indices]
+                        data_dict[col_name] = col_values
+                df = pd.DataFrame(data_dict)
+
+                # Apply sorting if specified
+                if sort_specs:
+                    sort_columns = []
+                    sort_orders = []
+                    for col_name, ascending in sort_specs:
+                        if col_name in df.columns:
+                            sort_columns.append(col_name)
+                            sort_orders.append(ascending)
+
+                    if sort_columns:
+                        try:
+                            df = df.sort_values(by=sort_columns, ascending=sort_orders, na_position='last')
+                        except Exception:
+                            # If sorting fails, continue with unsorted data
+                            pass
+
+                return df
+
+            # Write CSV (with sorting applied if needed)
+            import pandas as pd
+            # Build DataFrame from column data, preserving numpy array types
+            data_dict = {}
+            for idx, col_name in enumerate(col_names):
+                col_arr = column_data[idx]
+                # Apply row filtering
+                if isinstance(col_arr, np.ndarray):
+                    # For numpy arrays, use fancy indexing
+                    valid_indices = [i for i in export_indices if i < len(col_arr)]
+                    if valid_indices:
+                        filtered = col_arr[valid_indices]
+                    else:
+                        filtered = np.array([])
+                    # Pad with NaN if needed (pandas will handle this correctly)
+                    if len(valid_indices) < len(export_indices):
+                        padding = [np.nan] * (len(export_indices) - len(valid_indices))
+                        filtered = np.concatenate([filtered, padding])
+                    data_dict[col_name] = filtered
+                else:
+                    # For lists (string columns), use list comprehension
+                    col_values = [col_arr[row_idx] if row_idx < len(col_arr) else ""
                                   for row_idx in export_indices]
                     data_dict[col_name] = col_values
-                return pd.DataFrame(data_dict)
+            df = pd.DataFrame(data_dict)
 
-            # Write CSV
-            with open(temp_path, "w", newline="", encoding="utf-8") as fout:
-                writer = csv.writer(fout)
-                writer.writerow(col_names)
-                for row_idx in export_indices:
-                    if row_idx < max_len:
-                        row = [column_data[c][row_idx] for c in range(len(col_names))]
-                        writer.writerow(row)
+            # Apply sorting if specified
+            if sort_specs:
+                sort_columns = []
+                sort_orders = []
+                for col_name, ascending in sort_specs:
+                    if col_name in df.columns:
+                        sort_columns.append(col_name)
+                        sort_orders.append(ascending)
+
+                if sort_columns:
+                    try:
+                        df = df.sort_values(by=sort_columns, ascending=sort_orders, na_position='last')
+                    except Exception:
+                        # If sorting fails, continue with unsorted data
+                        pass
+
+            # Write sorted DataFrame to CSV
+            df.to_csv(temp_path, index=False)
             return temp_path
         except Exception:  # noqa: BLE001
             return None
