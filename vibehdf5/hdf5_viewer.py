@@ -69,7 +69,11 @@ from .utilities import excluded_dirs, excluded_files
 
 class CSVTableModel(QAbstractTableModel):
     def set_row_indices(self, indices, total_rows=None):
-        """Update row indices and row count, then refresh view."""
+        """
+        Update the model to display only the specified row indices (for filtering/sorting).
+        This method updates the internal row count and emits a signal to refresh the QTableView.
+        If indices is None, all rows up to total_rows are shown.
+        """
         if indices is None:
             self._row_indices = None
             self._row_count = total_rows if total_rows is not None else 0
@@ -78,6 +82,14 @@ class CSVTableModel(QAbstractTableModel):
             self._row_count = len(indices)
         self.layoutChanged.emit()
     def __init__(self, data_dict, col_names, row_indices=None, parent=None):
+        """
+        Initialize the table model for QTableView.
+        Args:
+            data_dict: Dictionary mapping column names to data arrays.
+            col_names: List of column names in display order.
+            row_indices: Optional list/array of row indices to display (for filtering/sorting).
+            parent: Optional parent QObject.
+        """
         super().__init__(parent)
         self._data_dict = data_dict
         self._col_names = col_names
@@ -91,12 +103,23 @@ class CSVTableModel(QAbstractTableModel):
             self._row_count = 0
 
     def rowCount(self, parent=QModelIndex()):
+        """
+        Return the number of rows currently displayed in the QTableView.
+        This reflects filtering/sorting if row_indices is set.
+        """
         return self._row_count
 
     def columnCount(self, parent=QModelIndex()):
+        """
+        Return the number of columns in the table.
+        """
         return len(self._col_names)
 
     def data(self, index, role=Qt.DisplayRole):
+        """
+        Return the data to display for a given cell in QTableView.
+        Handles filtering/sorting via row_indices, and decodes bytes as needed.
+        """
         if not index.isValid():
             return None
         if role == Qt.DisplayRole:
@@ -124,6 +147,9 @@ class CSVTableModel(QAbstractTableModel):
         return None
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
+        """
+        Return the header label for columns and rows in QTableView.
+        """
         if role == Qt.DisplayRole:
             if orientation == Qt.Horizontal:
                 if section < len(self._col_names):
@@ -133,7 +159,10 @@ class CSVTableModel(QAbstractTableModel):
         return None
 
     def sort(self, column, order):
-        # Sorting is handled externally via filtered indices
+        """
+        Sorting is handled externally via filtered indices and set_row_indices.
+        This method is a no-op for compatibility.
+        """
         pass
 
 
