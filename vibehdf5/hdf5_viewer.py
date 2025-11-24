@@ -8105,12 +8105,16 @@ class HDF5Viewer(QMainWindow):
 
         menu = QMenu(self)
 
+        # Get standard icon theme
+        style = self.style()
+
         # Actions that require a selected item
         if item is not None:
             act_duplicate = menu.addAction("Duplicate Plot")
             act_copy_json = menu.addAction("Copy JSON to Clipboard")
             menu.addSeparator()
             act_delete = menu.addAction("Delete Plot")
+            act_delete.setIcon(style.standardIcon(QStyle.SP_TrashIcon))
             menu.addSeparator()
 
         # Export all plots action (always available if plots exist)
