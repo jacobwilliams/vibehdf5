@@ -17,6 +17,9 @@ class CSVTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._data_dict = data_dict
         self._col_names = col_names
+        # Cached list of column data references (aligned with _col_names)
+        self._col_data_refs = []
+        self._rebuild_column_refs()
         if row_indices is not None:
             self._row_indices = np.array(row_indices)
             self._row_count = len(self._row_indices)
@@ -36,14 +39,20 @@ class CSVTableModel(QAbstractTableModel):
             indices: List or array of row indices to display. If None, all rows are shown.
             total_rows: Optional total number of rows to display if indices is None.
         """
-        if indices is None:
-            self._row_indices = None
-            self._row_count = total_rows if total_rows is not None else 0
-        else:
-            # Always use a NumPy array for indexing
-            self._row_indices = np.array(indices)
-            self._row_count = len(self._row_indices)
-        self.layoutChanged.emit()
+        # Use more precise reset notifications when we change the model
+        self.beginResetModel()
+        try:
+            if indices is None:
+                self._row_indices = None
+                self._row_count = total_rows if total_rows is not None else 0
+            else:
+                # Always use a NumPy array for indexing
+                self._row_indices = np.array(indices)
+                self._row_count = len(self._row_indices)
+            # Rebuild cached references in case underlying dict changed
+            self._rebuild_column_refs()
+        finally:
+            self.endResetModel()
 
     def rowCount(self, parent=QModelIndex()):
         """
@@ -75,26 +84,46 @@ class CSVTableModel(QAbstractTableModel):
         if role == Qt.DisplayRole:
             row = index.row()
             col = index.column()
-            col_name = self._col_names[col]
-            col_data = self._data_dict.get(col_name, [])
+            # Access cached column data reference (faster than dict lookups)
+            try:
+                col_data = self._col_data_refs[col]
+            except Exception:
+                return ""
             # Use filtered indices if present
             if self._row_indices is not None:
                 if row < len(self._row_indices):
-                    data_idx = self._row_indices[row]
+                    data_idx = int(self._row_indices[row])
                 else:
                     return ""
             else:
                 data_idx = row
             if data_idx < len(col_data):
                 val = col_data[data_idx]
+                # Fast-paths for common display types to avoid repeated conversions
+                if val is None:
+                    return ""
+                if isinstance(val, str):
+                    return val
                 if isinstance(val, bytes):
-                    try:
-                        return val.decode("utf-8", errors="replace")
-                    except Exception:
-                        return str(val)
+                    return val.decode("utf-8", errors="replace")
+                # numpy scalar fast-paths
+                if isinstance(val, (np.integer, np.floating)):
+                    return str(val)
+                # Fallback to str() for other types
                 return str(val)
             return ""
         return None
+
+    def _rebuild_column_refs(self) -> None:
+        """Rebuild cached list of column data references aligned with `_col_names`.
+
+        This avoids repeated dictionary lookups from `data()` which is called
+        very frequently by Qt while rendering the view.
+        """
+        refs = []
+        for name in self._col_names:
+            refs.append(self._data_dict.get(name, np.array([], dtype=object)))
+        self._col_data_refs = refs
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         """
