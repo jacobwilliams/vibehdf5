@@ -1195,26 +1195,7 @@ class PlotOptionsDialog(QDialog):
     # Available line styles and colors
     LINE_STYLES = ["-", "--", "-.", ":", "None"]
     LINE_STYLE_NAMES = ["Solid", "Dashed", "Dash-dot", "Dotted", "None"]
-
-    # Get matplotlib's default color cycle
-    try:
-        _prop_cycle = plt.rcParams["axes.prop_cycle"]
-        COLORS = _prop_cycle.by_key()["color"]
-    except Exception:
-        # Fallback to matplotlib's default tab10 colors if prop_cycle not available
-        COLORS = [
-            "#1f77b4",
-            "#ff7f0e",
-            "#2ca02c",
-            "#d62728",
-            "#9467bd",
-            "#8c564b",
-            "#e377c2",
-            "#7f7f7f",
-            "#bcbd22",
-            "#17becf",
-        ]
-
+    COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]   # matplotlib's default color cycle
     MARKERS = ["", "o", "s", "^", "v", "D", "*", "+", "x", "."]
     MARKER_NAMES = [
         "None",
