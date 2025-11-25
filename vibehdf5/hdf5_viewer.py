@@ -11,7 +11,7 @@ import tempfile
 import time
 import traceback
 from pathlib import Path
-
+import shutil
 import h5py
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -4436,8 +4436,6 @@ class HDF5Viewer(QMainWindow):
 
         # Perform the repack
         try:
-            import tempfile
-            import shutil
 
             # Create a temporary file for the repacked version
             temp_fd, temp_path = tempfile.mkstemp(suffix='.h5', prefix='repack_')
