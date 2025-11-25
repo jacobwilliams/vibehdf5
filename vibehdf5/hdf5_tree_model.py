@@ -248,8 +248,7 @@ class HDF5TreeModel(QStandardItemModel):
             QIcon with system icon (and optional red dot), or None if not available
         """
         try:
-            # Create a temporary file with the extension to get the system icon
-            # QFileIconProvider needs a real file path to determine the icon
+
             ext = os.path.splitext(filename)[1].lower()
             if not ext:
                 return None
