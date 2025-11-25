@@ -18,5 +18,3 @@ from . import unique_values_dialog
 from . import plot_options_dialog
 from . import hdf5_tree_model
 from . import hdf5_viewer
-
-from .__main__ import main

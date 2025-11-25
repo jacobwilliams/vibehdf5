@@ -139,13 +139,6 @@ vibehdf5 /path/to/your/file.h5
 
 ### From Python
 
-```python
-from vibehdf5 import main
-main()
-```
-
-### Development Mode
-
 Run directly from source:
 
 ```bash
