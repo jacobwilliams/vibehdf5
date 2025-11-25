@@ -68,20 +68,7 @@ from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
 from .utilities import excluded_dirs, excluded_files
 
 class CSVTableModel(QAbstractTableModel):
-    def set_row_indices(self, indices, total_rows=None):
-        """
-        Update the model to display only the specified row indices (for filtering/sorting).
-        This method updates the internal row count and emits a signal to refresh the QTableView.
-        If indices is None, all rows up to total_rows are shown.
-        """
-        if indices is None:
-            self._row_indices = None
-            self._row_count = total_rows if total_rows is not None else 0
-        else:
-            # Always use a NumPy array for indexing
-            self._row_indices = np.array(indices)
-            self._row_count = len(self._row_indices)
-        self.layoutChanged.emit()
+
     def __init__(self, data_dict, col_names, row_indices=None, parent=None):
         """
         Initialize the table model for QTableView.
@@ -104,6 +91,24 @@ class CSVTableModel(QAbstractTableModel):
             self._row_indices = None
             self._row_count = 0
 
+    def set_row_indices(self, indices, total_rows=None):
+        """
+        Update the model to display only the specified row indices (for filtering/sorting).
+        This method updates the internal row count and emits a signal to refresh the QTableView.
+
+        Args:
+            indices: List or array of row indices to display. If None, all rows are shown.
+            total_rows: Optional total number of rows to display if indices is None.
+        """
+        if indices is None:
+            self._row_indices = None
+            self._row_count = total_rows if total_rows is not None else 0
+        else:
+            # Always use a NumPy array for indexing
+            self._row_indices = np.array(indices)
+            self._row_count = len(self._row_indices)
+        self.layoutChanged.emit()
+
     def rowCount(self, parent=QModelIndex()):
         """
         Return the number of rows currently displayed in the QTableView.
@@ -121,6 +126,13 @@ class CSVTableModel(QAbstractTableModel):
         """
         Return the data to display for a given cell in QTableView.
         Handles filtering/sorting via row_indices, and decodes bytes as needed.
+
+        Args:
+            index: QModelIndex specifying the cell location.
+            role: Qt.ItemDataRole specifying the type of data requested (default: Qt.DisplayRole).
+
+        Returns:
+            The data to display for the specified cell, or None if not valid.
         """
         if not index.isValid():
             return None
