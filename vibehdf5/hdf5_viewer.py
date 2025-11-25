@@ -231,7 +231,7 @@ def _indices_to_ranges(indices: list[int] | np.ndarray) -> list[str | int]:
     # Save the last range
     if end > start:
         result.append(f"{start}-{end}")
-    # else: (removed invalid syntax)
+    else:
         result.append(start)
 
     return result
