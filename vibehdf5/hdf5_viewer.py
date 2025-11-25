@@ -2246,53 +2246,6 @@ class PlotOptionsDialog(QDialog):
         return self.plot_config
 
 
-class CustomSplitter(QSplitter):
-    """QSplitter with explicit cursor management for macOS compatibility."""
-
-    def __init__(self, *args, **kwargs):
-        """Initialize the clickable splitter.
-
-        Args:
-            *args: Positional arguments passed to QSplitter
-            **kwargs: Keyword arguments passed to QSplitter
-        """
-        super().__init__(*args, **kwargs)
-        self._setupCursor()
-
-    def _setupCursor(self):
-        """Ensure the splitter handle always has the correct cursor based on orientation."""
-        # Set the cursor based on orientation
-        if self.orientation() == Qt.Horizontal:
-            cursor = Qt.SplitHCursor
-        else:
-            cursor = Qt.SplitVCursor
-
-        # Apply cursor to all handles
-        for i in range(self.count()):
-            handle = self.handle(i)
-            if handle:
-                handle.setCursor(cursor)
-
-    def addWidget(self, widget):
-        """Override to set cursor on handle after widget is added.
-
-        Args:
-            widget: QWidget to add to the splitter
-        """
-        super().addWidget(widget)
-        self._setupCursor()
-
-    def insertWidget(self, index, widget):
-        """Override to set cursor on handle after widget is inserted.
-
-        Args:
-            index: Position to insert the widget at
-            widget: QWidget to insert
-        """
-        super().insertWidget(index, widget)
-        self._setupCursor()
-
-
 class HDF5Viewer(QMainWindow):
     def _is_csv_group(self, path: str) -> bool:
         """Return True if the group at the given path is a CSV-derived group."""
@@ -2394,7 +2347,7 @@ class HDF5Viewer(QMainWindow):
         central_layout.setContentsMargins(0, 0, 0, 0)
         self.setCentralWidget(central)
 
-        splitter = CustomSplitter(self)
+        splitter = QSplitter(self)
         splitter.setHandleWidth(8)  # Make handle wider for easier grabbing
         splitter.setChildrenCollapsible(False)  # Prevent panels from collapsing completely
         splitter.splitterMoved.connect(self._on_splitter_moved)
@@ -2515,7 +2468,7 @@ class HDF5Viewer(QMainWindow):
         right_layout.setContentsMargins(4, 4, 4, 4)
 
         # Create a vertical splitter for content and attributes
-        right_splitter = CustomSplitter(Qt.Vertical, right)
+        right_splitter = QSplitter(Qt.Vertical, right)
         right_splitter.setHandleWidth(8)  # Make handle wider for easier grabbing
         right_splitter.setChildrenCollapsible(False)  # Prevent panels from collapsing completely
         right_splitter.splitterMoved.connect(self._on_splitter_moved)
