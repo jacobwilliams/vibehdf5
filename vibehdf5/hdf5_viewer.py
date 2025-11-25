@@ -5219,9 +5219,6 @@ class HDF5Viewer(QMainWindow):
             self.preview_attribute(path, key)
         elif kind == "group":
             self.preview_group(path)
-            # If a CSV group is selected, validate plot configs
-            if self._is_csv_group(path):
-                self._validate_saved_plot_configs()
         else:
             self.preview_label.setText(str(kind) if kind else "")
             self._set_preview_text("")
@@ -5232,21 +5229,6 @@ class HDF5Viewer(QMainWindow):
             self._refresh_saved_plots_list()
             self._clear_plot_display()
 
-    def _validate_saved_plot_configs(self):
-        """Validate saved plot configs to ensure column references match current dataset."""
-        valid_columns = set(getattr(self, '_csv_column_names', []))
-        updated_plots = []
-        for plot_cfg in getattr(self, '_saved_plots', []):
-            # Check x and y columns
-            x_name = plot_cfg.get("x_name")
-            y_names = plot_cfg.get("y_names", [])
-            if x_name and x_name not in valid_columns:
-                continue  # Skip invalid config
-            if any(y not in valid_columns for y in y_names):
-                continue  # Skip invalid config
-            updated_plots.append(plot_cfg)
-        self._saved_plots = updated_plots
-        self._refresh_saved_plots_list()
 
     def _on_tree_item_renamed(self, topLeft, bottomRight, roles):
         """Handle when a tree item is renamed.
@@ -5912,10 +5894,13 @@ class HDF5Viewer(QMainWindow):
                 except Exception:
                     col_ds_names = None
 
+            # Estimate total work for progress
             total_cols = len(col_names)
+            # Create progress dialog
             progress = self._create_progress_dialog("Loading CSV metadata...")
 
-            dataset_info = {}
+            # First pass: only get metadata (dataset paths and row counts) - don't load data yet
+            dataset_info = {}  # Maps column name to (ds_key, th_grp_path, row_count, dtype)
             max_rows = 0
             for idx, col_name in enumerate(col_names):
                 if progress.wasCanceled():
@@ -5923,15 +5908,18 @@ class HDF5Viewer(QMainWindow):
                     self._set_preview_text("(CSV display cancelled)")
                     return
 
+                # Update progress
                 progress_val = int((idx / total_cols) * 30)
                 progress.setValue(progress_val)
                 progress.setLabelText(f"Reading metadata {idx + 1}/{total_cols}: {col_name}")
                 QApplication.processEvents()
 
+                # Resolve dataset key for this column
                 ds_key = None
                 if col_ds_names is not None:
                     ds_key = col_ds_names[idx]
                 else:
+                    # Try sanitized version of the column name
                     cand = _sanitize_hdf5_name(str(col_name))
                     if cand in grp:
                         ds_key = cand
@@ -5942,10 +5930,12 @@ class HDF5Viewer(QMainWindow):
                 if ds_key and key_in_group:
                     ds = th_grp[ds_key]
                     if isinstance(ds, h5py.Dataset):
+                        # Only get shape and dtype, don't load data
                         if len(ds.shape) > 0:
                             row_count = ds.shape[0]
                         else:
                             row_count = 1
+                        # Store group path as string instead of group object
                         th_grp_path = th_grp.name
                         dataset_info[col_name] = (ds_key, th_grp_path, row_count, ds.dtype)
                         max_rows = max(max_rows, row_count)
@@ -5956,11 +5946,11 @@ class HDF5Viewer(QMainWindow):
                 return
 
             # Reset all CSV state for new group
-            self._csv_dataset_info = dataset_info
-            self._csv_data_dict = {}
+            self._csv_dataset_info = dataset_info  # For lazy loading
+            self._csv_data_dict = {}  # Will be populated on-demand
             self._csv_column_names = col_names
             self._csv_total_rows = max_rows
-            self._csv_sort_specs = []
+            self._csv_sort_specs = []  # Initialize sort specs
             self._csv_visible_columns = col_names.copy()
             self._csv_filtered_indices = None
 
@@ -5970,6 +5960,8 @@ class HDF5Viewer(QMainWindow):
             progress.setValue(50)
             QApplication.processEvents()
 
+            # Lazy load columns as needed for initial batch
+            # Need to access file separately since grp is from outer context
             fpath = self.model.filepath
             if fpath:
                 with h5py.File(fpath, "r") as h5:
@@ -6031,10 +6023,13 @@ class HDF5Viewer(QMainWindow):
                 QApplication.processEvents()
                 self.preview_table.resizeColumnsToContents()
 
+            # Show table, hide others
             self.preview_table.setVisible(True)
             self.preview_edit.setVisible(False)
             self.preview_image.setVisible(False)
+            # Show filter panel for CSV tables
             self.filter_panel.setVisible(True)
+            # Show attributes for the CSV group
             self._show_attributes(grp)
 
             # Connect vertical scrollbar to dynamic row loading
@@ -6045,6 +6040,7 @@ class HDF5Viewer(QMainWindow):
                     f"Loaded {initial_batch:,} of {max_rows:,} rows (more will load as you scroll)", 8000
                 )
 
+            # Enable/disable plotting action depending on visibility/selection
             self._update_plot_action_enabled()
             progress.close()
 
@@ -6058,6 +6054,7 @@ class HDF5Viewer(QMainWindow):
             else:
                 self._csv_filters = []
 
+            # Load saved sort from HDF5 group (or clear if none exist)
             saved_sort = self._load_sort_from_hdf5(grp)
             if saved_sort:
                 self._csv_sort_specs = saved_sort
@@ -6069,6 +6066,7 @@ class HDF5Viewer(QMainWindow):
                 self._csv_sort_specs = []
                 self.btn_clear_sort.setEnabled(False)
 
+            # Load saved column visibility from HDF5 group
             saved_visible_columns = self._load_visible_columns_from_hdf5(grp)
             if saved_visible_columns:
                 self._csv_visible_columns = saved_visible_columns
@@ -6076,12 +6074,16 @@ class HDF5Viewer(QMainWindow):
                     f"Loaded column visibility ({len(saved_visible_columns)}/{len(col_names)} columns) from HDF5 file", 5000
                 )
             else:
+                # Default to all columns visible
                 self._csv_visible_columns = col_names.copy()
 
+            # Always apply column visibility to ensure correct state
             self._apply_column_visibility()
 
+            # Update model with visible columns for drag-and-drop export
             if self._current_csv_group_path and self.model:
                 self.model.set_csv_visible_columns(self._current_csv_group_path, self._csv_visible_columns)
+                # Also update sort specs in model
                 self.model.set_csv_sort_specs(self._current_csv_group_path, self._csv_sort_specs)
 
             self._load_plot_configs_from_hdf5(grp)
@@ -6090,12 +6092,16 @@ class HDF5Viewer(QMainWindow):
             if self._csv_filters:
                 self._apply_filters()
             else:
+                # No filters - all rows are visible, but still need to apply sorting if any
                 self.filter_status_label.setText("No filters applied")
                 self.btn_clear_filters.setEnabled(False)
                 if self._csv_sort_specs:
-                    self._apply_filters()
+                    # Apply sorting even without filters
+                    self._apply_filters()  # This will apply sorting to all rows
                 else:
+                    # No filters and no sorting - simple case
                     self._csv_filtered_indices = np.arange(max_rows)
+                    # Notify model that no filtering is active
                     if self._current_csv_group_path and self.model:
                         self.model.set_csv_filtered_indices(self._current_csv_group_path, None)
 
@@ -6473,9 +6479,11 @@ class HDF5Viewer(QMainWindow):
 
         # Handle single column selection: use point count as x-axis
         if len(sel_cols) == 1:
+            x_idx = None
             y_idx = sel_cols[0]
             y_names = [headers[y_idx]] if headers and y_idx < len(headers) else []
             x_name = "Point"
+            y_idxs = [sel_cols[0]]
         else:
             # Use current column as X if part of selection; else use the leftmost selected
             current_index = self.preview_table.selectionModel().currentIndex()
@@ -6495,23 +6503,6 @@ class HDF5Viewer(QMainWindow):
             headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
         else:
             headers = []
-
-        # Defensive: ensure x_idx and y_idxs are always defined
-        if len(sel_cols) == 1:
-            x_idx = None
-            y_idxs = [sel_cols[0]]
-        else:
-            current_index = self.preview_table.selectionModel().currentIndex()
-            current_col = current_index.column() if current_index.isValid() else None
-            x_idx = current_col if current_col in sel_cols else min(sel_cols)
-            y_idxs = [c for c in sel_cols if c != x_idx]
-
-        try:
-            x_name = headers[x_idx] if x_idx is not None and x_idx < len(headers) else "Point"
-            y_names = [headers[i] for i in y_idxs if i < len(headers)]
-        except Exception as e:
-            QMessageBox.warning(self, "Plot", f"Failed to resolve column headers for plotting.\n\nError: {e}\ny_idxs type: {type(y_idxs)}, value: {y_idxs}")
-            return
 
         # Use filtered data from the table instead of reading from HDF5
         # This ensures we only plot what's visible (respecting filters)
@@ -6904,8 +6895,10 @@ class HDF5Viewer(QMainWindow):
         max_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
         if self._current_csv_group_path and self.model:
             if len(filtered_indices) == max_rows:
+                # No filtering active, clear stored indices
                 self.model.set_csv_filtered_indices(self._current_csv_group_path, None)
             else:
+                # Set filtered indices
                 self.model.set_csv_filtered_indices(self._current_csv_group_path, filtered_indices)
 
         # For QTableView, update the model's row_indices and row_count using helper
