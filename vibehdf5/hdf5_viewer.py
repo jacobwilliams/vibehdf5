@@ -54,7 +54,7 @@ from qtpy.QtWidgets import (
 
 from .hdf5_tree_model import HDF5TreeModel
 from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
-from .utilities import excluded_dirs, excluded_files, _indices_to_ranges, _ranges_to_indices, _ranges_to_indices, _sanitize_hdf5_name, _dataset_to_text
+from .utilities import excluded_dirs, excluded_files, _indices_to_ranges, _ranges_to_indices, _sanitize_hdf5_name, _dataset_to_text
 from .csv_table_model import CSVTableModel
 from .draggable_plot_list_widget import DraggablePlotListWidget
 from .scaled_image_label import ScaledImageLabel
