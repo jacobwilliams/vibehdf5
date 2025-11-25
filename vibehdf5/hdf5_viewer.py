@@ -6927,39 +6927,52 @@ class HDF5Viewer(QMainWindow):
         Returns a boolean mask of the same length as col_data.
         """
         try:
-            # Handle comparison operators using helper method
+            # Handle comparison operators using NumPy vectorized operations
             if operator in ["==", "=", "!=", ">", ">=", "<", "<="]:
-                # Use vectorized comparison via helper
-                if isinstance(col_data, np.ndarray):
-                    return np.array([self._compare_values(val, operator, value_str) for val in col_data])
-                else:
-                    return np.array([self._compare_values(val, operator, value_str) for val in col_data])
+                arr = np.array(col_data)
+                # Try to convert both sides to float if possible
+                try:
+                    arr_num = arr.astype(float)
+                    val_num = float(value_str)
+                    if operator in ["==", "="]:
+                        return arr_num == val_num
+                    elif operator == "!=":
+                        return arr_num != val_num
+                    elif operator == ">":
+                        return arr_num > val_num
+                    elif operator == ">=":
+                        return arr_num >= val_num
+                    elif operator == "<":
+                        return arr_num < val_num
+                    elif operator == "<=":
+                        return arr_num <= val_num
+                except Exception:
+                    # Fallback to string comparison
+                    arr_str = arr.astype(str)
+                    if operator in ["==", "="]:
+                        return arr_str == value_str
+                    elif operator == "!=":
+                        return arr_str != value_str
+                    elif operator == ">":
+                        return arr_str > value_str
+                    elif operator == ">=":
+                        return arr_str >= value_str
+                    elif operator == "<":
+                        return arr_str < value_str
+                    elif operator == "<=":
+                        return arr_str <= value_str
 
             # String-based operations
-            if isinstance(col_data, np.ndarray):
-                # Convert to string array for comparison
-                str_array = np.array(
-                    [
-                        str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace")
-                        for v in col_data
-                    ]
-                )
-            else:
-                str_array = np.array([str(v) for v in col_data])
-
-            if operator == "==":
-                return str_array == value_str
-            elif operator == "!=":
-                return str_array != value_str
-            elif operator == "contains":
-                return np.array([value_str in s for s in str_array])
+            arr_str = np.array([str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace") for v in col_data])
+            if operator == "contains":
+                return np.char.find(arr_str, value_str) >= 0
             elif operator == "startswith":
-                return np.array([s.startswith(value_str) for s in str_array])
+                return np.char.startswith(arr_str, value_str)
             elif operator == "endswith":
-                return np.array([s.endswith(value_str) for s in str_array])
-            else:
-                # Default: no filter
-                return np.ones(len(col_data), dtype=bool)
+                return np.char.endswith(arr_str, value_str)
+
+            # Fallback: all True (no filtering)
+            return np.ones(len(arr_str), dtype=bool)
 
         except Exception:  # noqa: BLE001
             # On error, don't filter any rows
@@ -7797,57 +7810,40 @@ class HDF5Viewer(QMainWindow):
             return
 
         # Start with all rows
-        filtered_indices = np.arange(max_rows)
+        valid_rows = np.ones(max_rows, dtype=bool)
 
-        # Apply filters
+        # Apply filters using vectorized logic
         if csv_filters:
             for col_name, operator, value_str in csv_filters:
                 if col_name not in self._csv_data_dict:
                     continue
-
                 col_data = self._csv_data_dict[col_name]
+                try:
+                    if operator in ("=", "==", "!=", "<", "<=", ">", ">="):
+                        mask = self._evaluate_filter(col_data, operator, value_str)
+                    elif operator == "contains":
+                        mask = np.char.find(np.char.lower(col_data.astype(str)), value_str.lower()) >= 0
+                    elif operator == "starts with":
+                        mask = np.char.startswith(np.char.lower(col_data.astype(str)), value_str.lower())
+                    elif operator == "ends with":
+                        mask = np.char.endswith(np.char.lower(col_data.astype(str)), value_str.lower())
+                    else:
+                        mask = np.ones_like(valid_rows, dtype=bool)
+                except Exception:
+                    mask = np.zeros_like(valid_rows, dtype=bool)
+                valid_rows &= mask
 
-                # Only filter on rows we haven't already filtered out
-                valid_mask = np.ones(len(filtered_indices), dtype=bool)
-
-                for i, row_idx in enumerate(filtered_indices):
-                    if row_idx >= len(col_data):
-                        valid_mask[i] = False
-                        continue
-
-                    cell_value = col_data[row_idx]
-
-                    # Apply filter using helper methods
-                    try:
-                        if operator in ("=", "==", "!=", "<", "<=", ">", ">="):
-                            # Use comparison helper
-                            matches = self._compare_values(cell_value, operator, value_str)
-                        elif operator == "contains":
-                            matches = value_str.lower() in str(cell_value).lower()
-                        elif operator == "starts with":
-                            matches = str(cell_value).lower().startswith(value_str.lower())
-                        elif operator == "ends with":
-                            matches = str(cell_value).lower().endswith(value_str.lower())
-                        else:
-                            matches = True
-
-                        valid_mask[i] = matches
-                    except (ValueError, TypeError):
-                        # If comparison fails, exclude the row
-                        valid_mask[i] = False
-
-                # Update filtered_indices to only include rows that passed this filter
-                filtered_indices = filtered_indices[valid_mask]
+        # Get indices of valid rows
+        filtered_indices = np.where(valid_rows)[0]
 
         # Apply sort
         if csv_sort and len(filtered_indices) > 0:
-            # Build a structured array for sorting
             sort_data = []
             for col_name, order in csv_sort:
                 if col_name in self._csv_data_dict:
                     col_data = self._csv_data_dict[col_name]
                     # Extract data for filtered rows
-                    sort_column = np.array([col_data[i] if i < len(col_data) else "" for i in filtered_indices])
+                    sort_column = col_data[filtered_indices] if len(col_data) > 0 else np.array([])
                     sort_data.append((col_name, sort_column))
 
             if sort_data:
