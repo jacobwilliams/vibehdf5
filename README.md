@@ -361,49 +361,6 @@ python -m vibehdf5 [file.h5]
 3. If no filters are active, all rows are exported
 4. Original column names and order are preserved
 
-## Project Structure
-
-```
-vibehdf5/
-├── vibehdf5/
-│   ├── __init__.py           # Package initialization with version
-│   ├── hdf5_viewer.py        # Main GUI application and window
-│   ├── hdf5_tree_model.py    # Qt model for HDF5 tree structure
-│   └── utilities.py          # Helper functions for archiving and inspection
-├── pyproject.toml            # Package metadata and dependencies
-├── README.md                 # This file
-├── LICENSE                   # License information
-└── env/
-    └── pixi.toml             # Pixi environment configuration
-```
-
-## Architecture
-
-### Components
-
-**HDF5Viewer** (`hdf5_viewer.py`)
-- Main window with QTreeView and split panel layout
-- Handles user interactions, toolbar actions, and preview rendering
-- Implements drag-and-drop for both import and export
-- Context menu for deletion operations
-
-**HDF5TreeModel** (`hdf5_tree_model.py`)
-- Qt QStandardItemModel that represents HDF5 structure
-- Recursively loads groups, datasets, and attributes
-- Provides drag data for export operations
-- Stores metadata in custom Qt roles (path, kind, attribute keys)
-
-**DropTreeView** (`hdf5_viewer.py`)
-- Custom QTreeView subclass
-- Accepts external file/folder drops from the OS
-- Determines target group based on drop location
-- Forwards drops to the viewer's batch import handler
-
-**Utilities** (`utilities.py`)
-- `archive_to_hdf5()`: Archive directory structures into HDF5
-- `print_file_structure_in_hdf5()`: Print HDF5 contents to console
-- Exclusion lists for system files and directories
-
 ### Data Storage
 
 **Text Files:**
@@ -428,12 +385,12 @@ vibehdf5/
 ## Dependencies
 
 - **Python** ≥ 3.8
+- **qtpy** - Qt abstraction layer for PySide6/PyQt6 compatibility
 - **PySide6** or **PyQt6** (via qtpy abstraction)
 - **h5py** - HDF5 interface
 - **numpy** - Array operations
 - **pandas** - CSV import and data filtering
 - **matplotlib** - Plotting (optional, for CSV plotting features)
-- **qtpy** - Qt abstraction layer for PySide6/PyQt6 compatibility
 
 ## Tips & Best Practices
 
