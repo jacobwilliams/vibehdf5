@@ -163,6 +163,14 @@ class CSVTableModel(QAbstractTableModel):
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         """
         Return the header label for columns and rows in QTableView.
+
+        Args:
+            section: Integer index of the column or row.
+            orientation: Qt.Orientation specifying horizontal (columns) or vertical (rows).
+            role: Qt.ItemDataRole specifying the type of data requested (default: Qt.DisplayRole).
+
+        Returns:
+            The header label for the specified section and orientation, or None if not valid.
         """
         if role == Qt.DisplayRole:
             if orientation == Qt.Horizontal:
@@ -450,6 +458,17 @@ def _dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]
 def _bytes_to_text(
     b: bytes, limit_bytes: int = 1_000_000, decompressed: bool = False
 ) -> tuple[str, str | None]:
+    """
+    Convert bytes to a text representation, decoding as UTF-8 if possible, or as hex if not.
+
+    Args:
+        b: Bytes object to convert.
+        limit_bytes: Maximum number of bytes to preview (truncates if exceeded).
+        decompressed: True if bytes were decompressed from gzip (adds note).
+
+    Returns:
+        Tuple of (text, note) where text is the decoded string or hex preview, and note is an optional string describing truncation or decompression.
+    """
     note = None
     if len(b) > limit_bytes:
         b = b[:limit_bytes]
