@@ -68,83 +68,8 @@ from .plot_options_dialog import PlotOptionsDialog
 
 
 class HDF5Viewer(QMainWindow):
-    def _is_csv_group(self, path: str) -> bool:
-        """Return True if the group at the given path is a CSV-derived group."""
-        # This checks for the presence of 'column_names' attribute in the group
-        if not self.model or not self.model.filepath or not path:
-            return False
-        try:
-            with h5py.File(self.model.filepath, "r") as h5:
-                if path in h5:
-                    grp = h5[path]
-                    return isinstance(grp, h5py.Group) and "column_names" in grp.attrs
-        except Exception:
-            pass
-        return False
+    """Main window for the HDF5 viewer application."""
 
-    def _get_filtered_sorted_indices(self, data_dict, filters, sort_specs):
-        """Return filtered and sorted row indices for given data, filters, and sort specs."""
-        if not data_dict:
-            return np.array([], dtype=int), 0, 0
-        max_rows = max(len(data_dict[col]) for col in data_dict)
-        if max_rows == 0:
-            return np.array([], dtype=int), 0, 0
-        valid_rows = np.ones(max_rows, dtype=bool)
-        # Filtering
-        if filters:
-            for col_name, operator, value_str in filters:
-                if col_name not in data_dict:
-                    continue
-                col_data = data_dict[col_name]
-                try:
-                    if operator in ("=", "==", "!=", "<", "<=", ">", ">="):
-                        mask = self._evaluate_filter(col_data, operator, value_str)
-                    elif operator == "contains":
-                        mask = np.char.find(np.char.lower(col_data.astype(str)), value_str.lower()) >= 0
-                    elif operator == "starts with":
-                        mask = np.char.startswith(np.char.lower(col_data.astype(str)), value_str.lower())
-                    elif operator == "ends with":
-                        mask = np.char.endswith(np.char.lower(col_data.astype(str)), value_str.lower())
-                    else:
-                        mask = np.ones_like(valid_rows, dtype=bool)
-                except Exception:
-                    mask = np.zeros_like(valid_rows, dtype=bool)
-                # Ensure mask is same length as valid_rows
-                if len(mask) != len(valid_rows):
-                    mask = np.resize(mask, len(valid_rows))
-                valid_rows &= mask
-        filtered_indices = np.where(valid_rows)[0]
-        # Sorting
-        if sort_specs and len(filtered_indices) > 0:
-            sort_columns = []
-            sort_orders = []
-            for col_name, ascending in sort_specs:
-                if col_name in data_dict:
-                    sort_columns.append(col_name)
-                    sort_orders.append(ascending)
-            if sort_columns:
-                try:
-                    sort_data = {}
-                    for col_name in sort_columns:
-                        col_data = data_dict[col_name][filtered_indices]
-                        sort_data[col_name] = col_data
-                    df = pd.DataFrame(sort_data)
-                    df_sorted = df.sort_values(
-                        by=sort_columns,
-                        ascending=sort_orders,
-                        na_position='last'
-                    )
-                    # Map sorted indices back to original data indices
-                    filtered_indices = filtered_indices[df_sorted.index.values]
-                except Exception as e:
-                    print(f"Warning: Could not sort data: {e}")
-        if len(filtered_indices) > 0:
-            start_row = int(filtered_indices[0])
-            end_row = int(filtered_indices[-1])
-        else:
-            start_row = 0
-            end_row = 0
-        return filtered_indices, start_row, end_row
     def __init__(self, parent=None):
         """Initialize the HDF5 viewer main window.
 
@@ -478,6 +403,84 @@ class HDF5Viewer(QMainWindow):
 
         # Track current search pattern
         self._search_pattern: str = ""
+
+    def _is_csv_group(self, path: str) -> bool:
+        """Return True if the group at the given path is a CSV-derived group."""
+        # This checks for the presence of 'column_names' attribute in the group
+        if not self.model or not self.model.filepath or not path:
+            return False
+        try:
+            with h5py.File(self.model.filepath, "r") as h5:
+                if path in h5:
+                    grp = h5[path]
+                    return isinstance(grp, h5py.Group) and "column_names" in grp.attrs
+        except Exception:
+            pass
+        return False
+
+    def _get_filtered_sorted_indices(self, data_dict, filters, sort_specs):
+        """Return filtered and sorted row indices for given data, filters, and sort specs."""
+        if not data_dict:
+            return np.array([], dtype=int), 0, 0
+        max_rows = max(len(data_dict[col]) for col in data_dict)
+        if max_rows == 0:
+            return np.array([], dtype=int), 0, 0
+        valid_rows = np.ones(max_rows, dtype=bool)
+        # Filtering
+        if filters:
+            for col_name, operator, value_str in filters:
+                if col_name not in data_dict:
+                    continue
+                col_data = data_dict[col_name]
+                try:
+                    if operator in ("=", "==", "!=", "<", "<=", ">", ">="):
+                        mask = self._evaluate_filter(col_data, operator, value_str)
+                    elif operator == "contains":
+                        mask = np.char.find(np.char.lower(col_data.astype(str)), value_str.lower()) >= 0
+                    elif operator == "starts with":
+                        mask = np.char.startswith(np.char.lower(col_data.astype(str)), value_str.lower())
+                    elif operator == "ends with":
+                        mask = np.char.endswith(np.char.lower(col_data.astype(str)), value_str.lower())
+                    else:
+                        mask = np.ones_like(valid_rows, dtype=bool)
+                except Exception:
+                    mask = np.zeros_like(valid_rows, dtype=bool)
+                # Ensure mask is same length as valid_rows
+                if len(mask) != len(valid_rows):
+                    mask = np.resize(mask, len(valid_rows))
+                valid_rows &= mask
+        filtered_indices = np.where(valid_rows)[0]
+        # Sorting
+        if sort_specs and len(filtered_indices) > 0:
+            sort_columns = []
+            sort_orders = []
+            for col_name, ascending in sort_specs:
+                if col_name in data_dict:
+                    sort_columns.append(col_name)
+                    sort_orders.append(ascending)
+            if sort_columns:
+                try:
+                    sort_data = {}
+                    for col_name in sort_columns:
+                        col_data = data_dict[col_name][filtered_indices]
+                        sort_data[col_name] = col_data
+                    df = pd.DataFrame(sort_data)
+                    df_sorted = df.sort_values(
+                        by=sort_columns,
+                        ascending=sort_orders,
+                        na_position='last'
+                    )
+                    # Map sorted indices back to original data indices
+                    filtered_indices = filtered_indices[df_sorted.index.values]
+                except Exception as e:
+                    print(f"Warning: Could not sort data: {e}")
+        if len(filtered_indices) > 0:
+            start_row = int(filtered_indices[0])
+            end_row = int(filtered_indices[-1])
+        else:
+            start_row = 0
+            end_row = 0
+        return filtered_indices, start_row, end_row
 
     def _create_progress_dialog(self, title: str, max_value: int = 100, min_duration: int = 500) -> QProgressDialog:
         """Create a standard progress dialog with consistent settings.
