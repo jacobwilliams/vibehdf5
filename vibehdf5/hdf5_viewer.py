@@ -6961,11 +6961,18 @@ class HDF5Viewer(QMainWindow):
             )
 
     def _evaluate_filter(self, col_data: np.ndarray | list, operator: str, value_str: str) -> np.ndarray:
-        """Evaluate a filter condition on column data.
+        """
+        Evaluate a filter condition on column data.
+
+        Args:
+            col_data: Array or list of column values to filter.
+            operator: Comparison operator as a string (e.g., '==', '!=', '<', '>', etc.).
+            value_str: The value to compare against, as a string.
 
         Handles numeric, datetime, and string comparisons.
 
-        Returns a boolean mask of the same length as col_data.
+        Returns:
+            np.ndarray: Boolean mask of the same length as col_data indicating which rows match the filter.
         """
 
         # Mapping of operators to lambda functions for cleaner code
