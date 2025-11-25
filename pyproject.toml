@@ -58,7 +58,7 @@ Repository = "https://github.com/jacobwilliams/vibehdf5"
 Issues = "https://github.com/jacobwilliams/vibehdf5/issues"
 
 [project.scripts]
-vibehdf5 = "vibehdf5.hdf5_viewer:main"
+vibehdf5 = "vibehdf5.__main__:main"
 
 [tool.setuptools]
 packages = ["vibehdf5"]

@@ -8,6 +8,16 @@ from qtpy.QtWidgets import QApplication
 from .hdf5_viewer import HDF5Viewer
 
 def main(argv: list[str] | None = None) -> int:
+    """
+    Launch the VibeHDF5 GUI application.
+
+    Args:
+        argv: Optional list of command-line arguments. If None, uses sys.argv.
+
+    Returns:
+        Exit code from QApplication event loop (0 for normal exit).
+    """
+
     argv = argv if argv is not None else sys.argv
     app = QApplication(argv)
     win = HDF5Viewer()
@@ -17,12 +27,6 @@ def main(argv: list[str] | None = None) -> int:
         candidate = argv[1]
         if os.path.isfile(candidate):
             win.load_hdf5(candidate)
-
-    # Otherwise, if test file exists in workspace, open it by default
-    else:
-        default = Path(__file__).parent / "test_files.h5"
-        if default.exists():
-            win.load_hdf5(str(default))
 
     win.show()
     return app.exec()
