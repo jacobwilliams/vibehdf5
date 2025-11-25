@@ -4154,15 +4154,22 @@ class HDF5Viewer(QMainWindow):
                     self.statusBar().showMessage(f"Error loading data: {exc}", 5000)
 
             # model refresh
-            if self._csv_table_model:
-                self._csv_table_model.layoutChanged.emit()
+                if self._csv_table_model:
+                    self._csv_table_model.layoutChanged.emit()
 
-            # Update loaded count
-            self._table_loaded_rows = end_row
+                # Update loaded count
+                self._table_loaded_rows = end_row
 
-            # Update model row count and refresh view
-            if self._csv_table_model:
-                self._csv_table_model.set_row_indices(self._csv_table_model._row_indices, total_rows=self._table_loaded_rows)
+                # Update model row count and refresh view
+                if self._csv_table_model:
+                    # If no filter/sort is active, show all loaded rows
+                    if self._csv_filtered_indices is None:
+                        self._csv_table_model.set_row_indices(None, total_rows=self._table_loaded_rows)
+                    else:
+                        # If filter/sort is active, only show those indices that are within loaded rows
+                        filtered = np.array(self._csv_filtered_indices)
+                        filtered = filtered[filtered < self._table_loaded_rows]
+                        self._csv_table_model.set_row_indices(filtered)
 
             # Re-enable updates
             self.preview_table.setUpdatesEnabled(True)
@@ -4276,6 +4283,12 @@ class HDF5Viewer(QMainWindow):
                                 v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
                                 for v in arr
                             ], dtype=object)
+                            # Update filtered indices and model if no filter/sort is active
+                            if (not self._csv_filters) and (not self._csv_sort_specs):
+                                self._csv_filtered_indices = np.arange(self._table_loaded_rows)
+                                if self._csv_table_model:
+                                    self._csv_table_model.set_row_indices(self._csv_filtered_indices)
+                                    self.preview_table.viewport().update()
                         elif arr.dtype.kind == "O":
                             # Object dtype - could be mixed, handle bytes if present
                             arr = np.array([
