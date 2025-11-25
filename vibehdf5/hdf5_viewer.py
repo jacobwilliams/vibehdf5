@@ -78,8 +78,9 @@ class CSVTableModel(QAbstractTableModel):
             self._row_indices = None
             self._row_count = total_rows if total_rows is not None else 0
         else:
-            self._row_indices = indices
-            self._row_count = len(indices)
+            # Always use a NumPy array for indexing
+            self._row_indices = np.array(indices)
+            self._row_count = len(self._row_indices)
         self.layoutChanged.emit()
     def __init__(self, data_dict, col_names, row_indices=None, parent=None):
         """
@@ -93,13 +94,14 @@ class CSVTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._data_dict = data_dict
         self._col_names = col_names
-        self._row_indices = row_indices if row_indices is not None else None
-        # Determine row count
-        if self._row_indices is not None:
+        if row_indices is not None:
+            self._row_indices = np.array(row_indices)
             self._row_count = len(self._row_indices)
         elif col_names and col_names[0] in data_dict:
+            self._row_indices = None
             self._row_count = len(data_dict[col_names[0]])
         else:
+            self._row_indices = None
             self._row_count = 0
 
     def rowCount(self, parent=QModelIndex()):
@@ -209,7 +211,7 @@ def _indices_to_ranges(indices: list[int] | np.ndarray) -> list[str | int]:
     # Save the last range
     if end > start:
         result.append(f"{start}-{end}")
-    else:
+    # else: (removed invalid syntax)
         result.append(start)
 
     return result
@@ -2261,6 +2263,83 @@ class CustomSplitter(QSplitter):
 
 
 class HDF5Viewer(QMainWindow):
+    def _is_csv_group(self, path: str) -> bool:
+        """Return True if the group at the given path is a CSV-derived group."""
+        # This checks for the presence of 'column_names' attribute in the group
+        if not self.model or not self.model.filepath or not path:
+            return False
+        try:
+            with h5py.File(self.model.filepath, "r") as h5:
+                if path in h5:
+                    grp = h5[path]
+                    return isinstance(grp, h5py.Group) and "column_names" in grp.attrs
+        except Exception:
+            pass
+        return False
+
+    def _get_filtered_sorted_indices(self, data_dict, filters, sort_specs):
+        """Return filtered and sorted row indices for given data, filters, and sort specs."""
+        if not data_dict:
+            return np.array([], dtype=int), 0, 0
+        max_rows = max(len(data_dict[col]) for col in data_dict)
+        if max_rows == 0:
+            return np.array([], dtype=int), 0, 0
+        valid_rows = np.ones(max_rows, dtype=bool)
+        # Filtering
+        if filters:
+            for col_name, operator, value_str in filters:
+                if col_name not in data_dict:
+                    continue
+                col_data = data_dict[col_name]
+                try:
+                    if operator in ("=", "==", "!=", "<", "<=", ">", ">="):
+                        mask = self._evaluate_filter(col_data, operator, value_str)
+                    elif operator == "contains":
+                        mask = np.char.find(np.char.lower(col_data.astype(str)), value_str.lower()) >= 0
+                    elif operator == "starts with":
+                        mask = np.char.startswith(np.char.lower(col_data.astype(str)), value_str.lower())
+                    elif operator == "ends with":
+                        mask = np.char.endswith(np.char.lower(col_data.astype(str)), value_str.lower())
+                    else:
+                        mask = np.ones_like(valid_rows, dtype=bool)
+                except Exception:
+                    mask = np.zeros_like(valid_rows, dtype=bool)
+                # Ensure mask is same length as valid_rows
+                if len(mask) != len(valid_rows):
+                    mask = np.resize(mask, len(valid_rows))
+                valid_rows &= mask
+        filtered_indices = np.where(valid_rows)[0]
+        # Sorting
+        if sort_specs and len(filtered_indices) > 0:
+            sort_columns = []
+            sort_orders = []
+            for col_name, ascending in sort_specs:
+                if col_name in data_dict:
+                    sort_columns.append(col_name)
+                    sort_orders.append(ascending)
+            if sort_columns:
+                try:
+                    sort_data = {}
+                    for col_name in sort_columns:
+                        col_data = data_dict[col_name][filtered_indices]
+                        sort_data[col_name] = col_data
+                    df = pd.DataFrame(sort_data)
+                    df_sorted = df.sort_values(
+                        by=sort_columns,
+                        ascending=sort_orders,
+                        na_position='last'
+                    )
+                    # Map sorted indices back to original data indices
+                    filtered_indices = filtered_indices[df_sorted.index.values]
+                except Exception as e:
+                    print(f"Warning: Could not sort data: {e}")
+        if len(filtered_indices) > 0:
+            start_row = int(filtered_indices[0])
+            end_row = int(filtered_indices[-1])
+        else:
+            start_row = 0
+            end_row = 0
+        return filtered_indices, start_row, end_row
     def __init__(self, parent=None):
         """Initialize the HDF5 viewer main window.
 
@@ -2699,7 +2778,7 @@ class HDF5Viewer(QMainWindow):
         ax.tick_params(axis='y', colors=color)
 
     def _parse_datetime_column(self, x_arr: np.ndarray, min_len: int,
-                                datetime_format: str = "") -> tuple[np.ndarray, bool]:
+                              datetime_format: str = "") -> tuple[np.ndarray, bool]:
         """Parse a column as datetime and convert to matplotlib date numbers.
 
         Args:
@@ -2820,7 +2899,7 @@ class HDF5Viewer(QMainWindow):
                     legend_line.set_alpha(0.2)
 
     def _process_x_axis_data(self, x_idx: int | None, col_data: dict, y_names: list[str],
-                            x_name: str, plot_options: dict) -> tuple[np.ndarray, np.ndarray, bool, bool, int]:
+                             x_name: str, plot_options: dict) -> tuple[np.ndarray, np.ndarray, bool, bool, int]:
         """Process X-axis data for plotting, handling single-column, datetime, and string data.
 
         Args:
@@ -5177,6 +5256,9 @@ class HDF5Viewer(QMainWindow):
             self.preview_attribute(path, key)
         elif kind == "group":
             self.preview_group(path)
+            # If a CSV group is selected, validate plot configs
+            if self._is_csv_group(path):
+                self._validate_saved_plot_configs()
         else:
             self.preview_label.setText(str(kind) if kind else "")
             self._set_preview_text("")
@@ -5186,6 +5268,22 @@ class HDF5Viewer(QMainWindow):
             self._saved_plots = []
             self._refresh_saved_plots_list()
             self._clear_plot_display()
+
+    def _validate_saved_plot_configs(self):
+        """Validate saved plot configs to ensure column references match current dataset."""
+        valid_columns = set(getattr(self, '_csv_column_names', []))
+        updated_plots = []
+        for plot_cfg in getattr(self, '_saved_plots', []):
+            # Check x and y columns
+            x_name = plot_cfg.get("x_name")
+            y_names = plot_cfg.get("y_names", [])
+            if x_name and x_name not in valid_columns:
+                continue  # Skip invalid config
+            if any(y not in valid_columns for y in y_names):
+                continue  # Skip invalid config
+            updated_plots.append(plot_cfg)
+        self._saved_plots = updated_plots
+        self._refresh_saved_plots_list()
 
     def _on_tree_item_renamed(self, topLeft, bottomRight, roles):
         """Handle when a tree item is renamed.
@@ -5894,11 +5992,14 @@ class HDF5Viewer(QMainWindow):
                 self._set_preview_text("(No datasets found in CSV group)")
                 return
 
+            # Reset all CSV state for new group
             self._csv_dataset_info = dataset_info
             self._csv_data_dict = {}
             self._csv_column_names = col_names
             self._csv_total_rows = max_rows
             self._csv_sort_specs = []
+            self._csv_visible_columns = col_names.copy()
+            self._csv_filtered_indices = None
 
             # Lazy load initial batch of data
             initial_batch = min(self._table_batch_size, max_rows)
@@ -5912,14 +6013,25 @@ class HDF5Viewer(QMainWindow):
                     self._lazy_load_columns(col_names, 0, initial_batch, h5)
             self._table_loaded_rows = initial_batch
 
+            # Defensive: ensure visible columns and indices are valid
+            valid_columns = [c for c in self._csv_visible_columns if c in self._csv_column_names]
+            if not valid_columns:
+                valid_columns = self._csv_column_names.copy()
+            self._csv_visible_columns = valid_columns
+            # Defensive: ensure filtered indices are valid
+            if self._csv_filtered_indices is None or len(self._csv_filtered_indices) == 0:
+                self._csv_filtered_indices, _, _ = self._get_filtered_sorted_indices(
+                    self._csv_data_dict, self._csv_filters, self._csv_sort_specs)
+            if self._csv_filtered_indices is None or len(self._csv_filtered_indices) == 0:
+                self._csv_filtered_indices = np.arange(self._csv_total_rows)
+
             # Create and set the CSVTableModel for QTableView
             model = CSVTableModel(
                 data_dict=self._csv_data_dict,
-                col_names=col_names,
-                row_indices=None
+                col_names=self._csv_visible_columns,
+                row_indices=self._csv_filtered_indices,
+                parent=self.preview_table
             )
-            # Set initial row count to loaded rows
-            model.set_row_indices(None, total_rows=self._table_loaded_rows)
             self.preview_table.setModel(model)
             self._csv_table_model = model
             # Ensure column selection via header is enabled for plotting
@@ -5973,6 +6085,7 @@ class HDF5Viewer(QMainWindow):
             self._update_plot_action_enabled()
             progress.close()
 
+            # Load filters, sort, and visible columns from HDF5
             saved_filters = self._load_filters_from_hdf5(grp)
             if saved_filters:
                 self._csv_filters = saved_filters
@@ -6010,18 +6123,21 @@ class HDF5Viewer(QMainWindow):
 
             self._load_plot_configs_from_hdf5(grp)
 
+            # Apply filters and sort if present, else show all rows
             if self._csv_filters:
                 self._apply_filters()
             else:
                 self.filter_status_label.setText("No filters applied")
                 self.btn_clear_filters.setEnabled(False)
-
                 if self._csv_sort_specs:
                     self._apply_filters()
                 else:
                     self._csv_filtered_indices = np.arange(max_rows)
                     if self._current_csv_group_path and self.model:
                         self.model.set_csv_filtered_indices(self._current_csv_group_path, None)
+
+            if self._csv_sort_specs and not self._csv_filters:
+                self._apply_sort()
 
             self.preview_table.verticalScrollBar().setValue(0)
 
@@ -6290,19 +6406,20 @@ class HDF5Viewer(QMainWindow):
 
         Returns a dict mapping original column name -> numpy array (1-D). Strings remain strings.
         """
+        # Always reset mapping and result for each call
         result: dict[str, np.ndarray] = {}
+        mapping: dict[str, str] = {}
         fpath = self.model.filepath
         if not fpath:
             return result
         try:
             with h5py.File(fpath, "r") as h5:
                 grp = h5[group_path]
-                # Resolve mapping from original names to dataset keys if present
                 mapping: dict[str, str] = {}
                 if "column_names" in grp.attrs:
                     try:
                         orig = [str(c) for c in list(grp.attrs["column_names"])]
-                    except Exception:  # noqa: BLE001
+                    except Exception:
                         orig = []
                     ds_names: list[str] | None = None
                     if "column_dataset_names" in grp.attrs:
@@ -6310,7 +6427,7 @@ class HDF5Viewer(QMainWindow):
                             ds_names = [str(c) for c in list(grp.attrs["column_dataset_names"])]
                             if len(ds_names) != len(orig):
                                 ds_names = None
-                        except Exception:  # noqa: BLE001
+                        except Exception:
                             ds_names = None
                     for i, name in enumerate(orig):
                         key = None
@@ -6359,7 +6476,7 @@ class HDF5Viewer(QMainWindow):
                             data = data.decode("utf-8", errors="replace")
                         arr = np.array([data])
                     result[name] = arr
-        except Exception:  # noqa: BLE001
+        except Exception as e:
             return result
         return result
 
@@ -6387,29 +6504,48 @@ class HDF5Viewer(QMainWindow):
             )
             return
 
+        # Always resolve column names from current model headers
+        model = self.preview_table.model()
+        headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())] if model else []
+
         # Handle single column selection: use point count as x-axis
         if len(sel_cols) == 1:
-            x_idx = None  # No x column - use point count
-            y_idxs = sel_cols
+            y_idx = sel_cols[0]
+            y_names = [headers[y_idx]] if headers and y_idx < len(headers) else []
+            x_name = "Point"
         else:
             # Use current column as X if part of selection; else use the leftmost selected
             current_index = self.preview_table.selectionModel().currentIndex()
             current_col = current_index.column() if current_index.isValid() else None
             x_idx = current_col if current_col in sel_cols else min(sel_cols)
             y_idxs = [c for c in sel_cols if c != x_idx]
+            x_name = headers[x_idx] if headers and x_idx is not None and x_idx < len(headers) else None
+            y_names = [headers[i] for i in y_idxs if headers and i < len(headers)]
 
-        # Ensure y_idxs is a list (defensive check - do this BEFORE any operations on it)
-        if isinstance(y_idxs, int):
-            y_idxs = [y_idxs]
+        # Defensive check
+        if not y_names or (x_name is None and len(sel_cols) > 1):
+            QMessageBox.warning(self, "Plot", "Failed to resolve column headers for plotting.")
+            return
 
         model = self.preview_table.model()
         if model:
             headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
         else:
             headers = []
+
+        # Defensive: ensure x_idx and y_idxs are always defined
+        if len(sel_cols) == 1:
+            x_idx = None
+            y_idxs = [sel_cols[0]]
+        else:
+            current_index = self.preview_table.selectionModel().currentIndex()
+            current_col = current_index.column() if current_index.isValid() else None
+            x_idx = current_col if current_col in sel_cols else min(sel_cols)
+            y_idxs = [c for c in sel_cols if c != x_idx]
+
         try:
-            x_name = headers[x_idx] if x_idx is not None else "Point"
-            y_names = [headers[i] for i in y_idxs]
+            x_name = headers[x_idx] if x_idx is not None and x_idx < len(headers) else "Point"
+            y_names = [headers[i] for i in y_idxs if i < len(headers)]
         except Exception as e:
             QMessageBox.warning(self, "Plot", f"Failed to resolve column headers for plotting.\n\nError: {e}\ny_idxs type: {type(y_idxs)}, value: {y_idxs}")
             return
@@ -6765,8 +6901,17 @@ class HDF5Viewer(QMainWindow):
         else:
             self.btn_clear_sort.setEnabled(False)
 
-        # After changing sort, reapply filters to update display
-        self._apply_filters()
+        # After changing sort, reapply filtering and sorting, then update grid
+        filtered_indices, start_row, end_row = self._get_filtered_sorted_indices(
+            self._csv_data_dict, self._csv_filters, self._csv_sort_specs)
+        self._csv_filtered_indices = filtered_indices
+        if hasattr(self, '_csv_table_model') and self._csv_table_model:
+            self._csv_table_model.set_row_indices(filtered_indices)
+        # Update filter status label and clear sort button
+        if self._csv_sort_specs:
+            self.btn_clear_sort.setEnabled(True)
+        else:
+            self.btn_clear_sort.setEnabled(False)
 
     def _apply_filters(self) -> None:
         """Apply current filters to the CSV table."""
@@ -6785,78 +6930,20 @@ class HDF5Viewer(QMainWindow):
             self.filter_status_label.setText("No filters applied")
             self.btn_clear_filters.setEnabled(False)
 
-        # Determine which rows pass all filters
-        max_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
-        if max_rows == 0:
-            return
-
-        valid_rows = np.ones(max_rows, dtype=bool)
-
-        for col_name, operator, value_str in self._csv_filters:
-            if col_name not in self._csv_data_dict:
-                continue
-
-            col_data = self._csv_data_dict[col_name]
-            col_mask = self._evaluate_filter(col_data, operator, value_str)
-
-            # Ensure mask is same length as valid_rows
-            if len(col_mask) != len(valid_rows):
-                col_mask = np.resize(col_mask, len(valid_rows))
-
-            valid_rows &= col_mask
-
-        # Get indices of valid rows
-        filtered_indices = np.where(valid_rows)[0]
-
-        # Apply sorting if specified
-        if self._csv_sort_specs:
-            # Build list of columns and orders for sorting
-            sort_columns = []
-            sort_orders = []
-
-            for col_name, ascending in self._csv_sort_specs:
-                if col_name in self._csv_data_dict:
-                    sort_columns.append(col_name)
-                    sort_orders.append(ascending)
-
-            if sort_columns:
-                # Use pandas for multi-column sorting (handles mixed types better)
-                try:
-                    # Create a DataFrame from the filtered data
-                    sort_data = {}
-                    for col_name in sort_columns:
-                        col_data = self._csv_data_dict[col_name][filtered_indices]
-                        sort_data[col_name] = col_data
-
-                    df = pd.DataFrame(sort_data)
-
-                    # Sort by multiple columns
-                    df_sorted = df.sort_values(
-                        by=sort_columns,
-                        ascending=sort_orders,
-                        na_position='last'
-                    )
-
-                    # Get the sorted indices and apply to filtered_indices
-                    sorted_positions = df_sorted.index.values
-                    filtered_indices = filtered_indices[sorted_positions]
-
-                except Exception as e:
-                    print(f"Warning: Could not sort data: {e}")
-                    # Continue with unsorted data
+        # Use shared routine for filtering and sorting
+        filtered_indices, start_row, end_row = self._get_filtered_sorted_indices(
+            self._csv_data_dict, self._csv_filters, self._csv_sort_specs)
 
         # Store filtered indices for plotting
         self._csv_filtered_indices = filtered_indices
 
         # Notify the model about filtered indices for CSV export
+        max_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
         if self._current_csv_group_path and self.model:
             if len(filtered_indices) == max_rows:
-                # No filtering active, clear stored indices
                 self.model.set_csv_filtered_indices(self._current_csv_group_path, None)
             else:
-                # Set filtered indices
                 self.model.set_csv_filtered_indices(self._current_csv_group_path, filtered_indices)
-
 
         # For QTableView, update the model's row_indices and row_count using helper
         if self._csv_table_model:
@@ -7797,93 +7884,14 @@ class HDF5Viewer(QMainWindow):
         """
         if not self._csv_data_dict or not self._csv_column_names:
             return
-
-        # Get filters and sort from plot config
         csv_filters = plot_config.get("csv_filters", [])
         csv_sort = plot_config.get("csv_sort", [])
-
-        # Get total row count
-        max_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
-
-        if max_rows == 0:
-            plot_config["filtered_indices"] = None
-            return
-
-        # Start with all rows
-        valid_rows = np.ones(max_rows, dtype=bool)
-
-        # Apply filters using vectorized logic
-        if csv_filters:
-            for col_name, operator, value_str in csv_filters:
-                if col_name not in self._csv_data_dict:
-                    continue
-                col_data = self._csv_data_dict[col_name]
-                try:
-                    if operator in ("=", "==", "!=", "<", "<=", ">", ">="):
-                        mask = self._evaluate_filter(col_data, operator, value_str)
-                    elif operator == "contains":
-                        mask = np.char.find(np.char.lower(col_data.astype(str)), value_str.lower()) >= 0
-                    elif operator == "starts with":
-                        mask = np.char.startswith(np.char.lower(col_data.astype(str)), value_str.lower())
-                    elif operator == "ends with":
-                        mask = np.char.endswith(np.char.lower(col_data.astype(str)), value_str.lower())
-                    else:
-                        mask = np.ones_like(valid_rows, dtype=bool)
-                except Exception:
-                    mask = np.zeros_like(valid_rows, dtype=bool)
-                valid_rows &= mask
-
-        # Get indices of valid rows
-        filtered_indices = np.where(valid_rows)[0]
-
-        # Apply sort
-        if csv_sort and len(filtered_indices) > 0:
-            sort_data = []
-            for col_name, order in csv_sort:
-                if col_name in self._csv_data_dict:
-                    col_data = self._csv_data_dict[col_name]
-                    # Extract data for filtered rows
-                    sort_column = col_data[filtered_indices] if len(col_data) > 0 else np.array([])
-                    sort_data.append((col_name, sort_column))
-
-            if sort_data:
-                # Sort using lexsort (sorts by last column first, then previous, etc.)
-                sort_arrays = []
-                for col_name, order in reversed(csv_sort):
-                    for stored_name, stored_array in sort_data:
-                        if stored_name == col_name:
-                            # Normalize order to boolean: True = ascending, False = descending
-                            # Handle various formats: "asc"/"desc", "Asc"/"Desc", True/False
-                            if isinstance(order, bool):
-                                is_ascending = order
-                            elif isinstance(order, str):
-                                is_ascending = order.lower() not in ('desc', 'descending')
-                            else:
-                                is_ascending = True  # Default to ascending
-
-                            # Convert to numeric if possible for better sorting
-                            try:
-                                numeric_array = pd.to_numeric(pd.Series(stored_array), errors='coerce')
-                                if not is_ascending:
-                                    sort_arrays.append(-numeric_array.to_numpy())
-                                else:
-                                    sort_arrays.append(numeric_array.to_numpy())
-                            except Exception:
-                                # Fall back to string sorting
-                                str_array = np.array([str(x) for x in stored_array])
-                                # For string sorting, we'll handle descending after lexsort
-                                sort_arrays.append(str_array)
-                            break
-
-                if sort_arrays:
-                    sort_idx = np.lexsort(tuple(sort_arrays))
-                    filtered_indices = filtered_indices[sort_idx]
-
-        # Update plot config with new filtered indices
+        filtered_indices, start_row, end_row = self._get_filtered_sorted_indices(
+            self._csv_data_dict, csv_filters, csv_sort)
         if len(filtered_indices) > 0:
             plot_config["filtered_indices"] = _indices_to_ranges(filtered_indices)
-            plot_config["start_row"] = int(filtered_indices[0])
-            plot_config["end_row"] = int(filtered_indices[-1])
+            plot_config["start_row"] = start_row
+            plot_config["end_row"] = end_row
         else:
             plot_config["filtered_indices"] = []
             plot_config["start_row"] = 0
