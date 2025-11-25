@@ -7017,7 +7017,7 @@ class HDF5Viewer(QMainWindow):
             # Handle comparison operators using NumPy vectorized operations
             if operator in ["==", "=", "!=", ">", ">=", "<", "<="]:
                 arr = np.array(col_data)
-                # Try to convert both sides to float if possible
+                # 1. Try numeric comparison
                 try:
                     arr_num = arr.astype(float)
                     val_num = float(value_str)
@@ -7034,20 +7034,42 @@ class HDF5Viewer(QMainWindow):
                     elif operator == "<=":
                         return arr_num <= val_num
                 except Exception:
-                    # Fallback to string comparison
-                    arr_str = arr.astype(str)
+                    pass
+                # 2. Try datetime comparison
+                try:
+                    arr_dt = pd.to_datetime(arr, errors="coerce")
+                    val_dt = pd.to_datetime(value_str, errors="coerce")
+                    valid = np.logical_not(pd.isna(arr_dt)) & np.logical_not(pd.isna(val_dt))
+                    mask = np.zeros(len(arr_dt), dtype=bool)
                     if operator in ["==", "="]:
-                        return arr_str == value_str
+                        mask[valid] = arr_dt[valid] == val_dt
                     elif operator == "!=":
-                        return arr_str != value_str
+                        mask[valid] = arr_dt[valid] != val_dt
                     elif operator == ">":
-                        return arr_str > value_str
+                        mask[valid] = arr_dt[valid] > val_dt
                     elif operator == ">=":
-                        return arr_str >= value_str
+                        mask[valid] = arr_dt[valid] >= val_dt
                     elif operator == "<":
-                        return arr_str < value_str
+                        mask[valid] = arr_dt[valid] < val_dt
                     elif operator == "<=":
-                        return arr_str <= value_str
+                        mask[valid] = arr_dt[valid] <= val_dt
+                    return mask
+                except Exception:
+                    pass
+                # 3. Fall back to string comparison
+                arr_str = arr.astype(str)
+                if operator in ["==", "="]:
+                    return arr_str == value_str
+                elif operator == "!=":
+                    return arr_str != value_str
+                elif operator == ">":
+                    return arr_str > value_str
+                elif operator == ">=":
+                    return arr_str >= value_str
+                elif operator == "<":
+                    return arr_str < value_str
+                elif operator == "<=":
+                    return arr_str <= value_str
 
             # String-based operations
             arr_str = np.array([str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace") for v in col_data])
