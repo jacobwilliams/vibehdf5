@@ -6,11 +6,10 @@ import shutil
 import tempfile
 import h5py
 import numpy as np
-import csv
+import pandas as pd
 from qtpy.QtCore import QMimeData, Qt, QUrl, QFileInfo
 from qtpy.QtGui import QIcon, QPainter, QPixmap, QColor, QStandardItem, QStandardItemModel
 from qtpy.QtWidgets import QApplication, QStyle, QFileIconProvider
-import pandas as pd
 
 
 class HDF5TreeModel(QStandardItemModel):
