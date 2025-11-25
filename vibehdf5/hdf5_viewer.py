@@ -6960,19 +6960,14 @@ class HDF5Viewer(QMainWindow):
                 f"Showing {shown_rows:,} of {total_rows:,} rows (filtered)", 5000
             )
 
-    def _compare_values(self, left_value: any, operator: str, right_value: any) -> bool:
-        """Compare two values using the specified operator.
+    def _evaluate_filter(self, col_data: np.ndarray | list, operator: str, value_str: str) -> np.ndarray:
+        """Evaluate a filter condition on column data.
 
         Handles numeric, datetime, and string comparisons.
 
-        Args:
-            left_value: Left side value (can be numeric, datetime, or string)
-            operator: Comparison operator (==, !=, <, <=, >, >=)
-            right_value: Right side value to compare against
-
-        Returns:
-            bool: Result of comparison, or True if comparison fails
+        Returns a boolean mask of the same length as col_data.
         """
+
         # Mapping of operators to lambda functions for cleaner code
         ops = {
             "==": lambda a, b: a == b,
@@ -6984,35 +6979,6 @@ class HDF5Viewer(QMainWindow):
             ">=": lambda a, b: a >= b,
         }
 
-        if operator not in ops:
-            return True
-
-        try:
-            # Try numeric comparison first
-            left_num = float(left_value)
-            right_num = float(right_value)
-            return ops[operator](left_num, right_num)
-        except (ValueError, TypeError):
-            # Try datetime comparison
-            try:
-                left_dt = pd.to_datetime(str(left_value), errors="coerce")
-                right_dt = pd.to_datetime(str(right_value), errors="coerce")
-                if not pd.isna(left_dt) and not pd.isna(right_dt):
-                    return ops[operator](left_dt, right_dt)
-            except (ValueError, TypeError):
-                pass
-
-            # Fall back to string comparison
-            try:
-                return ops[operator](str(left_value), str(right_value))
-            except Exception:
-                return True
-
-    def _evaluate_filter(self, col_data: np.ndarray | list, operator: str, value_str: str) -> np.ndarray:
-        """Evaluate a filter condition on column data.
-
-        Returns a boolean mask of the same length as col_data.
-        """
         try:
             # Handle comparison operators using NumPy vectorized operations
             if operator in ["==", "=", "!=", ">", ">=", "<", "<="]:
@@ -7021,18 +6987,7 @@ class HDF5Viewer(QMainWindow):
                 try:
                     arr_num = arr.astype(float)
                     val_num = float(value_str)
-                    if operator in ["==", "="]:
-                        return arr_num == val_num
-                    elif operator == "!=":
-                        return arr_num != val_num
-                    elif operator == ">":
-                        return arr_num > val_num
-                    elif operator == ">=":
-                        return arr_num >= val_num
-                    elif operator == "<":
-                        return arr_num < val_num
-                    elif operator == "<=":
-                        return arr_num <= val_num
+                    return ops[operator](arr_num, val_num)
                 except Exception:
                     pass
                 # 2. Try datetime comparison
@@ -7041,35 +6996,13 @@ class HDF5Viewer(QMainWindow):
                     val_dt = pd.to_datetime(value_str, errors="coerce")
                     valid = np.logical_not(pd.isna(arr_dt)) & np.logical_not(pd.isna(val_dt))
                     mask = np.zeros(len(arr_dt), dtype=bool)
-                    if operator in ["==", "="]:
-                        mask[valid] = arr_dt[valid] == val_dt
-                    elif operator == "!=":
-                        mask[valid] = arr_dt[valid] != val_dt
-                    elif operator == ">":
-                        mask[valid] = arr_dt[valid] > val_dt
-                    elif operator == ">=":
-                        mask[valid] = arr_dt[valid] >= val_dt
-                    elif operator == "<":
-                        mask[valid] = arr_dt[valid] < val_dt
-                    elif operator == "<=":
-                        mask[valid] = arr_dt[valid] <= val_dt
+                    mask[valid] = ops[operator](arr_dt[valid], val_dt)
                     return mask
                 except Exception:
                     pass
                 # 3. Fall back to string comparison
                 arr_str = arr.astype(str)
-                if operator in ["==", "="]:
-                    return arr_str == value_str
-                elif operator == "!=":
-                    return arr_str != value_str
-                elif operator == ">":
-                    return arr_str > value_str
-                elif operator == ">=":
-                    return arr_str >= value_str
-                elif operator == "<":
-                    return arr_str < value_str
-                elif operator == "<=":
-                    return arr_str <= value_str
+                return ops[operator](arr_str, value_str)
 
             # String-based operations
             arr_str = np.array([str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace") for v in col_data])
