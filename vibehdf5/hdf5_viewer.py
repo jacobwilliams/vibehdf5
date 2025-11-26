@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import binascii
 import fnmatch
 import gzip
 import json
 import os
 import posixpath
-import sys
 import tempfile
 import time
 import traceback
 from pathlib import Path
-
+import shutil
 import h5py
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -21,20 +19,15 @@ from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToo
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.dates import AutoDateLocator, DateFormatter
 from matplotlib.figure import Figure
-from qtpy.QtCore import QMimeData, QSettings, QSize, QUrl, Qt
-from qtpy.QtGui import QAction, QColor, QDoubleValidator, QDrag, QFont, QFontDatabase, QIcon, QPixmap
+from qtpy.QtCore import QSettings, QSize, Qt
+from qtpy.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QPixmap
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QCheckBox,
-    QColorDialog,
-    QComboBox,
     QDialog,
-    QDialogButtonBox,
-    QDoubleSpinBox,
     QFileDialog,
-    QFrame,
     QHBoxLayout,
+    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -46,14 +39,13 @@ from qtpy.QtWidgets import (
     QPlainTextEdit,
     QProgressDialog,
     QPushButton,
-    QScrollArea,
-    QSpinBox,
     QSplitter,
     QStatusBar,
     QStyle,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QTableView,
     QToolBar,
     QTreeView,
     QVBoxLayout,
@@ -62,2104 +54,22 @@ from qtpy.QtWidgets import (
 
 from .hdf5_tree_model import HDF5TreeModel
 from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
-from .utilities import excluded_dirs, excluded_files
-
-
-def _indices_to_ranges(indices: list[int] | np.ndarray) -> list[str | int]:
-    """Convert a list of indices to a compact range representation.
-
-    Consecutive indices are represented as 'start-end' strings, while
-    isolated indices remain as integers.
-
-    Args:
-        indices: List or array of sorted integers
-
-    Returns:
-        List of range strings and/or integers
-
-    Examples:
-        [1,2,3,4,5,10] -> ['1-5', 10]
-        [1,3,5,7,9] -> [1, 3, 5, 7, 9]
-        [1,2,3,10,11,12,20] -> ['1-3', '10-12', 20]
-    """
-    if not len(indices):
-        return []
-
-    if isinstance(indices, np.ndarray):
-        indices = indices.tolist()
-
-    result = []
-    start = indices[0]
-    end = indices[0]
-
-    for i in range(1, len(indices)):
-        if indices[i] == end + 1:
-            # Extend the current range
-            end = indices[i]
-        else:
-            # Save the current range and start a new one
-            if end > start:
-                result.append(f"{start}-{end}")
-            else:
-                result.append(start)
-            start = indices[i]
-            end = indices[i]
-
-    # Save the last range
-    if end > start:
-        result.append(f"{start}-{end}")
-    else:
-        result.append(start)
-
-    return result
-
-
-def _ranges_to_indices(ranges: list[str | int]) -> np.ndarray:
-    """Convert a compact range representation back to a list of indices.
-
-    Args:
-        ranges: List of range strings and/or integers
-
-    Returns:
-        Numpy array of integers
-
-    Examples:
-        ['1-5', 10] -> [1,2,3,4,5,10]
-        [1, 3, 5, 7, 9] -> [1,3,5,7,9]
-        ['1-3', '10-12', 20] -> [1,2,3,10,11,12,20]
-    """
-    if not ranges:
-        return np.array([], dtype=np.int64)
-
-    indices = []
-    for item in ranges:
-        if isinstance(item, str) and '-' in item:
-            # Parse range string
-            start_str, end_str = item.split('-', 1)
-            start = int(start_str)
-            end = int(end_str)
-            indices.extend(range(start, end + 1))
-        else:
-            # Single index
-            indices.append(int(item))
-
-    return np.array(indices, dtype=np.int64)
-
-
-class DraggablePlotListWidget(QListWidget):
-    """QListWidget that supports drag-and-drop to export plots to filesystem."""
-
-    def __init__(self, parent=None):
-        """Initialize the draggable list widget.
-
-        Args:
-            parent: Parent widget (should be the HDF5Viewer instance)
-        """
-        super().__init__(parent)
-        self.setDragEnabled(True)
-        self.setDragDropMode(QAbstractItemView.DragOnly)
-        self.parent_viewer = parent
-
-    def mimeData(self, items):
-        """Create mime data for drag operation.
-
-        Args:
-            items: List of QListWidgetItem objects being dragged
-
-        Returns:
-            QMimeData object for the drag operation
-        """
-        mime_data = super().mimeData(items)
-        if items and self.parent_viewer:
-            # Store the row index in the mime data
-            row = self.row(items[0])
-            mime_data.setText(str(row))
-        return mime_data
-
-    def startDrag(self, supportedActions):
-        """Start drag operation and export plot to temporary file.
-
-        Args:
-            supportedActions: Qt.DropActions flags indicating supported drop actions
-        """
-        current_row = self.currentRow()
-        if current_row < 0 or not self.parent_viewer:
-            return
-
-        # Export the plot to a temporary file
-        try:
-            # Get plot configuration and make a copy to capture current UI state
-            plot_config = self.parent_viewer._saved_plots[current_row].copy()
-
-            # Capture current visibility state from the displayed plot
-            series_visibility = self.parent_viewer._capture_plot_visibility_state()
-
-            # Update plot_config with current visibility state
-            plot_options = plot_config.get("plot_options", {}).copy()
-            plot_options["series_visibility"] = series_visibility
-            plot_config["plot_options"] = plot_options
-
-            plot_name = plot_config.get("name", "plot")
-            export_format = plot_config.get("plot_options", {}).get("export_format", "png")
-
-            # Sanitize filename
-            safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in plot_name)
-            filename = f"{safe_name}.{export_format}"
-
-            # Create temporary file
-            temp_dir = tempfile.gettempdir()
-            temp_path = os.path.join(temp_dir, filename)
-
-            # Export the plot
-            success, error_msg = self.parent_viewer._export_plot_to_file(plot_config, temp_path)
-
-            if success:
-                # Create drag with file URL
-                drag = QDrag(self)
-                mime_data = QMimeData()
-                mime_data.setUrls([QUrl.fromLocalFile(temp_path)])
-                mime_data.setText(filename)
-                drag.setMimeData(mime_data)
-
-                # Execute drag operation
-                drag.exec_(Qt.CopyAction)
-            else:
-                QMessageBox.warning(self, "Export Failed", f"Failed to export plot for drag-and-drop.\n\nError: {error_msg}")
-        except Exception as e:
-            tb = traceback.format_exc()
-            QMessageBox.warning(self, "Export Error", f"Error exporting plot: {e}\n\n{tb}")
-
-
-# Helpers (placed before main/class so they are defined at runtime)
-def _sanitize_hdf5_name(name: str) -> str:
-    """Sanitize a name for use as an HDF5 dataset/group member.
-
-    - replaces '/' with '_' (since '/' is the HDF5 path separator)
-    - strips leading/trailing whitespace
-    - returns 'unnamed' if the result is empty
-    """
-    try:
-        s = (name or "").strip()
-        s = s.replace("/", "_")
-        return s or "unnamed"
-    except Exception:  # noqa: BLE001
-        return "unnamed"
-
-
-def _dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]:
-    """Read an h5py dataset and return a text representation and an optional note.
-
-    - If content exceeds limit_bytes, the output is truncated with a note.
-    - Tries to decode bytes as UTF-8; falls back to hex preview for binary.
-    - Automatically decompresses gzip-compressed text datasets.
-    """
-
-    note = None
-    # Best effort: read entire dataset (beware huge data)
-    data = ds[()]
-
-    # Check if this is a gzip-compressed text dataset
-    try:
-        if "compressed" in ds.attrs and ds.attrs["compressed"] == "gzip":
-            if isinstance(data, np.ndarray) and data.dtype == np.uint8:
-                compressed_bytes = data.tobytes()
-                decompressed = gzip.decompress(compressed_bytes)
-                encoding = ds.attrs.get("original_encoding", "utf-8")
-                if isinstance(encoding, bytes):
-                    encoding = encoding.decode("utf-8")
-                # Check if this is binary data
-                if encoding == "binary":
-                    # Return decompressed binary data for further processing
-                    return _bytes_to_text(decompressed, limit_bytes, decompressed=True)
-                # Otherwise it's text
-                text = decompressed.decode(encoding)
-                if len(text) > limit_bytes:
-                    text = text[:limit_bytes] + "\n… (truncated)"
-                    note = f"Preview limited to {limit_bytes} characters (decompressed)"
-                else:
-                    note = "(decompressed from gzip)"
-                return text, note
-    except Exception:  # noqa: BLE001
-        pass
-
-    # Convert to bytes if it's an array of fixed-length ASCII (S) blocks
-    if isinstance(data, np.ndarray) and data.dtype.kind == "S":
-        try:
-            # Flatten and join bytes chunks
-            b = b"".join(x.tobytes() if hasattr(x, "tobytes") else bytes(x) for x in data.ravel())
-        except Exception:
-            b = data.tobytes()
-        return _bytes_to_text(b, limit_bytes)
-
-    # Variable length strings
-    vld = h5py.check_string_dtype(ds.dtype)
-    if vld is not None:
-        try:
-            # Read as Python str
-            as_str = ds.asstr()[()]
-            if isinstance(as_str, np.ndarray):
-                text = "\n".join(map(str, as_str.ravel().tolist()))
-            else:
-                text = str(as_str)
-            note = None
-            if len(text.encode("utf-8")) > limit_bytes:
-                enc = text.encode("utf-8")[:limit_bytes]
-                text = enc.decode("utf-8", errors="ignore") + "\n… (truncated)"
-                note = f"Preview limited to {limit_bytes} bytes"
-            return text, note
-        except Exception:
-            pass
-
-    # Raw bytes
-    if isinstance(data, (bytes, bytearray, np.void)):
-        return _bytes_to_text(bytes(data), limit_bytes)
-
-    # Numeric or other arrays: show a compact preview
-    if isinstance(data, np.ndarray):
-        flat = data.ravel()
-        preview_count = min(2000, flat.size)
-        text = np.array2string(flat[:preview_count], threshold=preview_count)
-        note = None
-        if flat.size > preview_count:
-            note = f"Showing first {preview_count} elements out of {flat.size}"
-        return text, note
-
-    # Fallback to repr
-    t = repr(data)
-    if len(t) > 200_000:
-        t = t[:200_000] + "… (truncated)"
-        note = "Preview truncated"
-    return t, note
-
-
-def _bytes_to_text(
-    b: bytes, limit_bytes: int = 1_000_000, decompressed: bool = False
-) -> tuple[str, str | None]:
-    note = None
-    if len(b) > limit_bytes:
-        b = b[:limit_bytes]
-        note = f"Preview limited to {limit_bytes} bytes"
-        if decompressed:
-            note = f"Preview limited to {limit_bytes} bytes (decompressed)"
-    elif decompressed:
-        note = "(decompressed from gzip)"
-    try:
-        return b.decode("utf-8"), note
-    except UnicodeDecodeError:
-        # Provide a hex dump preview
-        hexstr = binascii.hexlify(b).decode("ascii")
-        # Group hex bytes in pairs for readability
-        grouped = " ".join(hexstr[i : i + 2] for i in range(0, len(hexstr), 2))
-        if len(grouped) > 200_000:
-            grouped = grouped[:200_000] + "… (truncated)"
-            note = "Preview truncated"
-        suffix = " (decompressed)" if decompressed else ""
-        return grouped, ((note or "binary data shown as hex") + suffix)
-
-
-class ScaledImageLabel(QLabel):
-    def __init__(self, parent=None, rescale_callback=None):
-        """Initialize the resizable label.
-
-        Args:
-            parent: Parent widget
-            rescale_callback: Callback function to execute on resize events
-        """
-        super().__init__(parent)
-        self._rescale_callback = rescale_callback
-
-    def resizeEvent(self, event):
-        """Handle resize events and trigger rescale callback.
-
-        Args:
-            event: QResizeEvent object
-        """
-        if self._rescale_callback:
-            self._rescale_callback()
-        super().resizeEvent(event)
-
-
-class DropTreeView(QTreeView):
-    """TreeView that accepts external file/folder drops and forwards to the viewer."""
-
-    def __init__(self, parent=None, viewer=None):
-        """Initialize the tree view with drag-and-drop support.
-
-        Args:
-            parent: Parent widget
-            viewer: HDF5Viewer instance to forward drag-and-drop operations to
-        """
-        super().__init__(parent)
-        self.viewer = viewer
-        self.setAcceptDrops(True)
-
-    def dragEnterEvent(self, event):
-        """Handle drag enter events for file/folder drops.
-
-        Args:
-            event: QDragEnterEvent object
-        """
-        md = event.mimeData()
-        if md and md.hasUrls():
-            event.acceptProposedAction()
-        else:
-            super().dragEnterEvent(event)
-
-    def dragMoveEvent(self, event):
-        """Handle drag move events for file/folder drops.
-
-        Args:
-            event: QDragMoveEvent object
-        """
-        md = event.mimeData()
-        if md and md.hasUrls():
-            event.acceptProposedAction()
-        else:
-            super().dragMoveEvent(event)
-
-    def dropEvent(self, event):
-        """Handle drop events for file/folder drops and internal HDF5 moves.
-
-        Args:
-            event: QDropEvent object
-        """
-        md = event.mimeData()
-        if not (self.viewer and md):
-            return super().dropEvent(event)
-
-        # Check if this is an internal HDF5 move
-        if md.hasFormat("application/x-hdf5-path"):
-            source_path = bytes(md.data("application/x-hdf5-path")).decode("utf-8")
-            try:
-                pos = event.position().toPoint()
-            except Exception:  # noqa: BLE001
-                pos = event.pos()
-            idx = self.indexAt(pos)
-            target_group = self.viewer._get_target_group_path_for_index(idx)
-
-            # Perform the move operation
-            success = self.viewer._move_hdf5_item(source_path, target_group)
-            if success:
-                fpath = self.viewer.model.filepath
-                if fpath:
-                    self.viewer.model.load_file(fpath)
-                    self.viewer.tree.expandToDepth(2)
-                    self.viewer._update_file_size_display()
-                self.viewer.statusBar().showMessage(
-                    f"Moved '{source_path}' to '{target_group}'", 5000
-                )
-                event.acceptProposedAction()
-            else:
-                event.ignore()
-            return
-
-        # Handle external file drops
-        if md.hasUrls():
-            urls = md.urls()
-            paths = [u.toLocalFile() for u in urls if u.isLocalFile()]
-            files = [p for p in paths if os.path.isfile(p)]
-            folders = [p for p in paths if os.path.isdir(p)]
-            try:
-                pos = event.position().toPoint()
-            except Exception:  # noqa: BLE001
-                pos = event.pos()
-            idx = self.indexAt(pos)
-            target_group = self.viewer._get_target_group_path_for_index(idx)
-            added, errors = self.viewer._add_items_batch(files, folders, target_group)
-            fpath = self.viewer.model.filepath
-            if fpath:
-                self.viewer.model.load_file(fpath)
-                self.viewer.tree.expandToDepth(2)
-                self.viewer._update_file_size_display()
-            if errors:
-                QMessageBox.warning(self, "Completed with errors", "\n".join(errors))
-            elif added:
-                self.viewer.statusBar().showMessage(
-                    f"Added {added} item(s) under {target_group}", 5000
-                )
-            event.acceptProposedAction()
-            return
-
-        super().dropEvent(event)
-
-
-class ColumnStatisticsDialog(QDialog):
-    """Dialog for displaying column statistics."""
-
-    def __init__(self, column_names, data_dict, filtered_indices, parent=None):
-        """Initialize the column statistics dialog.
-
-        Args:
-            column_names: List of column names to display statistics for
-            data_dict: Dictionary mapping column names to data arrays
-            filtered_indices: Array of filtered row indices, or None for all rows
-            parent: Parent widget
-        """
-        super().__init__(parent)
-        self.setWindowTitle("Column Statistics")
-        self.resize(700, 500)
-
-        self.column_names = column_names
-        self.data_dict = data_dict
-        self.filtered_indices = filtered_indices
-
-        layout = QVBoxLayout(self)
-
-        # Info label
-        if filtered_indices is not None and len(filtered_indices) > 0:
-            total_rows = max(len(data_dict[col]) for col in data_dict if col in column_names)
-            info_text = f"Statistics for {len(filtered_indices)} filtered rows (out of {total_rows} total)"
-        else:
-            total_rows = max(len(data_dict[col]) for col in data_dict if col in column_names)
-            info_text = f"Statistics for all {total_rows} rows"
-        info_label = QLabel(info_text)
-        info_label.setStyleSheet("font-weight: bold;")
-        layout.addWidget(info_label)
-
-        # Statistics table
-        self.stats_table = QTableWidget(self)
-        self.stats_table.setAlternatingRowColors(True)
-        self.stats_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.stats_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        layout.addWidget(self.stats_table)
-
-        # Calculate and display statistics
-        self._calculate_statistics()
-
-        # Close button
-        button_box = QDialogButtonBox(QDialogButtonBox.Close)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    def _calculate_statistics(self):
-        """Calculate statistics for all columns."""
-        # Define statistics to calculate
-        stat_labels = ["Count", "Min", "Max", "Mean", "Median", "Std Dev", "Sum", "Unique Values"]
-
-        # Set up table dimensions
-        self.stats_table.setRowCount(len(stat_labels))
-        self.stats_table.setColumnCount(len(self.column_names))
-        self.stats_table.setHorizontalHeaderLabels(self.column_names)
-        self.stats_table.setVerticalHeaderLabels(stat_labels)
-
-        # Calculate statistics for each column
-        for col_idx, col_name in enumerate(self.column_names):
-            if col_name not in self.data_dict:
-                continue
-
-            col_data = self.data_dict[col_name]
-
-            # Apply filtering if needed
-            if self.filtered_indices is not None and len(self.filtered_indices) > 0:
-                if isinstance(col_data, np.ndarray):
-                    filtered_data = col_data[self.filtered_indices]
-                else:
-                    filtered_data = [col_data[i] for i in self.filtered_indices]
-            else:
-                filtered_data = col_data
-
-            # Convert to pandas Series for easier statistics
-            try:
-                if isinstance(filtered_data, np.ndarray):
-                    series = pd.Series(filtered_data)
-                else:
-                    series = pd.Series(list(filtered_data))
-
-                # Try to convert to numeric
-                numeric_series = pd.to_numeric(series, errors="coerce")
-                is_numeric = not numeric_series.isna().all()
-
-                # Calculate statistics
-                stats = {}
-                stats["Count"] = len(series.dropna())
-
-                if is_numeric:
-                    # Numeric statistics
-                    stats["Min"] = f"{numeric_series.min():.6g}" if not numeric_series.isna().all() else "N/A"
-                    stats["Max"] = f"{numeric_series.max():.6g}" if not numeric_series.isna().all() else "N/A"
-                    stats["Mean"] = f"{numeric_series.mean():.6g}" if not numeric_series.isna().all() else "N/A"
-                    stats["Median"] = f"{numeric_series.median():.6g}" if not numeric_series.isna().all() else "N/A"
-                    stats["Std Dev"] = f"{numeric_series.std():.6g}" if not numeric_series.isna().all() else "N/A"
-                    stats["Sum"] = f"{numeric_series.sum():.6g}" if not numeric_series.isna().all() else "N/A"
-                else:
-                    # String statistics
-                    stats["Min"] = str(series.min()) if len(series) > 0 else "N/A"
-                    stats["Max"] = str(series.max()) if len(series) > 0 else "N/A"
-                    stats["Mean"] = "N/A"
-                    stats["Median"] = "N/A"
-                    stats["Std Dev"] = "N/A"
-                    stats["Sum"] = "N/A"
-
-                stats["Unique Values"] = str(series.nunique())
-
-                # Populate table
-                for row_idx, stat_label in enumerate(stat_labels):
-                    value = stats.get(stat_label, "N/A")
-                    item = QTableWidgetItem(str(value))
-                    self.stats_table.setItem(row_idx, col_idx, item)
-
-            except Exception as e:
-                # On error, fill with N/A
-                for row_idx in range(len(stat_labels)):
-                    item = QTableWidgetItem("Error")
-                    item.setToolTip(str(e))
-                    self.stats_table.setItem(row_idx, col_idx, item)
-
-        # Resize columns to content
-        self.stats_table.resizeColumnsToContents()
-
-
-class ColumnSortDialog(QDialog):
-    """Dialog for configuring multi-column sorting."""
-
-    def __init__(self, column_names, parent=None):
-        """Initialize the column sorting dialog.
-
-        Args:
-            column_names: List of available column names for sorting
-            parent: Parent widget
-        """
-        super().__init__(parent)
-        self.setWindowTitle("Configure Column Sorting")
-        self.resize(500, 400)
-
-        self.column_names = column_names
-        self.sort_specs = []  # List of (column_name, ascending) tuples
-
-        layout = QVBoxLayout(self)
-
-        # Instructions
-        info_label = QLabel(
-            "Add columns to sort by. Rows will be sorted by the first column, "
-            "then by the second column (for equal values), and so on."
-        )
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
-
-        # Scroll area for sort specifications
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.StyledPanel)
-
-        sort_container = QWidget()
-        self.sort_layout = QVBoxLayout(sort_container)
-        self.sort_layout.setContentsMargins(5, 5, 5, 5)
-        self.sort_layout.addStretch()
-
-        scroll.setWidget(sort_container)
-        layout.addWidget(scroll)
-
-        # Add sort button
-        add_btn = QPushButton("+ Add Sort Column")
-        add_btn.setToolTip("Add a new column to sort by (columns are sorted in order from top to bottom)")
-        add_btn.clicked.connect(self._add_sort_row)
-        layout.addWidget(add_btn)
-
-        # Dialog buttons
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    def _add_sort_row(self, col_name=None, ascending=True):
-        """Add a new sort row to the dialog.
-
-        Args:
-            col_name: Initial column name to select, or None for first column
-            ascending: True for ascending sort, False for descending
-        """
-        row_widget = QWidget()
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Column dropdown
-        col_combo = QComboBox()
-        col_combo.addItems(self.column_names)
-        if col_name and col_name in self.column_names:
-            col_combo.setCurrentText(col_name)
-        col_combo.setMinimumWidth(200)
-
-        # Order dropdown
-        order_combo = QComboBox()
-        order_combo.addItems(["Ascending", "Descending"])
-        order_combo.setCurrentText("Ascending" if ascending else "Descending")
-        order_combo.setMinimumWidth(120)
-
-        # Move up button
-        up_btn = QPushButton("↑")
-        up_btn.setToolTip("Move this sort column up (higher priority)")
-        up_btn.setMaximumWidth(30)
-        up_btn.clicked.connect(lambda: self._move_sort_row(row_widget, -1))
-
-        # Move down button
-        down_btn = QPushButton("↓")
-        down_btn.setToolTip("Move this sort column down (lower priority)")
-        down_btn.setMaximumWidth(30)
-        down_btn.clicked.connect(lambda: self._move_sort_row(row_widget, 1))
-
-        # Remove button
-        remove_btn = QPushButton("Remove")
-        remove_btn.setToolTip("Remove this sort column")
-        remove_btn.clicked.connect(lambda: self._remove_sort_row(row_widget))
-
-        row_layout.addWidget(QLabel("Column:"))
-        row_layout.addWidget(col_combo)
-        row_layout.addWidget(QLabel("Order:"))
-        row_layout.addWidget(order_combo)
-        row_layout.addWidget(up_btn)
-        row_layout.addWidget(down_btn)
-        row_layout.addWidget(remove_btn)
-        row_layout.addStretch()
-
-        # Store references for later retrieval
-        row_widget._col_combo = col_combo
-        row_widget._order_combo = order_combo
-
-        # Insert before the stretch
-        self.sort_layout.insertWidget(self.sort_layout.count() - 1, row_widget)
-
-    def _move_sort_row(self, row_widget, direction):
-        """Move a sort row up or down in the list.
-
-        Args:
-            row_widget: The widget representing the sort row to move
-            direction: -1 to move up, +1 to move down
-        """
-        current_index = None
-        for i in range(self.sort_layout.count() - 1):  # -1 to skip stretch
-            if self.sort_layout.itemAt(i).widget() == row_widget:
-                current_index = i
-                break
-
-        if current_index is None:
-            return
-
-        new_index = current_index + direction
-        # Check bounds (can't move past first or last position before stretch)
-        if new_index < 0 or new_index >= self.sort_layout.count() - 1:
-            return
-
-        # Remove and re-insert at new position
-        self.sort_layout.removeWidget(row_widget)
-        self.sort_layout.insertWidget(new_index, row_widget)
-
-    def _remove_sort_row(self, row_widget):
-        """Remove a sort row from the dialog.
-
-        Args:
-            row_widget: The widget representing the sort row to remove
-        """
-        self.sort_layout.removeWidget(row_widget)
-        row_widget.deleteLater()
-
-    def get_sort_specs(self):
-        """Return list of sort specifications as (column_name, ascending) tuples."""
-        sort_specs = []
-        for i in range(self.sort_layout.count() - 1):  # -1 to skip stretch
-            widget = self.sort_layout.itemAt(i).widget()
-            if widget and hasattr(widget, "_col_combo"):
-                col_name = widget._col_combo.currentText()
-                ascending = widget._order_combo.currentText() == "Ascending"
-                sort_specs.append((col_name, ascending))
-        return sort_specs
-
-    def set_sort_specs(self, sort_specs):
-        """Set the sort specifications to display in the dialog.
-
-        Args:
-            sort_specs: List of (column_name, ascending) tuples
-        """
-        # Clear existing rows
-        for i in reversed(range(self.sort_layout.count() - 1)):  # -1 to skip stretch
-            widget = self.sort_layout.itemAt(i).widget()
-            if widget:
-                self.sort_layout.removeWidget(widget)
-                widget.deleteLater()
-
-        # Add rows for each sort spec
-        for col_name, ascending in sort_specs:
-            self._add_sort_row(col_name, ascending)
-
-
-class ColumnFilterDialog(QDialog):
-    """Dialog for configuring column filters."""
-
-    def __init__(self, column_names, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Configure Column Filters")
-        self.resize(600, 400)
-
-        self.column_names = column_names
-        self.filters = []  # List of (column_name, operator, value) tuples
-
-        layout = QVBoxLayout(self)
-
-        # Instructions
-        info_label = QLabel("Add filters to show only rows matching the criteria:")
-        layout.addWidget(info_label)
-
-        # Scroll area for filters
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.StyledPanel)
-
-        filter_container = QWidget()
-        self.filter_layout = QVBoxLayout(filter_container)
-        self.filter_layout.setContentsMargins(5, 5, 5, 5)
-        self.filter_layout.addStretch()
-
-        scroll.setWidget(filter_container)
-        layout.addWidget(scroll)
-
-        # Add filter button
-        add_btn = QPushButton("+ Add Filter")
-        add_btn.setToolTip("Add a new filter condition (all filters are combined with AND logic)")
-        add_btn.clicked.connect(self._add_filter_row)
-        layout.addWidget(add_btn)
-
-        # Dialog buttons
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    def _add_filter_row(self, col_name=None, operator="==", value=""):
-        """Add a new filter row to the dialog.
-
-        Args:
-            col_name: Initial column name to filter on, or None for first column
-            operator: Comparison operator (==, !=, >, >=, <, <=, contains, startswith, endswith)
-            value: Filter value as string
-        """
-        row_widget = QWidget()
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Column dropdown
-        col_combo = QComboBox()
-        col_combo.addItems(self.column_names)
-        if col_name and col_name in self.column_names:
-            col_combo.setCurrentText(col_name)
-        col_combo.setMinimumWidth(150)
-
-        # Operator dropdown
-        op_combo = QComboBox()
-        op_combo.addItems(["==", "!=", ">", ">=", "<", "<=", "contains", "startswith", "endswith"])
-        op_combo.setCurrentText(operator)
-        op_combo.setMinimumWidth(100)
-
-        # Value input
-        value_edit = QLineEdit(value)
-        value_edit.setPlaceholderText("Filter value...")
-        value_edit.setMinimumWidth(150)
-
-        # Remove button
-        remove_btn = QPushButton("Remove")
-        remove_btn.setToolTip("Remove this filter condition")
-        remove_btn.clicked.connect(lambda: self._remove_filter_row(row_widget))
-
-        row_layout.addWidget(QLabel("Column:"))
-        row_layout.addWidget(col_combo)
-        row_layout.addWidget(QLabel("Operator:"))
-        row_layout.addWidget(op_combo)
-        row_layout.addWidget(QLabel("Value:"))
-        row_layout.addWidget(value_edit)
-        row_layout.addWidget(remove_btn)
-        row_layout.addStretch()
-
-        # Store references for later retrieval
-        row_widget._col_combo = col_combo
-        row_widget._op_combo = op_combo
-        row_widget._value_edit = value_edit
-
-        # Insert before the stretch
-        self.filter_layout.insertWidget(self.filter_layout.count() - 1, row_widget)
-
-    def _remove_filter_row(self, row_widget):
-        """Remove a filter row from the dialog.
-
-        Args:
-            row_widget: The widget representing the filter row to remove
-        """
-        self.filter_layout.removeWidget(row_widget)
-        row_widget.deleteLater()
-
-    def get_filters(self):
-        """Return list of active filters as (column_name, operator, value) tuples."""
-        filters = []
-        for i in range(self.filter_layout.count() - 1):  # -1 to skip stretch
-            widget = self.filter_layout.itemAt(i).widget()
-            if widget and hasattr(widget, "_col_combo"):
-                col_name = widget._col_combo.currentText()
-                operator = widget._op_combo.currentText()
-                value = widget._value_edit.text()
-                if value:  # Only include filters with values
-                    filters.append((col_name, operator, value))
-        return filters
-
-    def set_filters(self, filters):
-        """Set initial filters from a list of (column_name, operator, value) tuples.
-
-        Args:
-            filters: List of (column_name, operator, value) tuples
-        """
-        for col_name, operator, value in filters:
-            self._add_filter_row(col_name, operator, value)
-
-
-class ColumnVisibilityDialog(QDialog):
-    """Dialog for selecting which columns to display in the CSV table."""
-
-    def __init__(self, column_names, visible_columns=None, parent=None):
-        """Initialize the column visibility dialog.
-
-        Args:
-            column_names: List of all column names
-            visible_columns: List of currently visible column names, or None for all
-            parent: Parent widget
-        """
-        super().__init__(parent)
-        self.setWindowTitle("Select Columns to Display")
-        self.resize(400, 500)
-
-        self.column_names = column_names
-        self.visible_columns = visible_columns if visible_columns is not None else column_names.copy()
-
-        layout = QVBoxLayout(self)
-
-        # Instructions
-        info_label = QLabel("Select which columns to display in the table:")
-        layout.addWidget(info_label)
-
-        # Show all / Select specific radio buttons
-        radio_layout = QHBoxLayout()
-        self.radio_show_all = QCheckBox("Show All Columns")
-        self.radio_show_all.setChecked(len(self.visible_columns) == len(self.column_names))
-        self.radio_show_all.toggled.connect(self._on_show_all_toggled)
-        radio_layout.addWidget(self.radio_show_all)
-        radio_layout.addStretch()
-        layout.addLayout(radio_layout)
-
-        # Column list with checkboxes
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.StyledPanel)
-
-        list_container = QWidget()
-        self.list_layout = QVBoxLayout(list_container)
-        self.list_layout.setContentsMargins(5, 5, 5, 5)
-
-        self.column_checkboxes = []
-        for col_name in self.column_names:
-            checkbox = QCheckBox(col_name)
-            checkbox.setChecked(col_name in self.visible_columns)
-            checkbox.toggled.connect(self._on_checkbox_toggled)
-            self.column_checkboxes.append(checkbox)
-            self.list_layout.addWidget(checkbox)
-
-        self.list_layout.addStretch()
-        scroll.setWidget(list_container)
-        layout.addWidget(scroll)
-
-        # Select/Deselect buttons
-        button_layout = QHBoxLayout()
-        select_all_btn = QPushButton("Select All")
-        select_all_btn.clicked.connect(self._select_all)
-        button_layout.addWidget(select_all_btn)
-
-        deselect_all_btn = QPushButton("Deselect All")
-        deselect_all_btn.clicked.connect(self._deselect_all)
-        button_layout.addWidget(deselect_all_btn)
-
-        button_layout.addStretch()
-        layout.addLayout(button_layout)
-
-        # Dialog buttons
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    def _on_show_all_toggled(self, checked):
-        """Handle show all checkbox toggle.
-
-        Args:
-            checked: True if checkbox is checked, False otherwise
-        """
-        if checked:
-            for checkbox in self.column_checkboxes:
-                checkbox.setChecked(True)
-
-    def _on_checkbox_toggled(self):
-        """Update show all checkbox when individual checkboxes change."""
-        all_checked = all(cb.isChecked() for cb in self.column_checkboxes)
-        self.radio_show_all.setChecked(all_checked)
-
-    def _select_all(self):
-        """Select all columns."""
-        for checkbox in self.column_checkboxes:
-            checkbox.setChecked(True)
-
-    def _deselect_all(self):
-        """Deselect all columns."""
-        for checkbox in self.column_checkboxes:
-            checkbox.setChecked(False)
-
-    def get_visible_columns(self):
-        """Return list of selected column names."""
-        return [cb.text() for cb in self.column_checkboxes if cb.isChecked()]
-
-
-class UniqueValuesDialog(QDialog):
-    """Dialog for displaying unique values in a column."""
-
-    def __init__(self, column_name, unique_values, parent=None):
-        """Initialize the unique values dialog.
-
-        Args:
-            column_name: Name of the column being displayed
-            unique_values: List of unique values to display
-            parent: Parent widget
-        """
-        super().__init__(parent)
-        self.setWindowTitle(f"Unique Values - {column_name}")
-        self.resize(400, 500)
-
-        layout = QVBoxLayout(self)
-
-        # Info label
-        info_label = QLabel(f"Unique values in column '{column_name}' ({len(unique_values)} unique):")
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
-
-        # Table to display unique values
-        self.table = QTableWidget()
-        self.table.setColumnCount(1)
-        self.table.setHorizontalHeaderLabels(["Value"])
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setAlternatingRowColors(True)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-
-        # Populate table with unique values
-        self.table.setRowCount(len(unique_values))
-        for i, value in enumerate(unique_values):
-            item = QTableWidgetItem(str(value))
-            self.table.setItem(i, 0, item)
-
-        layout.addWidget(self.table)
-
-        # Close button
-        button_box = QDialogButtonBox(QDialogButtonBox.Close)
-        button_box.rejected.connect(self.close)
-        layout.addWidget(button_box)
-
-
-class PlotOptionsDialog(QDialog):
-    """Dialog for configuring plot options (title, labels, line styles, etc.)."""
-
-    # Available line styles and colors
-    LINE_STYLES = ["-", "--", "-.", ":", "None"]
-    LINE_STYLE_NAMES = ["Solid", "Dashed", "Dash-dot", "Dotted", "None"]
-
-    # Get matplotlib's default color cycle
-    try:
-        _prop_cycle = plt.rcParams["axes.prop_cycle"]
-        COLORS = _prop_cycle.by_key()["color"]
-    except Exception:
-        # Fallback to matplotlib's default tab10 colors if prop_cycle not available
-        COLORS = [
-            "#1f77b4",
-            "#ff7f0e",
-            "#2ca02c",
-            "#d62728",
-            "#9467bd",
-            "#8c564b",
-            "#e377c2",
-            "#7f7f7f",
-            "#bcbd22",
-            "#17becf",
-        ]
-
-    MARKERS = ["", "o", "s", "^", "v", "D", "*", "+", "x", "."]
-    MARKER_NAMES = [
-        "None",
-        "Circle",
-        "Square",
-        "Triangle Up",
-        "Triangle Down",
-        "Diamond",
-        "Star",
-        "Plus",
-        "X",
-        "Point",
-    ]
-
-    def __init__(self, plot_config, column_names, parent=None):
-        """Initialize the plot options dialog.
-
-        Args:
-            plot_config: Dictionary containing plot configuration
-            column_names: List of available column names
-            parent: Parent widget
-        """
-        super().__init__(parent)
-        self.setWindowTitle("Plot Options")
-        self.resize(600, 500)
-
-        self.plot_config = plot_config.copy()  # Work on a copy
-        self.column_names = column_names
-
-        layout = QVBoxLayout(self)
-
-        # Create tab widget for different option categories
-        tabs = QTabWidget()
-        layout.addWidget(tabs)
-
-        # Tab 1: General options
-        general_tab = QWidget()
-        general_layout = QVBoxLayout(general_tab)
-
-        # Plot name
-        name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel("Plot Name:"))
-        self.name_edit = QLineEdit(self.plot_config.get("name", "Plot"))
-        name_layout.addWidget(self.name_edit)
-        general_layout.addLayout(name_layout)
-
-        # Title
-        title_layout = QHBoxLayout()
-        title_layout.addWidget(QLabel("Plot Title:"))
-        self.title_edit = QLineEdit(self.plot_config.get("plot_options", {}).get("title", ""))
-        self.title_edit.setPlaceholderText("Auto-generated from CSV group name")
-        title_layout.addWidget(self.title_edit)
-        general_layout.addLayout(title_layout)
-
-        # X-axis label
-        xlabel_layout = QHBoxLayout()
-        xlabel_layout.addWidget(QLabel("X-axis Label:"))
-        self.xlabel_edit = QLineEdit(self.plot_config.get("plot_options", {}).get("xlabel", ""))
-        self.xlabel_edit.setPlaceholderText("Auto-generated from column name")
-        xlabel_layout.addWidget(self.xlabel_edit)
-        general_layout.addLayout(xlabel_layout)
-
-        # Y-axis label
-        ylabel_layout = QHBoxLayout()
-        ylabel_layout.addWidget(QLabel("Y-axis Label:"))
-        self.ylabel_edit = QLineEdit(self.plot_config.get("plot_options", {}).get("ylabel", ""))
-        self.ylabel_edit.setPlaceholderText("Auto-generated from column names")
-        ylabel_layout.addWidget(self.ylabel_edit)
-        general_layout.addLayout(ylabel_layout)
-
-        # Grid options
-        grid_group = QWidget()
-        grid_layout = QHBoxLayout(grid_group)
-        grid_layout.setContentsMargins(0, 10, 0, 10)
-
-        self.grid_checkbox = QCheckBox("Show Grid")
-        self.grid_checkbox.setChecked(self.plot_config.get("plot_options", {}).get("grid", True))
-        grid_layout.addWidget(self.grid_checkbox)
-
-        self.legend_checkbox = QCheckBox("Show Legend")
-        self.legend_checkbox.setChecked(
-            self.plot_config.get("plot_options", {}).get("legend", True)
-        )
-        grid_layout.addWidget(self.legend_checkbox)
-
-        grid_layout.addWidget(QLabel("Legend Position:"))
-        self.legend_loc_combo = QComboBox()
-        # Matplotlib legend location options
-        legend_locations = [
-            ("best", "Best"),
-            ("upper right", "Upper Right"),
-            ("upper left", "Upper Left"),
-            ("lower left", "Lower Left"),
-            ("lower right", "Lower Right"),
-            ("right", "Right"),
-            ("center left", "Center Left"),
-            ("center right", "Center Right"),
-            ("lower center", "Lower Center"),
-            ("upper center", "Upper Center"),
-            ("center", "Center"),
-        ]
-        for loc_value, loc_name in legend_locations:
-            self.legend_loc_combo.addItem(loc_name, loc_value)
-        # Set current value
-        current_loc = self.plot_config.get("plot_options", {}).get("legend_loc", "best")
-        index = self.legend_loc_combo.findData(current_loc)
-        if index >= 0:
-            self.legend_loc_combo.setCurrentIndex(index)
-        grid_layout.addWidget(self.legend_loc_combo)
-
-        self.dark_background_checkbox = QCheckBox("Dark Background")
-        self.dark_background_checkbox.setChecked(
-            self.plot_config.get("plot_options", {}).get("dark_background", False)
-        )
-        grid_layout.addWidget(self.dark_background_checkbox)
-
-        grid_layout.addStretch()
-        general_layout.addWidget(grid_group)
-
-        # Axis limits section
-        limits_label = QLabel("<b>Axis Limits:</b>")
-        general_layout.addWidget(limits_label)
-
-        # X-axis limits
-        xlim_layout = QHBoxLayout()
-        xlim_layout.addWidget(QLabel("X-axis:"))
-        xlim_layout.addWidget(QLabel("Min:"))
-        self.xlim_min_edit = QLineEdit()
-        self.xlim_min_edit.setPlaceholderText("auto")
-        self.xlim_min_edit.setMaximumWidth(100)
-        xlim_min_val = self.plot_config.get("plot_options", {}).get("xlim_min", "")
-        if xlim_min_val not in (None, ""):
-            self.xlim_min_edit.setText(str(xlim_min_val))
-        xlim_layout.addWidget(self.xlim_min_edit)
-
-        xlim_layout.addWidget(QLabel("Max:"))
-        self.xlim_max_edit = QLineEdit()
-        self.xlim_max_edit.setPlaceholderText("auto")
-        self.xlim_max_edit.setMaximumWidth(100)
-        xlim_max_val = self.plot_config.get("plot_options", {}).get("xlim_max", "")
-        if xlim_max_val not in (None, ""):
-            self.xlim_max_edit.setText(str(xlim_max_val))
-        xlim_layout.addWidget(self.xlim_max_edit)
-
-        xlim_layout.addStretch()
-        general_layout.addLayout(xlim_layout)
-
-        # Y-axis limits
-        ylim_layout = QHBoxLayout()
-        ylim_layout.addWidget(QLabel("Y-axis:"))
-        ylim_layout.addWidget(QLabel("Min:"))
-        self.ylim_min_edit = QLineEdit()
-        self.ylim_min_edit.setPlaceholderText("auto")
-        self.ylim_min_edit.setMaximumWidth(100)
-        ylim_min_val = self.plot_config.get("plot_options", {}).get("ylim_min", "")
-        if ylim_min_val not in (None, ""):
-            self.ylim_min_edit.setText(str(ylim_min_val))
-        ylim_layout.addWidget(self.ylim_min_edit)
-
-        ylim_layout.addWidget(QLabel("Max:"))
-        self.ylim_max_edit = QLineEdit()
-        self.ylim_max_edit.setPlaceholderText("auto")
-        self.ylim_max_edit.setMaximumWidth(100)
-        ylim_max_val = self.plot_config.get("plot_options", {}).get("ylim_max", "")
-        if ylim_max_val not in (None, ""):
-            self.ylim_max_edit.setText(str(ylim_max_val))
-        ylim_layout.addWidget(self.ylim_max_edit)
-
-        ylim_layout.addStretch()
-        general_layout.addLayout(ylim_layout)
-
-        # Log scale options
-        log_scale_label = QLabel("<b>Logarithmic Scale:</b>")
-        general_layout.addWidget(log_scale_label)
-
-        log_scale_layout = QHBoxLayout()
-        log_scale_layout.setContentsMargins(0, 5, 0, 10)
-
-        self.xlog_checkbox = QCheckBox("X-axis Log Scale")
-        self.xlog_checkbox.setChecked(
-            self.plot_config.get("plot_options", {}).get("xlog", False)
-        )
-        log_scale_layout.addWidget(self.xlog_checkbox)
-
-        self.ylog_checkbox = QCheckBox("Y-axis Log Scale")
-        self.ylog_checkbox.setChecked(
-            self.plot_config.get("plot_options", {}).get("ylog", False)
-        )
-        log_scale_layout.addWidget(self.ylog_checkbox)
-
-        log_scale_layout.addStretch()
-        general_layout.addWidget(QWidget())  # Spacer
-        general_layout.addLayout(log_scale_layout)
-
-        # Date/Time X-axis options
-        datetime_label = QLabel("<b>Date/Time X-axis:</b>")
-        general_layout.addWidget(datetime_label)
-
-        datetime_layout = QVBoxLayout()
-        datetime_layout.setContentsMargins(0, 5, 0, 10)
-
-        self.xaxis_datetime_checkbox = QCheckBox("X-axis is Date/Time")
-        self.xaxis_datetime_checkbox.setChecked(
-            self.plot_config.get("plot_options", {}).get("xaxis_datetime", False)
-        )
-        datetime_layout.addWidget(self.xaxis_datetime_checkbox)
-
-        # Date format input
-        format_layout = QHBoxLayout()
-        format_layout.addWidget(QLabel("Date Format:"))
-        self.datetime_format_edit = QLineEdit()
-        self.datetime_format_edit.setPlaceholderText("%Y-%m-%d %H:%M:%S")
-        datetime_format = self.plot_config.get("plot_options", {}).get("datetime_format", "")
-        if datetime_format:
-            self.datetime_format_edit.setText(datetime_format)
-        self.datetime_format_edit.setToolTip(
-            "Python datetime format string (e.g., %Y-%m-%d, %Y-%m-%d %H:%M:%S, %m/%d/%Y)\n"
-            "Common codes: %Y=year, %m=month, %d=day, %H=hour, %M=minute, %S=second"
-        )
-        format_layout.addWidget(self.datetime_format_edit)
-        format_layout.addStretch()
-        datetime_layout.addLayout(format_layout)
-
-        # Date display format
-        display_format_layout = QHBoxLayout()
-        display_format_layout.addWidget(QLabel("Display Format:"))
-        self.datetime_display_format_edit = QLineEdit()
-        self.datetime_display_format_edit.setPlaceholderText("%Y-%m-%d")
-        datetime_display_format = self.plot_config.get("plot_options", {}).get("datetime_display_format", "")
-        if datetime_display_format:
-            self.datetime_display_format_edit.setText(datetime_display_format)
-        self.datetime_display_format_edit.setToolTip(
-            "Format for axis labels (e.g., %Y-%m-%d, %b %d, %m/%d)\n"
-            "Leave empty to use matplotlib's automatic formatting"
-        )
-        display_format_layout.addWidget(self.datetime_display_format_edit)
-        display_format_layout.addStretch()
-        datetime_layout.addLayout(display_format_layout)
-
-        general_layout.addLayout(datetime_layout)
-
-        general_layout.addStretch()
-        tabs.addTab(general_tab, "General")
-
-        # Tab 2: Figure Size & Export
-        export_tab = QWidget()
-        export_layout = QVBoxLayout(export_tab)
-
-        # Figure size options
-        figsize_label = QLabel("<b>Figure Size:</b>")
-        export_layout.addWidget(figsize_label)
-
-        figsize_layout = QHBoxLayout()
-        figsize_layout.setContentsMargins(0, 5, 0, 10)
-
-        figsize_layout.addWidget(QLabel("Width:"))
-        self.figwidth_spin = QDoubleSpinBox()
-        self.figwidth_spin.setRange(1.0, 50.0)
-        self.figwidth_spin.setSingleStep(0.5)
-        self.figwidth_spin.setValue(self.plot_config.get("plot_options", {}).get("figwidth", 8.0))
-        self.figwidth_spin.setSuffix(" in")
-        self.figwidth_spin.setToolTip("Figure width in inches")
-        self.figwidth_spin.setMinimumWidth(100)
-        figsize_layout.addWidget(self.figwidth_spin)
-
-        figsize_layout.addWidget(QLabel("Height:"))
-        self.figheight_spin = QDoubleSpinBox()
-        self.figheight_spin.setRange(1.0, 50.0)
-        self.figheight_spin.setSingleStep(0.5)
-        self.figheight_spin.setValue(self.plot_config.get("plot_options", {}).get("figheight", 6.0))
-        self.figheight_spin.setSuffix(" in")
-        self.figheight_spin.setToolTip("Figure height in inches")
-        self.figheight_spin.setMinimumWidth(100)
-        figsize_layout.addWidget(self.figheight_spin)
-
-        figsize_layout.addWidget(QLabel("DPI:"))
-        self.dpi_spin = QSpinBox()
-        self.dpi_spin.setRange(50, 600)
-        self.dpi_spin.setSingleStep(50)
-        self.dpi_spin.setValue(self.plot_config.get("plot_options", {}).get("dpi", 100))
-        self.dpi_spin.setToolTip("Dots per inch for export")
-        self.dpi_spin.setMinimumWidth(100)
-        figsize_layout.addWidget(self.dpi_spin)
-
-        figsize_layout.addStretch()
-        export_layout.addLayout(figsize_layout)
-
-        # Export format options
-        export_format_label = QLabel("<b>Export Format:</b>")
-        export_layout.addWidget(export_format_label)
-
-        export_format_layout = QHBoxLayout()
-        export_format_layout.setContentsMargins(0, 5, 0, 10)
-        export_format_layout.addWidget(QLabel("File Format:"))
-        self.export_format_combo = QComboBox()
-        self.export_format_combo.addItems(["png", "pdf", "svg", "jpg", "eps"])
-        current_format = self.plot_config.get("plot_options", {}).get("export_format", "png")
-        format_idx = self.export_format_combo.findText(current_format)
-        if format_idx >= 0:
-            self.export_format_combo.setCurrentIndex(format_idx)
-        self.export_format_combo.setToolTip("File format for drag-and-drop export")
-        self.export_format_combo.setMinimumWidth(100)
-        export_format_layout.addWidget(self.export_format_combo)
-        export_format_layout.addStretch()
-        export_layout.addLayout(export_format_layout)
-
-        export_layout.addStretch()
-        tabs.addTab(export_tab, "Figure & Export")
-
-        # Tab 3: Fonts
-        fonts_tab = QWidget()
-        fonts_layout = QVBoxLayout(fonts_tab)
-
-        # Font sizes
-        font_size_label = QLabel("<b>Font Sizes:</b>")
-        fonts_layout.addWidget(font_size_label)
-
-        font_size_layout = QHBoxLayout()
-        font_size_layout.setContentsMargins(0, 5, 0, 10)
-
-        font_size_layout.addWidget(QLabel("Title:"))
-        self.title_fontsize_spin = QSpinBox()
-        self.title_fontsize_spin.setRange(6, 72)
-        self.title_fontsize_spin.setValue(self.plot_config.get("plot_options", {}).get("title_fontsize", 12))
-        self.title_fontsize_spin.setSuffix(" pt")
-        self.title_fontsize_spin.setToolTip("Font size for plot title")
-        self.title_fontsize_spin.setMinimumWidth(80)
-        font_size_layout.addWidget(self.title_fontsize_spin)
-
-        font_size_layout.addWidget(QLabel("Axis Labels:"))
-        self.axis_label_fontsize_spin = QSpinBox()
-        self.axis_label_fontsize_spin.setRange(6, 72)
-        self.axis_label_fontsize_spin.setValue(self.plot_config.get("plot_options", {}).get("axis_label_fontsize", 10))
-        self.axis_label_fontsize_spin.setSuffix(" pt")
-        self.axis_label_fontsize_spin.setToolTip("Font size for axis labels")
-        self.axis_label_fontsize_spin.setMinimumWidth(80)
-        font_size_layout.addWidget(self.axis_label_fontsize_spin)
-
-        font_size_layout.addWidget(QLabel("Tick Labels:"))
-        self.tick_fontsize_spin = QSpinBox()
-        self.tick_fontsize_spin.setRange(6, 72)
-        self.tick_fontsize_spin.setValue(self.plot_config.get("plot_options", {}).get("tick_fontsize", 9))
-        self.tick_fontsize_spin.setSuffix(" pt")
-        self.tick_fontsize_spin.setToolTip("Font size for axis tick labels")
-        self.tick_fontsize_spin.setMinimumWidth(80)
-        font_size_layout.addWidget(self.tick_fontsize_spin)
-
-        font_size_layout.addWidget(QLabel("Legend:"))
-        self.legend_fontsize_spin = QSpinBox()
-        self.legend_fontsize_spin.setRange(6, 72)
-        self.legend_fontsize_spin.setValue(self.plot_config.get("plot_options", {}).get("legend_fontsize", 9))
-        self.legend_fontsize_spin.setSuffix(" pt")
-        self.legend_fontsize_spin.setToolTip("Font size for legend text")
-        self.legend_fontsize_spin.setMinimumWidth(80)
-        font_size_layout.addWidget(self.legend_fontsize_spin)
-
-        font_size_layout.addStretch()
-        fonts_layout.addLayout(font_size_layout)
-
-        # Font family
-        font_family_label = QLabel("<b>Font Family:</b>")
-        fonts_layout.addWidget(font_family_label)
-
-        font_family_layout = QHBoxLayout()
-        font_family_layout.setContentsMargins(0, 5, 0, 10)
-        font_family_layout.addWidget(QLabel("Family:"))
-        self.font_family_combo = QComboBox()
-        self.font_family_combo.addItems(["serif", "sans-serif", "monospace", "cursive", "fantasy"])
-        current_family = self.plot_config.get("plot_options", {}).get("font_family", "serif")
-        family_idx = self.font_family_combo.findText(current_family)
-        if family_idx >= 0:
-            self.font_family_combo.setCurrentIndex(family_idx)
-        self.font_family_combo.setToolTip("Font family for all plot text")
-        self.font_family_combo.setMinimumWidth(150)
-        font_family_layout.addWidget(self.font_family_combo)
-        font_family_layout.addStretch()
-        fonts_layout.addLayout(font_family_layout)
-
-        fonts_layout.addStretch()
-        tabs.addTab(fonts_tab, "Fonts")
-
-        # Tab 4: Series styles
-        series_tab = QWidget()
-        series_layout = QVBoxLayout(series_tab)
-
-        series_label = QLabel("Configure line style for each data series:")
-        series_label.setStyleSheet("font-weight: bold;")
-        series_layout.addWidget(series_label)
-
-        # Scroll area for series
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.StyledPanel)
-
-        series_container = QWidget()
-        self.series_layout = QVBoxLayout(series_container)
-        self.series_layout.setContentsMargins(5, 5, 5, 5)
-
-        # Get Y column indices and names
-        y_idxs = self.plot_config.get("y_col_idxs", [])
-        # Ensure y_idxs is a list (handle legacy configs where it might be an integer)
-        if isinstance(y_idxs, int):
-            y_idxs = [y_idxs]
-        series_options = self.plot_config.get("plot_options", {}).get("series", {})
-
-        self.series_widgets = []
-        for idx, y_idx in enumerate(y_idxs):
-            if y_idx < len(column_names):
-                y_name = column_names[y_idx]
-                series_widget = self._create_series_widget(
-                    y_name, idx, series_options.get(y_name, {})
-                )
-                self.series_layout.addWidget(series_widget)
-                self.series_widgets.append((y_name, series_widget))
-
-        self.series_layout.addStretch()
-        scroll.setWidget(series_container)
-        series_layout.addWidget(scroll)
-
-        tabs.addTab(series_tab, "Series Styles")
-
-        # Tab 3: Reference Lines
-        reflines_tab = QWidget()
-        reflines_layout = QVBoxLayout(reflines_tab)
-
-        reflines_label = QLabel("Add horizontal and vertical reference lines:")
-        reflines_label.setStyleSheet("font-weight: bold;")
-        reflines_layout.addWidget(reflines_label)
-
-        # Scroll area for reference lines
-        reflines_scroll = QScrollArea()
-        reflines_scroll.setWidgetResizable(True)
-        reflines_scroll.setFrameShape(QFrame.StyledPanel)
-
-        reflines_container = QWidget()
-        self.reflines_layout = QVBoxLayout(reflines_container)
-        self.reflines_layout.setContentsMargins(5, 5, 5, 5)
-
-        # Load existing reference lines
-        self.refline_widgets = []
-        existing_reflines = self.plot_config.get("plot_options", {}).get("reference_lines", [])
-        for refline in existing_reflines:
-            self._add_refline_widget(
-                refline.get("type", "horizontal"),
-                refline.get("value", ""),
-                refline.get("color", "#FF0000"),
-                refline.get("linestyle", "--"),
-                refline.get("linewidth", 1.0),
-                refline.get("label", "")
-            )
-
-        self.reflines_layout.addStretch()
-        reflines_scroll.setWidget(reflines_container)
-        reflines_layout.addWidget(reflines_scroll)
-
-        # Buttons to add reference lines
-        reflines_buttons = QHBoxLayout()
-        add_hline_btn = QPushButton("+ Add Horizontal Line")
-        add_hline_btn.setToolTip("Add a horizontal reference line at a specific Y value")
-        add_hline_btn.clicked.connect(lambda: self._add_refline_widget("horizontal"))
-        reflines_buttons.addWidget(add_hline_btn)
-
-        add_vline_btn = QPushButton("+ Add Vertical Line")
-        add_vline_btn.setToolTip("Add a vertical reference line at a specific X value")
-        add_vline_btn.clicked.connect(lambda: self._add_refline_widget("vertical"))
-        reflines_buttons.addWidget(add_vline_btn)
-
-        reflines_buttons.addStretch()
-        reflines_layout.addLayout(reflines_buttons)
-
-        tabs.addTab(reflines_tab, "Reference Lines")
-
-        # Tab 6: Filters & Sort
-        filters_sort_tab = QWidget()
-        filters_sort_layout = QVBoxLayout(filters_sort_tab)
-
-        # Filters section
-        filters_label = QLabel("<b>Data Filters:</b>")
-        filters_sort_layout.addWidget(filters_label)
-
-        filters_info = QLabel("Configure which rows from the CSV are included in this plot.")
-        filters_info.setWordWrap(True)
-        filters_sort_layout.addWidget(filters_info)
-
-        # Store filters and sort in dialog - use list() to create proper copies
-        self.csv_filters = list(self.plot_config.get("csv_filters", []))
-        self.csv_sort = list(self.plot_config.get("csv_sort", []))
-
-        # Filter status display
-        self.filter_status_label = QLabel(self._get_filter_status_text())
-        self.filter_status_label.setWordWrap(True)
-        filters_sort_layout.addWidget(self.filter_status_label)
-
-        # Filter buttons
-        filter_buttons_layout = QHBoxLayout()
-        edit_filters_btn = QPushButton("Configure Filters...")
-        edit_filters_btn.setToolTip("Add or modify filter conditions")
-        edit_filters_btn.clicked.connect(self._edit_filters)
-        filter_buttons_layout.addWidget(edit_filters_btn)
-
-        clear_filters_btn = QPushButton("Clear Filters")
-        clear_filters_btn.setToolTip("Remove all filter conditions")
-        clear_filters_btn.clicked.connect(self._clear_filters)
-        filter_buttons_layout.addWidget(clear_filters_btn)
-
-        filter_buttons_layout.addStretch()
-        filters_sort_layout.addLayout(filter_buttons_layout)
-
-        # Sort section
-        filters_sort_layout.addSpacing(20)
-        sort_label = QLabel("<b>Data Sorting:</b>")
-        filters_sort_layout.addWidget(sort_label)
-
-        sort_info = QLabel("Configure how the data is sorted before plotting.")
-        sort_info.setWordWrap(True)
-        filters_sort_layout.addWidget(sort_info)
-
-        # Sort status display
-        self.sort_status_label = QLabel(self._get_sort_status_text())
-        self.sort_status_label.setWordWrap(True)
-        filters_sort_layout.addWidget(self.sort_status_label)
-
-        # Sort buttons
-        sort_buttons_layout = QHBoxLayout()
-        edit_sort_btn = QPushButton("Configure Sort...")
-        edit_sort_btn.setToolTip("Configure multi-column sorting")
-        edit_sort_btn.clicked.connect(self._edit_sort)
-        sort_buttons_layout.addWidget(edit_sort_btn)
-
-        clear_sort_btn = QPushButton("Clear Sort")
-        clear_sort_btn.setToolTip("Remove all sorting")
-        clear_sort_btn.clicked.connect(self._clear_sort)
-        sort_buttons_layout.addWidget(clear_sort_btn)
-
-        sort_buttons_layout.addStretch()
-        filters_sort_layout.addLayout(sort_buttons_layout)
-
-        filters_sort_layout.addStretch()
-        tabs.addTab(filters_sort_tab, "Data")
-
-        # Dialog buttons
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    def _create_series_widget(self, series_name, series_idx, series_options):
-        """Create a widget for configuring one series.
-
-        Args:
-            series_name: Name of the data series (column name)
-            series_idx: Index of the series in the list
-            series_options: Dictionary of existing options for this series
-
-        Returns:
-            QFrame widget configured for the series
-        """
-        widget = QFrame()
-        widget.setFrameShape(QFrame.StyledPanel)
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(10, 10, 10, 10)
-
-        # Series name label
-        name_label = QLabel(f"<b>{series_name}</b>")
-        layout.addWidget(name_label)
-
-        # Plot type selection
-        plot_type_layout = QHBoxLayout()
-        plot_type_layout.addWidget(QLabel("Plot Type:"))
-        plot_type_combo = QComboBox()
-        plot_type_combo.addItem("Line", "line")
-        plot_type_combo.addItem("Bar", "bar")
-        current_plot_type = series_options.get("plot_type", "line")
-        plot_type_idx = 0 if current_plot_type == "line" else 1
-        plot_type_combo.setCurrentIndex(plot_type_idx)
-        plot_type_combo.setToolTip("Choose between line plot or bar chart")
-        plot_type_combo.setMinimumWidth(100)
-        plot_type_layout.addWidget(plot_type_combo)
-        plot_type_layout.addStretch()
-        layout.addLayout(plot_type_layout)
-
-        # Color, line style, and marker in one row
-        style_layout = QHBoxLayout()
-
-        # Color picker button
-        style_layout.addWidget(QLabel("Color:"))
-        color_button = QPushButton()
-        color_button.setToolTip("Click to choose a custom color for this data series")
-        color_button.setMaximumWidth(80)
-        color_button.setMinimumHeight(25)
-
-        # Get current color (hex string or default from cycle)
-        current_color = series_options.get("color", self.COLORS[series_idx % len(self.COLORS)])
-        # Parse color to QColor
-        qcolor = QColor(current_color)
-        if not qcolor.isValid():
-            # Fallback to first default color if invalid
-            qcolor = QColor(self.COLORS[0])
-
-        # Set button style with current color
-        color_button.setStyleSheet(f"background-color: {qcolor.name()}; border: 1px solid #999;")
-        color_button._color = qcolor
-
-        # Connect to color picker dialog
-        def pick_color():
-            color = QColorDialog.getColor(color_button._color, self, "Select Color")
-            if color.isValid():
-                color_button._color = color
-                color_button.setStyleSheet(
-                    f"background-color: {color.name()}; border: 1px solid #999;"
-                )
-
-        color_button.clicked.connect(pick_color)
-        style_layout.addWidget(color_button)
-
-        # Line style
-        style_layout.addWidget(QLabel("Line Style:"))
-        linestyle_combo = QComboBox()
-        for i, name in enumerate(self.LINE_STYLE_NAMES):
-            linestyle_combo.addItem(name, self.LINE_STYLES[i])
-        current_linestyle = series_options.get("linestyle", "-")
-        idx = (
-            self.LINE_STYLES.index(current_linestyle)
-            if current_linestyle in self.LINE_STYLES
-            else 0
-        )
-        linestyle_combo.setCurrentIndex(idx)
-        linestyle_combo.setMinimumWidth(100)
-        style_layout.addWidget(linestyle_combo)
-
-        # Marker
-        style_layout.addWidget(QLabel("Marker:"))
-        marker_combo = QComboBox()
-        for i, name in enumerate(self.MARKER_NAMES):
-            marker_combo.addItem(name, self.MARKERS[i])
-        current_marker = series_options.get("marker", "")
-        marker_idx = self.MARKERS.index(current_marker) if current_marker in self.MARKERS else 0
-        marker_combo.setCurrentIndex(marker_idx)
-        marker_combo.setMinimumWidth(100)
-        style_layout.addWidget(marker_combo)
-
-        style_layout.addStretch()
-        layout.addLayout(style_layout)
-
-        # Line width and Marker size in one row
-        size_layout = QHBoxLayout()
-
-        size_layout.addWidget(QLabel("Line Width:"))
-        width_spin = QDoubleSpinBox()
-        width_spin.setRange(0.5, 5.0)
-        width_spin.setSingleStep(0.5)
-        width_spin.setValue(series_options.get("linewidth", 1.5))
-        width_spin.setMinimumWidth(80)
-        size_layout.addWidget(width_spin)
-
-        size_layout.addWidget(QLabel("Marker Size:"))
-        markersize_spin = QDoubleSpinBox()
-        markersize_spin.setRange(1.0, 20.0)
-        markersize_spin.setSingleStep(1.0)
-        markersize_spin.setValue(series_options.get("markersize", 6.0))
-        markersize_spin.setMinimumWidth(80)
-        size_layout.addWidget(markersize_spin)
-
-        size_layout.addStretch()
-        layout.addLayout(size_layout)
-
-        # Legend label in its own row
-        label_layout = QHBoxLayout()
-        label_layout.addWidget(QLabel("Legend Label:"))
-        label_edit = QLineEdit()
-        label_edit.setText(series_options.get("label", series_name))
-        label_edit.setPlaceholderText(f"Default: {series_name}")
-        label_layout.addWidget(label_edit)
-        layout.addLayout(label_layout)
-
-        # Smoothing options
-        smooth_layout = QVBoxLayout()
-        smooth_checkbox = QCheckBox("Apply Moving Average Smoothing")
-        smooth_checkbox.setChecked(series_options.get("smooth", False))
-        smooth_layout.addWidget(smooth_checkbox)
-
-        smooth_params_layout = QHBoxLayout()
-        smooth_params_layout.addWidget(QLabel("Window Size:"))
-        smooth_window_spin = QSpinBox()
-        smooth_window_spin.setRange(2, 1000)
-        smooth_window_spin.setValue(series_options.get("smooth_window", 5))
-        smooth_window_spin.setToolTip("Number of points to average (must be odd for centered averaging)")
-        smooth_window_spin.setMinimumWidth(80)
-        smooth_params_layout.addWidget(smooth_window_spin)
-
-        smooth_params_layout.addWidget(QLabel("Show:"))
-        smooth_mode_combo = QComboBox()
-        smooth_mode_combo.addItem("Smoothed Only", "smoothed")
-        smooth_mode_combo.addItem("Original + Smoothed", "both")
-        smooth_mode_combo.addItem("Original Only (Smoothing Off)", "original")
-        current_mode = series_options.get("smooth_mode", "smoothed")
-        mode_idx = 0 if current_mode == "smoothed" else (1 if current_mode == "both" else 2)
-        smooth_mode_combo.setCurrentIndex(mode_idx)
-        smooth_mode_combo.setMinimumWidth(150)
-        smooth_params_layout.addWidget(smooth_mode_combo)
-
-        smooth_params_layout.addStretch()
-        smooth_layout.addLayout(smooth_params_layout)
-        layout.addLayout(smooth_layout)
-
-        # Trend line options
-        trend_layout = QVBoxLayout()
-        trend_checkbox = QCheckBox("Add Trend Line")
-        trend_checkbox.setChecked(series_options.get("trendline", False))
-        trend_layout.addWidget(trend_checkbox)
-
-        trend_params_layout = QHBoxLayout()
-        trend_params_layout.addWidget(QLabel("Type:"))
-        trend_type_combo = QComboBox()
-        trend_type_combo.addItem("Linear", "linear")
-        trend_type_combo.addItem("Polynomial (degree 2)", "poly2")
-        trend_type_combo.addItem("Polynomial (degree 3)", "poly3")
-        trend_type_combo.addItem("Polynomial (degree 4)", "poly4")
-        current_trend_type = series_options.get("trendline_type", "linear")
-        trend_type_idx = 0 if current_trend_type == "linear" else (1 if current_trend_type == "poly2" else (2 if current_trend_type == "poly3" else 3))
-        trend_type_combo.setCurrentIndex(trend_type_idx)
-        trend_type_combo.setMinimumWidth(150)
-        trend_params_layout.addWidget(trend_type_combo)
-
-        trend_params_layout.addWidget(QLabel("Show:"))
-        trend_mode_combo = QComboBox()
-        trend_mode_combo.addItem("Trend Only", "trend")
-        trend_mode_combo.addItem("Original + Trend", "both")
-        current_trend_mode = series_options.get("trendline_mode", "both")
-        trend_mode_idx = 0 if current_trend_mode == "trend" else 1
-        trend_mode_combo.setCurrentIndex(trend_mode_idx)
-        trend_mode_combo.setMinimumWidth(150)
-        trend_params_layout.addWidget(trend_mode_combo)
-
-        trend_params_layout.addStretch()
-        trend_layout.addLayout(trend_params_layout)
-        layout.addLayout(trend_layout)
-
-        # Store references
-        widget._plot_type_combo = plot_type_combo
-        widget._color_button = color_button
-        widget._linestyle_combo = linestyle_combo
-        widget._marker_combo = marker_combo
-        widget._width_spin = width_spin
-        widget._markersize_spin = markersize_spin
-        widget._label_edit = label_edit
-        widget._smooth_checkbox = smooth_checkbox
-        widget._smooth_window_spin = smooth_window_spin
-        widget._smooth_mode_combo = smooth_mode_combo
-        widget._trend_checkbox = trend_checkbox
-        widget._trend_type_combo = trend_type_combo
-        widget._trend_mode_combo = trend_mode_combo
-
-        return widget
-
-    def _add_refline_widget(self, line_type, value=None, color=None, linestyle=None, linewidth=None, label=None):
-        """Add a reference line configuration widget.
-
-        Args:
-            line_type: "horizontal" or "vertical"
-            value: Position value (y for horizontal, x for vertical)
-            color: Line color (hex string or None for default)
-            linestyle: Line style string (default: "solid")
-            linewidth: Line width float (default: 1.5)
-            label: Optional label for the line
-        """
-        widget = QFrame()
-        widget.setFrameStyle(QFrame.Panel | QFrame.Raised)
-        layout = QVBoxLayout(widget)
-
-        # Header row: Type and Remove button
-        header_layout = QHBoxLayout()
-        type_label = QLabel(f"{'Horizontal' if line_type == 'horizontal' else 'Vertical'} Line")
-        type_label.setStyleSheet("font-weight: bold;")
-        header_layout.addWidget(type_label)
-        header_layout.addStretch()
-
-        remove_btn = QPushButton("Remove")
-        remove_btn.setToolTip("Remove this reference line from the plot")
-        remove_btn.clicked.connect(lambda: self._remove_refline_widget(widget))
-        header_layout.addWidget(remove_btn)
-        layout.addLayout(header_layout)
-
-        # Value and Color in one row
-        value_color_layout = QHBoxLayout()
-
-        value_color_layout.addWidget(QLabel("Value:"))
-        value_edit = QLineEdit()
-        value_edit.setPlaceholderText("0.0")
-        if value is not None:
-            value_edit.setText(str(value))
-        # Add numeric validator
-        value_edit.setValidator(QDoubleValidator())
-        value_edit.setMinimumWidth(100)
-        value_color_layout.addWidget(value_edit)
-
-        value_color_layout.addWidget(QLabel("Color:"))
-        color_button = QPushButton()
-        color_button.setToolTip("Click to choose the color for this reference line")
-        color_button.setMinimumWidth(60)
-        color_button.setMaximumWidth(60)
-        # Set initial color
-        if color:
-            initial_color = QColor(color)
-        else:
-            initial_color = QColor("#000000")  # Black default
-        color_button._color = initial_color
-        color_button.setStyleSheet(f"background-color: {initial_color.name()};")
-
-        def choose_color():
-            color = QColorDialog.getColor(color_button._color, self, "Choose Reference Line Color")
-            if color.isValid():
-                color_button._color = color
-                color_button.setStyleSheet(f"background-color: {color.name()};")
-
-        color_button.clicked.connect(choose_color)
-        value_color_layout.addWidget(color_button)
-
-        value_color_layout.addStretch()
-        layout.addLayout(value_color_layout)
-
-        # Style, Width, and Label in one row
-        style_layout = QHBoxLayout()
-
-        style_layout.addWidget(QLabel("Style:"))
-        linestyle_combo = QComboBox()
-        linestyle_combo.addItem("Solid", "solid")
-        linestyle_combo.addItem("Dashed", "dashed")
-        linestyle_combo.addItem("Dash-dot", "dashdot")
-        linestyle_combo.addItem("Dotted", "dotted")
-        # Set current style
-        styles = ["solid", "dashed", "dashdot", "dotted"]
-        current_style = linestyle if linestyle in styles else "solid"
-        linestyle_combo.setCurrentIndex(styles.index(current_style))
-        linestyle_combo.setMinimumWidth(100)
-        style_layout.addWidget(linestyle_combo)
-
-        style_layout.addWidget(QLabel("Width:"))
-        width_spin = QDoubleSpinBox()
-        width_spin.setRange(0.5, 5.0)
-        width_spin.setSingleStep(0.5)
-        width_spin.setValue(linewidth if linewidth is not None else 1.5)
-        width_spin.setMinimumWidth(80)
-        style_layout.addWidget(width_spin)
-
-        style_layout.addWidget(QLabel("Label:"))
-        label_edit = QLineEdit()
-        label_edit.setPlaceholderText("Optional")
-        if label:
-            label_edit.setText(label)
-        label_edit.setMinimumWidth(120)
-        style_layout.addWidget(label_edit)
-
-        style_layout.addStretch()
-        layout.addLayout(style_layout)
-
-        # Store references and metadata
-        widget._line_type = line_type
-        widget._value_edit = value_edit
-        widget._color_button = color_button
-        widget._linestyle_combo = linestyle_combo
-        widget._width_spin = width_spin
-        widget._label_edit = label_edit
-
-        # Add to layout and tracking list
-        self.refline_widgets.append(widget)
-        # Insert before the stretch
-        self.reflines_layout.insertWidget(self.reflines_layout.count() - 1, widget)
-
-        return widget
-
-    def _remove_refline_widget(self, widget):
-        """Remove a reference line widget.
-
-        Args:
-            widget: The reference line widget to remove
-        """
-        if widget in self.refline_widgets:
-            self.refline_widgets.remove(widget)
-            self.reflines_layout.removeWidget(widget)
-            widget.deleteLater()
-
-    def _get_filter_status_text(self):
-        """Get status text for filters."""
-        if not self.csv_filters:
-            return "No filters applied"
-        return f"{len(self.csv_filters)} filter(s) applied: " + ", ".join(
-            f"{col} {op} {val}" for col, op, val in self.csv_filters[:3]
-        ) + ("..." if len(self.csv_filters) > 3 else "")
-
-    def _get_sort_status_text(self):
-        """Get status text for sort."""
-        if not self.csv_sort:
-            return "No sorting applied"
-        return f"Sorted by {len(self.csv_sort)} column(s): " + ", ".join(
-            f"{col} ({order})" for col, order in self.csv_sort[:3]
-        ) + ("..." if len(self.csv_sort) > 3 else "")
-
-    def _edit_filters(self):
-        """Open the filter configuration dialog."""
-        dialog = ColumnFilterDialog(self.column_names, self)
-        dialog.set_filters(self.csv_filters)
-
-        if dialog.exec() == QDialog.Accepted:
-            self.csv_filters = dialog.get_filters()
-            self.filter_status_label.setText(self._get_filter_status_text())
-
-    def _clear_filters(self):
-        """Clear all filters."""
-        self.csv_filters = []
-        self.filter_status_label.setText(self._get_filter_status_text())
-
-    def _edit_sort(self):
-        """Open the sort configuration dialog."""
-        dialog = ColumnSortDialog(self.column_names, self)
-        dialog.set_sort_specs(self.csv_sort)
-
-        if dialog.exec() == QDialog.Accepted:
-            self.csv_sort = dialog.get_sort_specs()
-            self.sort_status_label.setText(self._get_sort_status_text())
-
-    def _clear_sort(self):
-        """Clear all sorting."""
-        self.csv_sort = []
-        self.sort_status_label.setText(self._get_sort_status_text())
-
-    def get_plot_config(self):
-        """Return updated plot configuration."""
-        # Update name
-        self.plot_config["name"] = self.name_edit.text()
-
-        # Create or update plot_options
-        if "plot_options" not in self.plot_config:
-            self.plot_config["plot_options"] = {}
-
-        plot_opts = self.plot_config["plot_options"]
-        plot_opts["title"] = self.title_edit.text()
-        plot_opts["xlabel"] = self.xlabel_edit.text()
-        plot_opts["ylabel"] = self.ylabel_edit.text()
-        plot_opts["grid"] = self.grid_checkbox.isChecked()
-        plot_opts["legend"] = self.legend_checkbox.isChecked()
-        plot_opts["legend_loc"] = self.legend_loc_combo.currentData()
-        plot_opts["dark_background"] = self.dark_background_checkbox.isChecked()
-
-        # Save axis limits (convert to float or None)
-        def parse_limit(text):
-            text = text.strip()
-            if not text:
-                return None
-            try:
-                return float(text)
-            except ValueError:
-                return None
-
-        plot_opts["xlim_min"] = parse_limit(self.xlim_min_edit.text())
-        plot_opts["xlim_max"] = parse_limit(self.xlim_max_edit.text())
-        plot_opts["ylim_min"] = parse_limit(self.ylim_min_edit.text())
-        plot_opts["ylim_max"] = parse_limit(self.ylim_max_edit.text())
-
-        # Save log scale options
-        plot_opts["xlog"] = self.xlog_checkbox.isChecked()
-        plot_opts["ylog"] = self.ylog_checkbox.isChecked()
-
-        # Save datetime x-axis options
-        plot_opts["xaxis_datetime"] = self.xaxis_datetime_checkbox.isChecked()
-        plot_opts["datetime_format"] = self.datetime_format_edit.text().strip()
-        plot_opts["datetime_display_format"] = self.datetime_display_format_edit.text().strip()
-
-        # Save figure size and export options
-        plot_opts["figwidth"] = self.figwidth_spin.value()
-        plot_opts["figheight"] = self.figheight_spin.value()
-        plot_opts["dpi"] = self.dpi_spin.value()
-        plot_opts["export_format"] = self.export_format_combo.currentText()
-
-        # Save font size options
-        plot_opts["title_fontsize"] = self.title_fontsize_spin.value()
-        plot_opts["axis_label_fontsize"] = self.axis_label_fontsize_spin.value()
-        plot_opts["tick_fontsize"] = self.tick_fontsize_spin.value()
-        plot_opts["legend_fontsize"] = self.legend_fontsize_spin.value()
-
-        # Save font family option
-        plot_opts["font_family"] = self.font_family_combo.currentText()
-
-        # Save reference lines
-        ref_lines = []
-        for widget in self.refline_widgets:
-            value_text = widget._value_edit.text().strip()
-            if value_text:  # Only save if value is provided
-                try:
-                    value = float(value_text)
-                    label_text = widget._label_edit.text().strip()
-                    ref_lines.append({
-                        "type": widget._line_type,
-                        "value": value,
-                        "color": widget._color_button._color.name(),
-                        "linestyle": widget._linestyle_combo.currentData(),
-                        "linewidth": widget._width_spin.value(),
-                        "label": label_text if label_text else None
-                    })
-                except ValueError:
-                    # Skip invalid values
-                    pass
-        plot_opts["reference_lines"] = ref_lines
-
-        # Update series options
-        series_opts = {}
-        for series_name, widget in self.series_widgets:
-            series_opts[series_name] = {
-                "plot_type": widget._plot_type_combo.currentData(),
-                "label": widget._label_edit.text(),
-                "color": widget._color_button._color.name(),  # Get hex color from QColor
-                "linestyle": widget._linestyle_combo.currentData(),
-                "marker": widget._marker_combo.currentData(),
-                "linewidth": widget._width_spin.value(),
-                "markersize": widget._markersize_spin.value(),
-                "smooth": widget._smooth_checkbox.isChecked(),
-                "smooth_window": widget._smooth_window_spin.value(),
-                "smooth_mode": widget._smooth_mode_combo.currentData(),
-                "trendline": widget._trend_checkbox.isChecked(),
-                "trendline_type": widget._trend_type_combo.currentData(),
-                "trendline_mode": widget._trend_mode_combo.currentData(),
-            }
-        plot_opts["series"] = series_opts
-
-        # Save filters and sort
-        self.plot_config["csv_filters"] = self.csv_filters
-        self.plot_config["csv_sort"] = self.csv_sort
-
-        return self.plot_config
-
-
-class CustomSplitter(QSplitter):
-    """QSplitter with explicit cursor management for macOS compatibility."""
-
-    def __init__(self, *args, **kwargs):
-        """Initialize the clickable splitter.
-
-        Args:
-            *args: Positional arguments passed to QSplitter
-            **kwargs: Keyword arguments passed to QSplitter
-        """
-        super().__init__(*args, **kwargs)
-        self._setupCursor()
-
-    def _setupCursor(self):
-        """Ensure the splitter handle always has the correct cursor based on orientation."""
-        # Set the cursor based on orientation
-        if self.orientation() == Qt.Horizontal:
-            cursor = Qt.SplitHCursor
-        else:
-            cursor = Qt.SplitVCursor
-
-        # Apply cursor to all handles
-        for i in range(self.count()):
-            handle = self.handle(i)
-            if handle:
-                handle.setCursor(cursor)
-
-    def addWidget(self, widget):
-        """Override to set cursor on handle after widget is added.
-
-        Args:
-            widget: QWidget to add to the splitter
-        """
-        super().addWidget(widget)
-        self._setupCursor()
-
-    def insertWidget(self, index, widget):
-        """Override to set cursor on handle after widget is inserted.
-
-        Args:
-            index: Position to insert the widget at
-            widget: QWidget to insert
-        """
-        super().insertWidget(index, widget)
-        self._setupCursor()
+from .utilities import excluded_dirs, excluded_files, _indices_to_ranges, _ranges_to_indices, _sanitize_hdf5_name, _dataset_to_text
+from .csv_table_model import CSVTableModel
+from .draggable_plot_list_widget import DraggablePlotListWidget
+from .scaled_image_label import ScaledImageLabel
+from .drop_tree_view import DropTreeView
+from .column_statistics_dialog import ColumnStatisticsDialog
+from .column_sort_dialog import ColumnSortDialog
+from .column_filter_dialog import ColumnFilterDialog
+from .column_visibility_dialog import ColumnVisibilityDialog
+from .unique_values_dialog import UniqueValuesDialog
+from .plot_options_dialog import PlotOptionsDialog
 
 
 class HDF5Viewer(QMainWindow):
+    """Main window for the HDF5 viewer application."""
+
     def __init__(self, parent=None):
         """Initialize the HDF5 viewer main window.
 
@@ -2183,7 +93,7 @@ class HDF5Viewer(QMainWindow):
         central_layout.setContentsMargins(0, 0, 0, 0)
         self.setCentralWidget(central)
 
-        splitter = CustomSplitter(self)
+        splitter = QSplitter(self)
         splitter.setHandleWidth(8)  # Make handle wider for easier grabbing
         splitter.setChildrenCollapsible(False)  # Prevent panels from collapsing completely
         splitter.splitterMoved.connect(self._on_splitter_moved)
@@ -2304,7 +214,7 @@ class HDF5Viewer(QMainWindow):
         right_layout.setContentsMargins(4, 4, 4, 4)
 
         # Create a vertical splitter for content and attributes
-        right_splitter = CustomSplitter(Qt.Vertical, right)
+        right_splitter = QSplitter(Qt.Vertical, right)
         right_splitter.setHandleWidth(8)  # Make handle wider for easier grabbing
         right_splitter.setChildrenCollapsible(False)  # Prevent panels from collapsing completely
         right_splitter.splitterMoved.connect(self._on_splitter_moved)
@@ -2331,6 +241,9 @@ class HDF5Viewer(QMainWindow):
             pass
         content_layout.addWidget(self.preview_label)
         content_layout.addWidget(self.preview_edit)
+
+        # hide this so only one is visible when application starts up
+        self.preview_edit.setVisible(False)
 
         # Filter panel for CSV tables (hidden by default)
         self.filter_panel = QWidget()
@@ -2381,19 +294,15 @@ class HDF5Viewer(QMainWindow):
         content_layout.addWidget(self.filter_panel)
 
         # Table widget for CSV/tabular data (hidden by default)
-        self.preview_table = QTableWidget(self)
-        self.preview_table.setVisible(False)
-        self.preview_table.setAlternatingRowColors(True)
-        self.preview_table.horizontalHeader().setStretchLastSection(False)
-        # Enable selecting multiple columns for plotting
-        self.preview_table.setSelectionBehavior(QAbstractItemView.SelectColumns)
+        # Replace QTableWidget with QTableView for CSV preview
+        self.preview_table = QTableView()
+        self.preview_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.preview_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.preview_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.preview_table.itemSelectionChanged.connect(self._update_plot_action_enabled)
-        # Connect scrollbar for lazy loading
-        self.preview_table.verticalScrollBar().valueChanged.connect(self._on_table_scroll)
-        # Enable context menu on horizontal header
-        self.preview_table.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
-        self.preview_table.horizontalHeader().customContextMenuRequested.connect(self._on_column_header_context_menu)
+        self.preview_table.setSortingEnabled(False)
+        self.preview_table.setAlternatingRowColors(True)
+        self.preview_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        #self.preview_table.customContextMenuRequested.connect(self._on_table_context_menu)
         content_layout.addWidget(self.preview_table)
 
         # Lazy loading state variables
@@ -2497,6 +406,84 @@ class HDF5Viewer(QMainWindow):
 
         # Track current search pattern
         self._search_pattern: str = ""
+
+    def _is_csv_group(self, path: str) -> bool:
+        """Return True if the group at the given path is a CSV-derived group."""
+        # This checks for the presence of 'column_names' attribute in the group
+        if not self.model or not self.model.filepath or not path:
+            return False
+        try:
+            with h5py.File(self.model.filepath, "r") as h5:
+                if path in h5:
+                    grp = h5[path]
+                    return isinstance(grp, h5py.Group) and "column_names" in grp.attrs
+        except Exception:
+            pass
+        return False
+
+    def _get_filtered_sorted_indices(self, data_dict, filters, sort_specs):
+        """Return filtered and sorted row indices for given data, filters, and sort specs."""
+        if not data_dict:
+            return np.array([], dtype=int), 0, 0
+        max_rows = max(len(data_dict[col]) for col in data_dict)
+        if max_rows == 0:
+            return np.array([], dtype=int), 0, 0
+        valid_rows = np.ones(max_rows, dtype=bool)
+        # Filtering
+        if filters:
+            for col_name, operator, value_str in filters:
+                if col_name not in data_dict:
+                    continue
+                col_data = data_dict[col_name]
+                try:
+                    if operator in ("=", "==", "!=", "<", "<=", ">", ">="):
+                        mask = self._evaluate_filter(col_data, operator, value_str)
+                    elif operator == "contains":
+                        mask = np.char.find(np.char.lower(col_data.astype(str)), value_str.lower()) >= 0
+                    elif operator == "starts with":
+                        mask = np.char.startswith(np.char.lower(col_data.astype(str)), value_str.lower())
+                    elif operator == "ends with":
+                        mask = np.char.endswith(np.char.lower(col_data.astype(str)), value_str.lower())
+                    else:
+                        mask = np.ones_like(valid_rows, dtype=bool)
+                except Exception:
+                    mask = np.zeros_like(valid_rows, dtype=bool)
+                # Ensure mask is same length as valid_rows
+                if len(mask) != len(valid_rows):
+                    mask = np.resize(mask, len(valid_rows))
+                valid_rows &= mask
+        filtered_indices = np.where(valid_rows)[0]
+        # Sorting
+        if sort_specs and len(filtered_indices) > 0:
+            sort_columns = []
+            sort_orders = []
+            for col_name, ascending in sort_specs:
+                if col_name in data_dict:
+                    sort_columns.append(col_name)
+                    sort_orders.append(ascending)
+            if sort_columns:
+                try:
+                    sort_data = {}
+                    for col_name in sort_columns:
+                        col_data = data_dict[col_name][filtered_indices]
+                        sort_data[col_name] = col_data
+                    df = pd.DataFrame(sort_data)
+                    df_sorted = df.sort_values(
+                        by=sort_columns,
+                        ascending=sort_orders,
+                        na_position='last'
+                    )
+                    # Map sorted indices back to original data indices
+                    filtered_indices = filtered_indices[df_sorted.index.values]
+                except Exception as e:
+                    print(f"Warning: Could not sort data: {e}")
+        if len(filtered_indices) > 0:
+            start_row = int(filtered_indices[0])
+            end_row = int(filtered_indices[-1])
+        else:
+            start_row = 0
+            end_row = 0
+        return filtered_indices, start_row, end_row
 
     def _create_progress_dialog(self, title: str, max_value: int = 100, min_duration: int = 500) -> QProgressDialog:
         """Create a standard progress dialog with consistent settings.
@@ -2602,7 +589,7 @@ class HDF5Viewer(QMainWindow):
         ax.tick_params(axis='y', colors=color)
 
     def _parse_datetime_column(self, x_arr: np.ndarray, min_len: int,
-                                datetime_format: str = "") -> tuple[np.ndarray, bool]:
+                              datetime_format: str = "") -> tuple[np.ndarray, bool]:
         """Parse a column as datetime and convert to matplotlib date numbers.
 
         Args:
@@ -2723,7 +710,7 @@ class HDF5Viewer(QMainWindow):
                     legend_line.set_alpha(0.2)
 
     def _process_x_axis_data(self, x_idx: int | None, col_data: dict, y_names: list[str],
-                            x_name: str, plot_options: dict) -> tuple[np.ndarray, np.ndarray, bool, bool, int]:
+                             x_name: str, plot_options: dict) -> tuple[np.ndarray, np.ndarray, bool, bool, int]:
         """Process X-axis data for plotting, handling single-column, datetime, and string data.
 
         Args:
@@ -4276,8 +2263,6 @@ class HDF5Viewer(QMainWindow):
 
         # Perform the repack
         try:
-            import tempfile
-            import shutil
 
             # Create a temporary file for the repacked version
             temp_fd, temp_path = tempfile.mkstemp(suffix='.h5', prefix='repack_')
@@ -5090,6 +3075,7 @@ class HDF5Viewer(QMainWindow):
             self._refresh_saved_plots_list()
             self._clear_plot_display()
 
+
     def _on_tree_item_renamed(self, topLeft, bottomRight, roles):
         """Handle when a tree item is renamed.
 
@@ -5130,6 +3116,24 @@ class HDF5Viewer(QMainWindow):
                     self.tree.selectionModel().selection(),
                     self.tree.selectionModel().selection()
                 )
+
+    def add_to_menu(self, menu: QMenu, label: str, icon: str) -> QAction:
+        """Helper to add an action to the save menu with given label and icon.
+
+        Args:
+            menu: QMenu to add the action to
+            label: Text label for the action [e.g., "CSV" will be shown as "CSV..."]
+            icon: Name of the icon file (in the icons directory)
+
+        Returns:
+            The created QAction
+        """
+
+        # all icons are in the "icons" subdirectory
+        icon_dir = os.path.join(os.path.dirname(__file__), "icons")
+        action = menu.addAction(f"{label}...")
+        action.setIcon(QIcon(os.path.join(icon_dir, icon)))
+        return action
 
     # Context menu handling
     def on_tree_context_menu(self, point) -> None:
@@ -5191,6 +3195,12 @@ class HDF5Viewer(QMainWindow):
 
         # Add CSV group expand/collapse option
         act_toggle_csv = None
+        act_save_csv = None
+        act_save_excel = None
+        act_save_json = None
+        act_save_html = None
+        act_save_latex = None
+        act_save_markdown = None
         if is_csv_group:
             if csv_expanded:
                 act_toggle_csv = menu.addAction("Hide Internal Structure")
@@ -5198,6 +3208,18 @@ class HDF5Viewer(QMainWindow):
             else:
                 act_toggle_csv = menu.addAction("Show Internal Structure")
                 act_toggle_csv.setIcon(style.standardIcon(QStyle.SP_DirIcon))
+
+            # Add "Save as..." submenu with export options
+            save_menu = menu.addMenu("Save as...")
+            save_menu.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
+            # file export options:
+            act_save_csv = self.add_to_menu(save_menu, "CSV", "icon_csv.png")
+            act_save_excel = self.add_to_menu(save_menu, "Excel", "icon_excel.png")
+            act_save_json = self.add_to_menu(save_menu, "JSON", "icon_json.png")
+            save_menu.addSeparator()
+            act_save_html = self.add_to_menu(save_menu, "HTML", "icon_html.png")
+            act_save_latex = self.add_to_menu(save_menu, "LaTeX", "icon_latex.png")
+            act_save_markdown = self.add_to_menu(save_menu, "Markdown", "icon_markdown.png")
             menu.addSeparator()
 
         act_delete = None
@@ -5206,7 +3228,7 @@ class HDF5Viewer(QMainWindow):
             act_delete.setIcon(style.standardIcon(QStyle.SP_TrashIcon))
 
         # If no actions available, don't show menu
-        if not act_info and not act_toggle_csv and not act_delete:
+        if not act_info and not act_toggle_csv and not act_save_csv and not act_save_excel and not act_save_json and not act_save_html and not act_save_latex and not act_save_markdown and not act_delete:
             return
 
         global_pos = self.tree.viewport().mapToGlobal(point)
@@ -5216,6 +3238,18 @@ class HDF5Viewer(QMainWindow):
             self._show_dataset_info_dialog(path)
         elif chosen == act_toggle_csv:
             self.model.toggle_csv_group_expansion(item)
+        elif chosen == act_save_csv:
+            self._save_csv_group_as(path, format="csv")
+        elif chosen == act_save_excel:
+            self._save_csv_group_as(path, format="xlsx")
+        elif chosen == act_save_json:
+            self._save_csv_group_as(path, format="json")
+        elif chosen == act_save_html:
+            self._save_csv_group_as(path, format="html")
+        elif chosen == act_save_latex:
+            self._save_csv_group_as(path, format="tex")
+        elif chosen == act_save_markdown:
+            self._save_csv_group_as(path, format="md")
         elif chosen == act_delete:
             # Confirm destructive action
             target_desc = label.replace("Delete ", "") if label else "item"
@@ -5228,6 +3262,122 @@ class HDF5Viewer(QMainWindow):
             )
             if resp == QMessageBox.Yes:
                 self._perform_delete(kind, path, attr_key)
+
+    def _save_csv_group_as(self, csv_group_path: str, format: str = "csv") -> None:
+        """Save a CSV group to a file using a save dialog.
+
+        Args:
+            csv_group_path: HDF5 path to the CSV group
+            format: Export format - "csv", "xlsx", "json", "html", "tex", or "md"
+        """
+        if not self.model or not self.model.filepath:
+            QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
+            return
+
+        try:
+            with h5py.File(self.model.filepath, "r") as h5:
+                if csv_group_path not in h5:
+                    QMessageBox.warning(self, "Not found", f"Path '{csv_group_path}' not found in file.")
+                    return
+
+                group = h5[csv_group_path]
+                if not isinstance(group, h5py.Group):
+                    QMessageBox.warning(self, "Invalid", "Selected item is not a group.")
+                    return
+
+                # Determine default filename
+                source_file = group.attrs.get("source_file")
+                if isinstance(source_file, (bytes, bytearray)):
+                    try:
+                        source_file = source_file.decode("utf-8")
+                    except Exception:  # noqa: BLE001
+                        source_file = None
+
+                if isinstance(source_file, str) and source_file.lower().endswith(".csv"):
+                    # Replace .csv extension with the target format
+                    default_name = source_file[:-4] + f".{format}"
+                else:
+                    default_name = (os.path.basename(csv_group_path) or "export") + f".{format}"
+
+                # Configure dialog based on format
+                if format == "json":
+                    dialog_title = "Save JSON File"
+                    file_filter = "JSON Files (*.json);;All Files (*)"
+                elif format == "html":
+                    dialog_title = "Save HTML File"
+                    file_filter = "HTML Files (*.html);;All Files (*)"
+                elif format == "xlsx":
+                    dialog_title = "Save Excel File"
+                    file_filter = "Excel Files (*.xlsx);;All Files (*)"
+                elif format == "tex":
+                    dialog_title = "Save LaTeX File"
+                    file_filter = "LaTeX Files (*.tex);;All Files (*)"
+                elif format == "md":
+                    dialog_title = "Save Markdown File"
+                    file_filter = "Markdown Files (*.md);;All Files (*)"
+                else:
+                    dialog_title = "Save CSV File"
+                    file_filter = "CSV Files (*.csv);;All Files (*)"
+
+                # Show save dialog
+                save_path, _ = QFileDialog.getSaveFileName(
+                    self,
+                    dialog_title,
+                    default_name,
+                    file_filter
+                )
+
+                if not save_path:
+                    return
+
+                # Get filtered indices and visible columns if this is the currently displayed CSV
+                filtered_indices = None
+                visible_columns = None
+                if csv_group_path == self._current_csv_group_path:
+                    filtered_indices = self.model.get_csv_filtered_indices(csv_group_path)
+                    # Get the visible columns in their current visual order
+                    if hasattr(self, '_csv_visible_columns') and self._csv_visible_columns:
+                        visible_columns = self._csv_visible_columns
+
+                # Temporarily set visible columns in model for export
+                if visible_columns:
+                    self.model.set_csv_visible_columns(csv_group_path, visible_columns)
+
+                # Get DataFrame directly from model (sorting is applied automatically via stored sort_specs)
+                df = self.model._reconstruct_csv_tempfile(group, csv_group_path, filtered_indices, return_dataframe=True)
+                if df is None:
+                    QMessageBox.warning(self, "Export Failed", "Failed to reconstruct CSV data.")
+                    return
+
+                # Export based on format
+                try:
+                    if format == "json":
+                        df.to_json(save_path, orient='records', indent=2)
+                        status_msg = f"Saved JSON to {save_path}"
+                    elif format == "html":
+                        df.to_html(save_path, index=False, border=1, justify='left')
+                        status_msg = f"Saved HTML to {save_path}"
+                    elif format == "xlsx":
+                        df.to_excel(save_path, index=False)
+                        status_msg = f"Saved Excel to {save_path}"
+                    elif format == "tex":
+                        df.to_latex(save_path, index=False)
+                        status_msg = f"Saved LaTeX to {save_path}"
+                    elif format == "md":
+                        df.to_markdown(save_path, index=False)
+                        status_msg = f"Saved Markdown to {save_path}"
+                    else:
+                        # Export as CSV
+                        df.to_csv(save_path, index=False)
+                        status_msg = f"Saved CSV to {save_path}"
+                except Exception as exc:
+                    QMessageBox.warning(self, "Export Failed", f"Failed to export as {format.upper()}: {exc}")
+                    return
+
+                self.statusBar().showMessage(status_msg, 5000)
+
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to save {format.upper()}: {exc}")
 
     def _perform_delete(self, kind: str, path: str, attr_key: str | None) -> None:
         """Delete an HDF5 item (dataset, group, or attribute).
@@ -5602,24 +3752,23 @@ class HDF5Viewer(QMainWindow):
             if "column_names" in grp.attrs:
                 try:
                     col_names = [str(c) for c in list(grp.attrs["column_names"])]
-                except Exception:  # noqa: BLE001
+                except Exception:
                     col_names = list(grp.keys())
             else:
                 col_names = list(grp.keys())
 
             # Optional mapping of columns to actual dataset names
-            col_ds_names: list[str] | None = None
+            col_ds_names = None
             if "column_dataset_names" in grp.attrs:
                 try:
                     col_ds_names = [str(c) for c in list(grp.attrs["column_dataset_names"])]
                     if len(col_ds_names) != len(col_names):
                         col_ds_names = None
-                except Exception:  # noqa: BLE001
+                except Exception:
                     col_ds_names = None
 
             # Estimate total work for progress
             total_cols = len(col_names)
-
             # Create progress dialog
             progress = self._create_progress_dialog("Loading CSV metadata...")
 
@@ -5669,33 +3818,16 @@ class HDF5Viewer(QMainWindow):
                 self._set_preview_text("(No datasets found in CSV group)")
                 return
 
-            # Store dataset info and metadata for lazy loading
+            # Reset all CSV state for new group
             self._csv_dataset_info = dataset_info  # For lazy loading
             self._csv_data_dict = {}  # Will be populated on-demand
-
             self._csv_column_names = col_names
             self._csv_total_rows = max_rows
             self._csv_sort_specs = []  # Initialize sort specs
+            self._csv_visible_columns = col_names.copy()
+            self._csv_filtered_indices = None
 
-            # Setup table - disable updates for performance
-            progress.setLabelText("Setting up table...")
-            progress.setValue(40)
-            QApplication.processEvents()
-
-            self.preview_table.setUpdatesEnabled(False)
-            self.preview_table.setSortingEnabled(False)
-            # Clear existing table content efficiently
-            self.preview_table.setRowCount(0)
-            self.preview_table.setColumnCount(0)
-            self.preview_table.clear()
-            # Reset lazy loading state
-            self._table_loaded_rows = 0
-            # Now set up the new table
-            self.preview_table.setRowCount(max_rows)  # Set full row count for scrollbar
-            self.preview_table.setColumnCount(len(col_names))
-            self.preview_table.setHorizontalHeaderLabels(col_names)
-
-            # Load only the data needed for first batch of rows
+            # Lazy load initial batch of data
             initial_batch = min(self._table_batch_size, max_rows)
             progress.setLabelText(f"Loading initial {initial_batch} rows...")
             progress.setValue(50)
@@ -5707,33 +3839,75 @@ class HDF5Viewer(QMainWindow):
             if fpath:
                 with h5py.File(fpath, "r") as h5:
                     self._lazy_load_columns(col_names, 0, initial_batch, h5)
-            self._populate_table_rows(0, initial_batch, self._csv_data_dict, col_names)
             self._table_loaded_rows = initial_batch
 
-            # Resize columns to content based on initial batch
-            progress.setLabelText("Resizing columns...")
-            progress.setValue(95)
-            QApplication.processEvents()
+            # Defensive: ensure visible columns and indices are valid
+            valid_columns = [c for c in self._csv_visible_columns if c in self._csv_column_names]
+            if not valid_columns:
+                valid_columns = self._csv_column_names.copy()
+            self._csv_visible_columns = valid_columns
+            # Defensive: ensure filtered indices are valid
+            if self._csv_filtered_indices is None or len(self._csv_filtered_indices) == 0:
+                self._csv_filtered_indices, _, _ = self._get_filtered_sorted_indices(
+                    self._csv_data_dict, self._csv_filters, self._csv_sort_specs)
+            if self._csv_filtered_indices is None or len(self._csv_filtered_indices) == 0:
+                self._csv_filtered_indices = np.arange(self._csv_total_rows)
 
-            self.preview_table.resizeColumnsToContents()
+            # Create and set the CSVTableModel for QTableView
+            model = CSVTableModel(
+                data_dict=self._csv_data_dict,
+                col_names=self._csv_visible_columns,
+                row_indices=self._csv_filtered_indices,
+                parent=self.preview_table
+            )
+            self.preview_table.setModel(model)
+            self._csv_table_model = model
+            # Ensure column selection via header is enabled for plotting
+            self.preview_table.setSelectionBehavior(QAbstractItemView.SelectColumns)
+            self.preview_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+            self.preview_table.horizontalHeader().setSectionsClickable(True)
+            self.preview_table.horizontalHeader().setHighlightSections(True)
+            # Enable right-click context menu on column header
+            header = self.preview_table.horizontalHeader()
+            header.setContextMenuPolicy(Qt.CustomContextMenu)
+            header.customContextMenuRequested.connect(self._on_column_header_context_menu)
+            # Make last column resizable
+            header.setStretchLastSection(False)
+            # Connect selection change to plot button update
+            self.preview_table.selectionModel().selectionChanged.connect(lambda selected, deselected: self._update_plot_action_enabled())
 
-            # Re-enable updates and sorting
-            self.preview_table.setUpdatesEnabled(True)
-            # self.preview_table.setSortingEnabled(True)  # don't want sorting since it interfers with selecting columns for plotting.
+            # Set uniform row heights for large datasets
+            if max_rows > 1000:
+                self.preview_table.verticalHeader().setDefaultSectionSize(24)
+                self.preview_table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
+
+            # For large datasets, set fixed column widths
+            if max_rows > 10000 or len(col_names) > 50:
+                progress.setLabelText("Setting column widths...")
+                progress.setValue(95)
+                QApplication.processEvents()
+                model = self.preview_table.model()
+                if model:
+                    for col_idx in range(model.columnCount()):
+                        self.preview_table.setColumnWidth(col_idx, 120)
+            else:
+                progress.setLabelText("Resizing columns...")
+                progress.setValue(95)
+                QApplication.processEvents()
+                self.preview_table.resizeColumnsToContents()
 
             # Show table, hide others
-            progress.setValue(100)
             self.preview_table.setVisible(True)
             self.preview_edit.setVisible(False)
             self.preview_image.setVisible(False)
-
             # Show filter panel for CSV tables
             self.filter_panel.setVisible(True)
-
             # Show attributes for the CSV group
             self._show_attributes(grp)
 
-            # Show message about lazy loading
+            # Connect vertical scrollbar to dynamic row loading
+            self.preview_table.verticalScrollBar().valueChanged.connect(self._on_table_scroll)
+
             if max_rows > initial_batch:
                 self.statusBar().showMessage(
                     f"Loaded {initial_batch:,} of {max_rows:,} rows (more will load as you scroll)", 8000
@@ -5741,10 +3915,9 @@ class HDF5Viewer(QMainWindow):
 
             # Enable/disable plotting action depending on visibility/selection
             self._update_plot_action_enabled()
-
             progress.close()
 
-            # Load saved filters from HDF5 group (or clear if none exist)
+            # Load filters, sort, and visible columns from HDF5
             saved_filters = self._load_filters_from_hdf5(grp)
             if saved_filters:
                 self._csv_filters = saved_filters
@@ -5783,23 +3956,31 @@ class HDF5Viewer(QMainWindow):
             # Update model with visible columns for drag-and-drop export
             if self._current_csv_group_path and self.model:
                 self.model.set_csv_visible_columns(self._current_csv_group_path, self._csv_visible_columns)
+                # Also update sort specs in model
+                self.model.set_csv_sort_specs(self._current_csv_group_path, self._csv_sort_specs)
 
-            # Load saved plot configurations from HDF5 group
             self._load_plot_configs_from_hdf5(grp)
 
-            # Apply any existing filters
+            # Apply filters and sort if present, else show all rows
             if self._csv_filters:
                 self._apply_filters()
             else:
-                # No filters - all rows are visible
+                # No filters - all rows are visible, but still need to apply sorting if any
                 self.filter_status_label.setText("No filters applied")
                 self.btn_clear_filters.setEnabled(False)
-                self._csv_filtered_indices = np.arange(max_rows)
-                # Notify model that no filtering is active
-                if self._current_csv_group_path and self.model:
-                    self.model.set_csv_filtered_indices(self._current_csv_group_path, None)
+                if self._csv_sort_specs:
+                    # Apply sorting even without filters
+                    self._apply_filters()  # This will apply sorting to all rows
+                else:
+                    # No filters and no sorting - simple case
+                    self._csv_filtered_indices = np.arange(max_rows)
+                    # Notify model that no filtering is active
+                    if self._current_csv_group_path and self.model:
+                        self.model.set_csv_filtered_indices(self._current_csv_group_path, None)
 
-            # Reset scrollbar to top when switching CSV datasets
+            if self._csv_sort_specs and not self._csv_filters:
+                self._apply_sort()
+
             self.preview_table.verticalScrollBar().setValue(0)
 
         except Exception as exc:
@@ -5935,52 +4116,6 @@ class HDF5Viewer(QMainWindow):
                             data = data.decode("utf-8", errors="replace")
                         self._csv_data_dict[col_name] = np.array([data], dtype=object)
 
-    def _populate_table_rows(self, start_row: int, end_row: int, data_dict: dict, col_names: list[str]) -> None:
-        """Populate table rows from start_row to end_row (exclusive).
-
-        Args:
-            start_row: Starting row index (inclusive)
-            end_row: Ending row index (exclusive)
-            data_dict: Dictionary mapping column names to data arrays
-            col_names: List of column names in display order
-        """
-        for col_idx, col_name in enumerate(col_names):
-            if col_name in data_dict:
-                col_data = data_dict[col_name]
-                # Convert column slice to strings
-                if isinstance(col_data, np.ndarray):
-                    # Handle different data types
-                    if col_data.dtype.kind == "S":
-                        # Byte strings - decode to UTF-8
-                        str_data = [
-                            v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
-                            for v in col_data[start_row:end_row]
-                        ]
-                    elif col_data.dtype.kind == "U":
-                        # Unicode strings - already strings, just convert
-                        str_data = [str(v) for v in col_data[start_row:end_row]]
-                    elif col_data.dtype.kind == "O":
-                        # Object dtype - could be mixed, handle bytes if present
-                        str_data = [
-                            v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
-                            for v in col_data[start_row:end_row]
-                        ]
-                    else:
-                        # Numeric or other types - use numpy's string conversion
-                        str_data = np.char.mod("%s", col_data[start_row:end_row])
-                else:
-                    # Handle bytes in non-array data
-                    if isinstance(col_data, bytes):
-                        str_data = [col_data.decode("utf-8", errors="replace")]
-                    else:
-                        str_data = [str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace") for v in col_data[start_row:end_row]]
-
-                # Set items in table
-                for i, value_str in enumerate(str_data):
-                    row_idx = start_row + i
-                    item = QTableWidgetItem(value_str)
-                    self.preview_table.setItem(row_idx, col_idx, item)
-
     def _on_table_scroll(self, value: int) -> None:
         """Handle table scroll events to load more rows as needed.
 
@@ -6048,11 +4183,23 @@ class HDF5Viewer(QMainWindow):
                 except Exception as exc:
                     self.statusBar().showMessage(f"Error loading data: {exc}", 5000)
 
-            # Populate all rows up to target
-            self._populate_table_rows(start_row, end_row, self._csv_data_dict, self._csv_column_names)
+            # model refresh
+                if self._csv_table_model:
+                    self._csv_table_model.layoutChanged.emit()
 
-            # Update loaded count
-            self._table_loaded_rows = end_row
+                # Update loaded count
+                self._table_loaded_rows = end_row
+
+                # Update model row count and refresh view
+                if self._csv_table_model:
+                    # If no filter/sort is active, show all loaded rows
+                    if self._csv_filtered_indices is None:
+                        self._csv_table_model.set_row_indices(None, total_rows=self._table_loaded_rows)
+                    else:
+                        # If filter/sort is active, only show those indices that are within loaded rows
+                        filtered = np.array(self._csv_filtered_indices)
+                        filtered = filtered[filtered < self._table_loaded_rows]
+                        self._csv_table_model.set_row_indices(filtered)
 
             # Re-enable updates
             self.preview_table.setUpdatesEnabled(True)
@@ -6108,19 +4255,20 @@ class HDF5Viewer(QMainWindow):
 
         Returns a dict mapping original column name -> numpy array (1-D). Strings remain strings.
         """
+        # Always reset mapping and result for each call
         result: dict[str, np.ndarray] = {}
+        mapping: dict[str, str] = {}
         fpath = self.model.filepath
         if not fpath:
             return result
         try:
             with h5py.File(fpath, "r") as h5:
                 grp = h5[group_path]
-                # Resolve mapping from original names to dataset keys if present
                 mapping: dict[str, str] = {}
                 if "column_names" in grp.attrs:
                     try:
                         orig = [str(c) for c in list(grp.attrs["column_names"])]
-                    except Exception:  # noqa: BLE001
+                    except Exception:
                         orig = []
                     ds_names: list[str] | None = None
                     if "column_dataset_names" in grp.attrs:
@@ -6128,7 +4276,7 @@ class HDF5Viewer(QMainWindow):
                             ds_names = [str(c) for c in list(grp.attrs["column_dataset_names"])]
                             if len(ds_names) != len(orig):
                                 ds_names = None
-                        except Exception:  # noqa: BLE001
+                        except Exception:
                             ds_names = None
                     for i, name in enumerate(orig):
                         key = None
@@ -6165,6 +4313,12 @@ class HDF5Viewer(QMainWindow):
                                 v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v)
                                 for v in arr
                             ], dtype=object)
+                            # Update filtered indices and model if no filter/sort is active
+                            if (not self._csv_filters) and (not self._csv_sort_specs):
+                                self._csv_filtered_indices = np.arange(self._table_loaded_rows)
+                                if self._csv_table_model:
+                                    self._csv_table_model.set_row_indices(self._csv_filtered_indices)
+                                    self.preview_table.viewport().update()
                         elif arr.dtype.kind == "O":
                             # Object dtype - could be mixed, handle bytes if present
                             arr = np.array([
@@ -6205,33 +4359,36 @@ class HDF5Viewer(QMainWindow):
             )
             return
 
+        # Always resolve column names from current model headers
+        model = self.preview_table.model()
+        headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())] if model else []
+
         # Handle single column selection: use point count as x-axis
         if len(sel_cols) == 1:
-            x_idx = None  # No x column - use point count
-            y_idxs = sel_cols
+            x_idx = None
+            y_idx = sel_cols[0]
+            y_names = [headers[y_idx]] if headers and y_idx < len(headers) else []
+            x_name = "Point"
+            y_idxs = [sel_cols[0]]
         else:
             # Use current column as X if part of selection; else use the leftmost selected
-            current_col = self.preview_table.currentColumn()
+            current_index = self.preview_table.selectionModel().currentIndex()
+            current_col = current_index.column() if current_index.isValid() else None
             x_idx = current_col if current_col in sel_cols else min(sel_cols)
             y_idxs = [c for c in sel_cols if c != x_idx]
+            x_name = headers[x_idx] if headers and x_idx is not None and x_idx < len(headers) else None
+            y_names = [headers[i] for i in y_idxs if headers and i < len(headers)]
 
-        # Ensure y_idxs is a list (defensive check - do this BEFORE any operations on it)
-        if isinstance(y_idxs, int):
-            y_idxs = [y_idxs]
-
-        # Column names from headers
-        headers = [
-            self.preview_table.horizontalHeaderItem(i).text()
-            if self.preview_table.horizontalHeaderItem(i) is not None
-            else f"col_{i}"
-            for i in range(self.preview_table.columnCount())
-        ]
-        try:
-            x_name = headers[x_idx] if x_idx is not None else "Point"
-            y_names = [headers[i] for i in y_idxs]
-        except Exception as e:
-            QMessageBox.warning(self, "Plot", f"Failed to resolve column headers for plotting.\n\nError: {e}\ny_idxs type: {type(y_idxs)}, value: {y_idxs}")
+        # Defensive check
+        if not y_names or (x_name is None and len(sel_cols) > 1):
+            QMessageBox.warning(self, "Plot", "Failed to resolve column headers for plotting.")
             return
+
+        model = self.preview_table.model()
+        if model:
+            headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
+        else:
+            headers = []
 
         # Use filtered data from the table instead of reading from HDF5
         # This ensures we only plot what's visible (respecting filters)
@@ -6418,6 +4575,10 @@ class HDF5Viewer(QMainWindow):
         clear_msg = "Cleared sort from HDF5 file"
         self._save_csv_attr_to_hdf5("csv_sort", self._csv_sort_specs, success_msg, clear_msg)
 
+        # Also update the model with sort specs for drag-and-drop
+        if self._current_csv_group_path and self.model:
+            self.model.set_csv_sort_specs(self._current_csv_group_path, self._csv_sort_specs)
+
     def _load_sort_from_hdf5(self, grp: h5py.Group) -> list:
         """Load sort specifications from the HDF5 group attributes."""
         def validate_sort(specs):
@@ -6454,8 +4615,10 @@ class HDF5Viewer(QMainWindow):
 
         # First, ensure all columns are visible (reset state)
         # This is important when switching between CSV groups
-        for col_idx in range(self.preview_table.columnCount()):
-            self.preview_table.setColumnHidden(col_idx, False)
+        model = self.preview_table.model()
+        if model:
+            for col_idx in range(model.columnCount()):
+                self.preview_table.setColumnHidden(col_idx, False)
 
         # Hide/show columns based on visibility list
         for col_idx, col_name in enumerate(self._csv_column_names):
@@ -6481,12 +4644,15 @@ class HDF5Viewer(QMainWindow):
         menu = QMenu(self)
         act_unique = menu.addAction(f"Show Unique Values in '{col_name}'")
 
-        # Show menu and handle selection
-        global_pos = header.mapToGlobal(pos)
-        chosen = menu.exec(global_pos)
+        # Connect the triggered signal to handle selection
+        def handle_action(action):
+            if action == act_unique:
+                self._show_unique_values_dialog(col_name)
+        menu.triggered.connect(handle_action)
 
-        if chosen == act_unique:
-            self._show_unique_values_dialog(col_name)
+        # Show menu (non-blocking, closes when clicking outside)
+        global_pos = header.mapToGlobal(pos)
+        menu.popup(global_pos)
 
     def _show_unique_values_dialog(self, col_name: str) -> None:
         """Show dialog with unique values for a specific column.
@@ -6578,8 +4744,17 @@ class HDF5Viewer(QMainWindow):
         else:
             self.btn_clear_sort.setEnabled(False)
 
-        # After changing sort, reapply filters to update display
-        self._apply_filters()
+        # After changing sort, reapply filtering and sorting, then update grid
+        filtered_indices, start_row, end_row = self._get_filtered_sorted_indices(
+            self._csv_data_dict, self._csv_filters, self._csv_sort_specs)
+        self._csv_filtered_indices = filtered_indices
+        if hasattr(self, '_csv_table_model') and self._csv_table_model:
+            self._csv_table_model.set_row_indices(filtered_indices)
+        # Update filter status label and clear sort button
+        if self._csv_sort_specs:
+            self.btn_clear_sort.setEnabled(True)
+        else:
+            self.btn_clear_sort.setEnabled(False)
 
     def _apply_filters(self) -> None:
         """Apply current filters to the CSV table."""
@@ -6598,70 +4773,15 @@ class HDF5Viewer(QMainWindow):
             self.filter_status_label.setText("No filters applied")
             self.btn_clear_filters.setEnabled(False)
 
-        # Determine which rows pass all filters
-        max_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
-        if max_rows == 0:
-            return
-
-        valid_rows = np.ones(max_rows, dtype=bool)
-
-        for col_name, operator, value_str in self._csv_filters:
-            if col_name not in self._csv_data_dict:
-                continue
-
-            col_data = self._csv_data_dict[col_name]
-            col_mask = self._evaluate_filter(col_data, operator, value_str)
-
-            # Ensure mask is same length as valid_rows
-            if len(col_mask) != len(valid_rows):
-                col_mask = np.resize(col_mask, len(valid_rows))
-
-            valid_rows &= col_mask
-
-        # Get indices of valid rows
-        filtered_indices = np.where(valid_rows)[0]
-
-        # Apply sorting if specified
-        if self._csv_sort_specs:
-            # Build list of columns and orders for sorting
-            sort_columns = []
-            sort_orders = []
-
-            for col_name, ascending in self._csv_sort_specs:
-                if col_name in self._csv_data_dict:
-                    sort_columns.append(col_name)
-                    sort_orders.append(ascending)
-
-            if sort_columns:
-                # Use pandas for multi-column sorting (handles mixed types better)
-                try:
-                    # Create a DataFrame from the filtered data
-                    sort_data = {}
-                    for col_name in sort_columns:
-                        col_data = self._csv_data_dict[col_name][filtered_indices]
-                        sort_data[col_name] = col_data
-
-                    df = pd.DataFrame(sort_data)
-
-                    # Sort by multiple columns
-                    df_sorted = df.sort_values(
-                        by=sort_columns,
-                        ascending=sort_orders,
-                        na_position='last'
-                    )
-
-                    # Get the sorted indices and apply to filtered_indices
-                    sorted_positions = df_sorted.index.values
-                    filtered_indices = filtered_indices[sorted_positions]
-
-                except Exception as e:
-                    print(f"Warning: Could not sort data: {e}")
-                    # Continue with unsorted data
+        # Use shared routine for filtering and sorting
+        filtered_indices, start_row, end_row = self._get_filtered_sorted_indices(
+            self._csv_data_dict, self._csv_filters, self._csv_sort_specs)
 
         # Store filtered indices for plotting
         self._csv_filtered_indices = filtered_indices
 
         # Notify the model about filtered indices for CSV export
+        max_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
         if self._current_csv_group_path and self.model:
             if len(filtered_indices) == max_rows:
                 # No filtering active, clear stored indices
@@ -6670,37 +4790,12 @@ class HDF5Viewer(QMainWindow):
                 # Set filtered indices
                 self.model.set_csv_filtered_indices(self._current_csv_group_path, filtered_indices)
 
-        # Update table with filtered data
-        self.preview_table.setUpdatesEnabled(False)
-        self.preview_table.setRowCount(len(filtered_indices))
-
-        for col_idx, col_name in enumerate(self._csv_column_names):
-            if col_name not in self._csv_data_dict:
-                continue
-
-            col_data = self._csv_data_dict[col_name]
-
-            # Get filtered data
-            if isinstance(col_data, np.ndarray):
-                filtered_data = col_data[filtered_indices]
-                # Convert to strings
-                if filtered_data.dtype.kind == "S" or filtered_data.dtype.kind == "U":
-                    str_data = [
-                        str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace")
-                        for v in filtered_data
-                    ]
-                else:
-                    str_data = np.char.mod("%s", filtered_data)
+        # For QTableView, update the model's row_indices and row_count using helper
+        if self._csv_table_model:
+            if len(filtered_indices) == max_rows:
+                self._csv_table_model.set_row_indices(None, total_rows=max_rows)
             else:
-                filtered_data = [col_data[i] for i in filtered_indices]
-                str_data = [str(v) for v in filtered_data]
-
-            # Set items
-            for row_idx, value_str in enumerate(str_data):
-                item = QTableWidgetItem(value_str)
-                self.preview_table.setItem(row_idx, col_idx, item)
-
-        self.preview_table.setUpdatesEnabled(True)
+                self._csv_table_model.set_row_indices(filtered_indices)
 
         # Update status message
         if self._csv_filters:
@@ -6710,19 +4805,21 @@ class HDF5Viewer(QMainWindow):
                 f"Showing {shown_rows:,} of {total_rows:,} rows (filtered)", 5000
             )
 
-    def _compare_values(self, left_value: any, operator: str, right_value: any) -> bool:
-        """Compare two values using the specified operator.
+    def _evaluate_filter(self, col_data: np.ndarray | list, operator: str, value_str: str) -> np.ndarray:
+        """
+        Evaluate a filter condition on column data.
+
+        Args:
+            col_data: Array or list of column values to filter.
+            operator: Comparison operator as a string (e.g., '==', '!=', '<', '>', etc.).
+            value_str: The value to compare against, as a string.
 
         Handles numeric, datetime, and string comparisons.
 
-        Args:
-            left_value: Left side value (can be numeric, datetime, or string)
-            operator: Comparison operator (==, !=, <, <=, >, >=)
-            right_value: Right side value to compare against
-
         Returns:
-            bool: Result of comparison, or True if comparison fails
+            np.ndarray: Boolean mask of the same length as col_data indicating which rows match the filter.
         """
+
         # Mapping of operators to lambda functions for cleaner code
         ops = {
             "==": lambda a, b: a == b,
@@ -6734,69 +4831,42 @@ class HDF5Viewer(QMainWindow):
             ">=": lambda a, b: a >= b,
         }
 
-        if operator not in ops:
-            return True
-
         try:
-            # Try numeric comparison first
-            left_num = float(left_value)
-            right_num = float(right_value)
-            return ops[operator](left_num, right_num)
-        except (ValueError, TypeError):
-            # Try datetime comparison
-            try:
-                left_dt = pd.to_datetime(str(left_value), errors="coerce")
-                right_dt = pd.to_datetime(str(right_value), errors="coerce")
-                if not pd.isna(left_dt) and not pd.isna(right_dt):
-                    return ops[operator](left_dt, right_dt)
-            except (ValueError, TypeError):
-                pass
-
-            # Fall back to string comparison
-            try:
-                return ops[operator](str(left_value), str(right_value))
-            except Exception:
-                return True
-
-    def _evaluate_filter(self, col_data: np.ndarray | list, operator: str, value_str: str) -> np.ndarray:
-        """Evaluate a filter condition on column data.
-
-        Returns a boolean mask of the same length as col_data.
-        """
-        try:
-            # Handle comparison operators using helper method
+            # Handle comparison operators using NumPy vectorized operations
             if operator in ["==", "=", "!=", ">", ">=", "<", "<="]:
-                # Use vectorized comparison via helper
-                if isinstance(col_data, np.ndarray):
-                    return np.array([self._compare_values(val, operator, value_str) for val in col_data])
-                else:
-                    return np.array([self._compare_values(val, operator, value_str) for val in col_data])
+                arr = np.array(col_data)
+                # 1. Try numeric comparison
+                try:
+                    arr_num = arr.astype(float)
+                    val_num = float(value_str)
+                    return ops[operator](arr_num, val_num)
+                except Exception:
+                    pass
+                # 2. Try datetime comparison
+                try:
+                    arr_dt = pd.to_datetime(arr, errors="coerce")
+                    val_dt = pd.to_datetime(value_str, errors="coerce")
+                    valid = np.logical_not(pd.isna(arr_dt)) & np.logical_not(pd.isna(val_dt))
+                    mask = np.zeros(len(arr_dt), dtype=bool)
+                    mask[valid] = ops[operator](arr_dt[valid], val_dt)
+                    return mask
+                except Exception:
+                    pass
+                # 3. Fall back to string comparison
+                arr_str = arr.astype(str)
+                return ops[operator](arr_str, value_str)
 
             # String-based operations
-            if isinstance(col_data, np.ndarray):
-                # Convert to string array for comparison
-                str_array = np.array(
-                    [
-                        str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace")
-                        for v in col_data
-                    ]
-                )
-            else:
-                str_array = np.array([str(v) for v in col_data])
-
-            if operator == "==":
-                return str_array == value_str
-            elif operator == "!=":
-                return str_array != value_str
-            elif operator == "contains":
-                return np.array([value_str in s for s in str_array])
+            arr_str = np.array([str(v) if not isinstance(v, bytes) else v.decode("utf-8", errors="replace") for v in col_data])
+            if operator == "contains":
+                return np.char.find(arr_str, value_str) >= 0
             elif operator == "startswith":
-                return np.array([s.startswith(value_str) for s in str_array])
+                return np.char.startswith(arr_str, value_str)
             elif operator == "endswith":
-                return np.array([s.endswith(value_str) for s in str_array])
-            else:
-                # Default: no filter
-                return np.ones(len(col_data), dtype=bool)
+                return np.char.endswith(arr_str, value_str)
+
+            # Fallback: all True (no filtering)
+            return np.ones(len(arr_str), dtype=bool)
 
         except Exception:  # noqa: BLE001
             # On error, don't filter any rows
@@ -6827,7 +4897,8 @@ class HDF5Viewer(QMainWindow):
             x_idx = None  # Single column mode: use point count
             y_idxs = sel_cols
         else:
-            current_col = self.preview_table.currentColumn()
+            current_index = self.preview_table.selectionModel().currentIndex()
+            current_col = current_index.column() if current_index.isValid() else None
             x_idx = current_col if current_col in sel_cols else min(sel_cols)
             y_idxs = [c for c in sel_cols if c != x_idx]
 
@@ -6868,13 +4939,11 @@ class HDF5Viewer(QMainWindow):
 
         # Create plot configuration dictionary
 
-        # Get column names
-        column_names = [
-            self.preview_table.horizontalHeaderItem(i).text()
-            if self.preview_table.horizontalHeaderItem(i) is not None
-            else f"col_{i}"
-            for i in range(self.preview_table.columnCount())
-        ]
+        model = self.preview_table.model()
+        if model:
+            column_names = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
+        else:
+            column_names = []
 
         # Capture current visibility state from plot if available
         series_visibility = self._capture_plot_visibility_state()
@@ -7159,13 +5228,11 @@ class HDF5Viewer(QMainWindow):
             QMessageBox.information(self, "No Data", "CSV data is not loaded.")
             return
 
-        # Get column names
-        headers = [
-            self.preview_table.horizontalHeaderItem(i).text()
-            if self.preview_table.horizontalHeaderItem(i) is not None
-            else f"col_{i}"
-            for i in range(self.preview_table.columnCount())
-        ]
+        model = self.preview_table.model()
+        if model:
+            headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
+        else:
+            headers = []
 
         # Validate column indices
         if (x_idx is not None and x_idx >= len(headers)) or any(y_idx >= len(headers) for y_idx in y_idxs):
@@ -7320,12 +5387,11 @@ class HDF5Viewer(QMainWindow):
                 headers = stored_columns
             else:
                 # Fallback to current table headers (for older configs)
-                headers = [
-                    self.preview_table.horizontalHeaderItem(i).text()
-                    if self.preview_table.horizontalHeaderItem(i) is not None
-                    else f"col_{i}"
-                    for i in range(self.preview_table.columnCount())
-                ]
+                model = self.preview_table.model()
+                if model:
+                    headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
+                else:
+                    headers = []
 
             # Validate column indices (x_idx can be None for single-column plots)
             if x_idx is not None and x_idx >= len(headers):
@@ -7577,13 +5643,11 @@ class HDF5Viewer(QMainWindow):
 
         plot_config = self._saved_plots[current_row]
 
-        # Get column names from the preview table
-        headers = [
-            self.preview_table.horizontalHeaderItem(i).text()
-            if self.preview_table.horizontalHeaderItem(i) is not None
-            else f"col_{i}"
-            for i in range(self.preview_table.columnCount())
-        ]
+        model = self.preview_table.model()
+        if model:
+            headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
+        else:
+            headers = []
 
         # Show the options dialog (pass all headers so indices work correctly)
         dialog = PlotOptionsDialog(plot_config, headers, self)
@@ -7627,110 +5691,16 @@ class HDF5Viewer(QMainWindow):
         """
         if not self._csv_data_dict or not self._csv_column_names:
             return
-
         # Get filters and sort from plot config
         csv_filters = plot_config.get("csv_filters", [])
         csv_sort = plot_config.get("csv_sort", [])
-
-        # Get total row count
-        max_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
-
-        if max_rows == 0:
-            plot_config["filtered_indices"] = None
-            return
-
-        # Start with all rows
-        filtered_indices = np.arange(max_rows)
-
-        # Apply filters
-        if csv_filters:
-            for col_name, operator, value_str in csv_filters:
-                if col_name not in self._csv_data_dict:
-                    continue
-
-                col_data = self._csv_data_dict[col_name]
-
-                # Only filter on rows we haven't already filtered out
-                valid_mask = np.ones(len(filtered_indices), dtype=bool)
-
-                for i, row_idx in enumerate(filtered_indices):
-                    if row_idx >= len(col_data):
-                        valid_mask[i] = False
-                        continue
-
-                    cell_value = col_data[row_idx]
-
-                    # Apply filter using helper methods
-                    try:
-                        if operator in ("=", "==", "!=", "<", "<=", ">", ">="):
-                            # Use comparison helper
-                            matches = self._compare_values(cell_value, operator, value_str)
-                        elif operator == "contains":
-                            matches = value_str.lower() in str(cell_value).lower()
-                        elif operator == "starts with":
-                            matches = str(cell_value).lower().startswith(value_str.lower())
-                        elif operator == "ends with":
-                            matches = str(cell_value).lower().endswith(value_str.lower())
-                        else:
-                            matches = True
-
-                        valid_mask[i] = matches
-                    except (ValueError, TypeError):
-                        # If comparison fails, exclude the row
-                        valid_mask[i] = False
-
-                # Update filtered_indices to only include rows that passed this filter
-                filtered_indices = filtered_indices[valid_mask]
-
-        # Apply sort
-        if csv_sort and len(filtered_indices) > 0:
-            # Build a structured array for sorting
-            sort_data = []
-            for col_name, order in csv_sort:
-                if col_name in self._csv_data_dict:
-                    col_data = self._csv_data_dict[col_name]
-                    # Extract data for filtered rows
-                    sort_column = np.array([col_data[i] if i < len(col_data) else "" for i in filtered_indices])
-                    sort_data.append((col_name, sort_column))
-
-            if sort_data:
-                # Sort using lexsort (sorts by last column first, then previous, etc.)
-                sort_arrays = []
-                for col_name, order in reversed(csv_sort):
-                    for stored_name, stored_array in sort_data:
-                        if stored_name == col_name:
-                            # Normalize order to boolean: True = ascending, False = descending
-                            # Handle various formats: "asc"/"desc", "Asc"/"Desc", True/False
-                            if isinstance(order, bool):
-                                is_ascending = order
-                            elif isinstance(order, str):
-                                is_ascending = order.lower() not in ('desc', 'descending')
-                            else:
-                                is_ascending = True  # Default to ascending
-
-                            # Convert to numeric if possible for better sorting
-                            try:
-                                numeric_array = pd.to_numeric(pd.Series(stored_array), errors='coerce')
-                                if not is_ascending:
-                                    sort_arrays.append(-numeric_array.to_numpy())
-                                else:
-                                    sort_arrays.append(numeric_array.to_numpy())
-                            except Exception:
-                                # Fall back to string sorting
-                                str_array = np.array([str(x) for x in stored_array])
-                                # For string sorting, we'll handle descending after lexsort
-                                sort_arrays.append(str_array)
-                            break
-
-                if sort_arrays:
-                    sort_idx = np.lexsort(tuple(sort_arrays))
-                    filtered_indices = filtered_indices[sort_idx]
-
+        filtered_indices, start_row, end_row = self._get_filtered_sorted_indices(
+            self._csv_data_dict, csv_filters, csv_sort)
         # Update plot config with new filtered indices
         if len(filtered_indices) > 0:
             plot_config["filtered_indices"] = _indices_to_ranges(filtered_indices)
-            plot_config["start_row"] = int(filtered_indices[0])
-            plot_config["end_row"] = int(filtered_indices[-1])
+            plot_config["start_row"] = start_row
+            plot_config["end_row"] = end_row
         else:
             plot_config["filtered_indices"] = []
             plot_config["start_row"] = 0
@@ -7974,12 +5944,16 @@ class HDF5Viewer(QMainWindow):
 
         menu = QMenu(self)
 
+        # Get standard icon theme
+        style = self.style()
+
         # Actions that require a selected item
         if item is not None:
             act_duplicate = menu.addAction("Duplicate Plot")
             act_copy_json = menu.addAction("Copy JSON to Clipboard")
             menu.addSeparator()
             act_delete = menu.addAction("Delete Plot")
+            act_delete.setIcon(style.standardIcon(QStyle.SP_TrashIcon))
             menu.addSeparator()
 
         # Export all plots action (always available if plots exist)
@@ -8004,28 +5978,3 @@ class HDF5Viewer(QMainWindow):
 
         if chosen == act_export_all:
             self._export_all_plots()
-
-
-def main(argv: list[str] | None = None) -> int:
-    argv = argv if argv is not None else sys.argv
-    app = QApplication(argv)
-    win = HDF5Viewer()
-
-    # If a file path was passed as the first arg, open it
-    if len(argv) > 1:
-        candidate = argv[1]
-        if os.path.isfile(candidate):
-            win.load_hdf5(candidate)
-
-    # Otherwise, if test file exists in workspace, open it by default
-    else:
-        default = Path(__file__).parent / "test_files.h5"
-        if default.exists():
-            win.load_hdf5(str(default))
-
-    win.show()
-    return app.exec()
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

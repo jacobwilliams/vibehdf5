@@ -47,10 +47,11 @@ Launch
 From Python
 ~~~~~~~~~~~
 
-.. code-block:: python
+Run directly from source:
 
-   from vibehdf5 import main
-   main()
+.. code-block:: bash
+
+   python -m vibehdf5 [file.h5]
 
 Indices and tables
 ==================

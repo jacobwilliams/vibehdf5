@@ -24,14 +24,6 @@ Or open a specific file:
 From Python
 ~~~~~~~~~~~
 
-.. code-block:: python
-
-   from vibehdf5 import main
-   main()
-
-Development Mode
-~~~~~~~~~~~~~~~~
-
 Run directly from source:
 
 .. code-block:: bash
