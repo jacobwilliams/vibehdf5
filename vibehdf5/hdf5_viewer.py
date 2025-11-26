@@ -4644,12 +4644,15 @@ class HDF5Viewer(QMainWindow):
         menu = QMenu(self)
         act_unique = menu.addAction(f"Show Unique Values in '{col_name}'")
 
-        # Show menu and handle selection
-        global_pos = header.mapToGlobal(pos)
-        chosen = menu.exec(global_pos)
+        # Connect the triggered signal to handle selection
+        def handle_action(action):
+            if action == act_unique:
+                self._show_unique_values_dialog(col_name)
+        menu.triggered.connect(handle_action)
 
-        if chosen == act_unique:
-            self._show_unique_values_dialog(col_name)
+        # Show menu (non-blocking, closes when clicking outside)
+        global_pos = header.mapToGlobal(pos)
+        menu.popup(global_pos)
 
     def _show_unique_values_dialog(self, col_name: str) -> None:
         """Show dialog with unique values for a specific column.
