@@ -5,7 +5,7 @@ from qtpy.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
 class ColumnVisibilityDialog(QDialog):
     """Dialog for selecting which columns to display in the CSV table."""
 
-    def __init__(self, column_names, visible_columns=None, parent=None):
+    def __init__(self, column_names: list[str], visible_columns: list[str] | None = None, parent = None):
         """Initialize the column visibility dialog.
 
         Args:

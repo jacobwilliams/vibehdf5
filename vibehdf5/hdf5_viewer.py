@@ -3178,6 +3178,7 @@ class HDF5Viewer(QMainWindow):
         # Add CSV group expand/collapse option
         act_toggle_csv = None
         act_save_csv = None
+        act_save_excel = None
         act_save_json = None
         act_save_html = None
         act_save_latex = None
@@ -3195,6 +3196,7 @@ class HDF5Viewer(QMainWindow):
             save_menu.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
 
             act_save_csv = save_menu.addAction("CSV...")
+            act_save_excel = save_menu.addAction("Excel...")
             act_save_json = save_menu.addAction("JSON...")
             save_menu.addSeparator()
             act_save_html = save_menu.addAction("HTML...")
@@ -3209,7 +3211,7 @@ class HDF5Viewer(QMainWindow):
             act_delete.setIcon(style.standardIcon(QStyle.SP_TrashIcon))
 
         # If no actions available, don't show menu
-        if not act_info and not act_toggle_csv and not act_save_csv and not act_save_json and not act_save_html and not act_save_latex and not act_save_markdown and not act_delete:
+        if not act_info and not act_toggle_csv and not act_save_csv and not act_save_excel and not act_save_json and not act_save_html and not act_save_latex and not act_save_markdown and not act_delete:
             return
 
         global_pos = self.tree.viewport().mapToGlobal(point)
@@ -3221,6 +3223,8 @@ class HDF5Viewer(QMainWindow):
             self.model.toggle_csv_group_expansion(item)
         elif chosen == act_save_csv:
             self._save_csv_group_as(path, format="csv")
+        elif chosen == act_save_excel:
+            self._save_csv_group_as(path, format="xlsx")
         elif chosen == act_save_json:
             self._save_csv_group_as(path, format="json")
         elif chosen == act_save_html:
@@ -3247,7 +3251,7 @@ class HDF5Viewer(QMainWindow):
 
         Args:
             csv_group_path: HDF5 path to the CSV group
-            format: Export format - "csv", "json", "html", "tex", or "md"
+            format: Export format - "csv", "xlsx", "json", "html", "tex", or "md"
         """
         if not self.model or not self.model.filepath:
             QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
@@ -3285,6 +3289,9 @@ class HDF5Viewer(QMainWindow):
                 elif format == "html":
                     dialog_title = "Save HTML File"
                     file_filter = "HTML Files (*.html);;All Files (*)"
+                elif format == "xlsx":
+                    dialog_title = "Save Excel File"
+                    file_filter = "Excel Files (*.xlsx);;All Files (*)"
                 elif format == "tex":
                     dialog_title = "Save LaTeX File"
                     file_filter = "LaTeX Files (*.tex);;All Files (*)"
@@ -3333,6 +3340,9 @@ class HDF5Viewer(QMainWindow):
                     elif format == "html":
                         df.to_html(save_path, index=False, border=1, justify='left')
                         status_msg = f"Saved HTML to {save_path}"
+                    elif format == "xlsx":
+                        df.to_excel(save_path, index=False)
+                        status_msg = f"Saved Excel to {save_path}"
                     elif format == "tex":
                         df.to_latex(save_path, index=False)
                         status_msg = f"Saved LaTeX to {save_path}"
