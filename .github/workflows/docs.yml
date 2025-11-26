@@ -35,8 +35,9 @@ jobs:
           cache: true
           manifest-path: env/pixi.toml
 
-      - name: Build documentation
+      - name: Compile and Build documentation
         run: |
+          pixi run --manifest-path ./env/pixi.toml hatch build
           pixi run --manifest-path ./env/pixi.toml ./run_tests.sh
           cd docs
           pixi run --manifest-path ../env/pixi.toml make html

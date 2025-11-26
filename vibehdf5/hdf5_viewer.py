@@ -3117,6 +3117,24 @@ class HDF5Viewer(QMainWindow):
                     self.tree.selectionModel().selection()
                 )
 
+    def add_to_menu(self, menu: QMenu, label: str, icon: str) -> QAction:
+        """Helper to add an action to the save menu with given label and icon.
+
+        Args:
+            menu: QMenu to add the action to
+            label: Text label for the action [e.g., "CSV" will be shown as "CSV..."]
+            icon: Name of the icon file (in the icons directory)
+
+        Returns:
+            The created QAction
+        """
+
+        # all icons are in the "icons" subdirectory
+        icon_dir = os.path.join(os.path.dirname(__file__), "icons")
+        action = menu.addAction(f"{label}...")
+        action.setIcon(QIcon(os.path.join(icon_dir, icon)))
+        return action
+
     # Context menu handling
     def on_tree_context_menu(self, point) -> None:
         """Handle context menu requests on tree items.
@@ -3194,15 +3212,14 @@ class HDF5Viewer(QMainWindow):
             # Add "Save as..." submenu with export options
             save_menu = menu.addMenu("Save as...")
             save_menu.setIcon(style.standardIcon(QStyle.SP_DialogSaveButton))
-
-            act_save_csv = save_menu.addAction("CSV...")
-            act_save_excel = save_menu.addAction("Excel...")
-            act_save_json = save_menu.addAction("JSON...")
+            # file export options:
+            act_save_csv = self.add_to_menu(save_menu, "CSV", "icon_csv.png")
+            act_save_excel = self.add_to_menu(save_menu, "Excel", "icon_excel.png")
+            act_save_json = self.add_to_menu(save_menu, "JSON", "icon_json.png")
             save_menu.addSeparator()
-            act_save_html = save_menu.addAction("HTML...")
-            act_save_latex = save_menu.addAction("LaTeX...")
-            act_save_markdown = save_menu.addAction("Markdown...")
-
+            act_save_html = self.add_to_menu(save_menu, "HTML", "icon_html.png")
+            act_save_latex = self.add_to_menu(save_menu, "LaTeX", "icon_latex.png")
+            act_save_markdown = self.add_to_menu(save_menu, "Markdown", "icon_markdown.png")
             menu.addSeparator()
 
         act_delete = None

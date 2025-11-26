@@ -385,6 +385,10 @@ python -m vibehdf5 [file.h5]
 - **pandas** - CSV import and data filtering
 - **matplotlib** - Plotting (optional, for CSV plotting features)
 
+## Icons
+
+Some icons obtained from https://www.flaticon.com -- see `icons.md` for full attributions.
+
 ## Tips & Best Practices
 
 ### Performance
