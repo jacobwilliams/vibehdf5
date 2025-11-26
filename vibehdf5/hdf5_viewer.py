@@ -4301,7 +4301,7 @@ class HDF5Viewer(QMainWindow):
                             data = data.decode("utf-8", errors="replace")
                         arr = np.array([data])
                     result[name] = arr
-        except Exception as e:
+        except Exception:  # noqa: BLE001
             return result
         return result
 
@@ -5658,10 +5658,12 @@ class HDF5Viewer(QMainWindow):
         """
         if not self._csv_data_dict or not self._csv_column_names:
             return
+        # Get filters and sort from plot config
         csv_filters = plot_config.get("csv_filters", [])
         csv_sort = plot_config.get("csv_sort", [])
         filtered_indices, start_row, end_row = self._get_filtered_sorted_indices(
             self._csv_data_dict, csv_filters, csv_sort)
+        # Update plot config with new filtered indices
         if len(filtered_indices) > 0:
             plot_config["filtered_indices"] = _indices_to_ranges(filtered_indices)
             plot_config["start_row"] = start_row
