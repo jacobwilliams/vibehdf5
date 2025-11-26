@@ -82,7 +82,7 @@ manager.fetchUsers().then(users => {
 ''',
         "config.json": '''{
     "name": "vibehdf5",
-    "version": "1.1.0",
+    "version": "2.0.0",
     "description": "HDF5 file viewer and manager",
     "main": "hdf5_viewer.py",
     "dependencies": {
@@ -109,7 +109,7 @@ manager.fetchUsers().then(users => {
         "settings.yaml": '''# Application settings
 app:
   name: vibehdf5
-  version: 1.1.0
+  version: 2.0.0
   debug: false
 
 database:
@@ -209,7 +209,7 @@ end program matrix_operations
         "config.toml": '''# TOML configuration file
 [project]
 name = "vibehdf5"
-version = "1.1.0"
+version = "2.0.0"
 authors = ["Jacob Williams"]
 license = "MIT"
 
