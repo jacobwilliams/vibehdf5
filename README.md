@@ -1,8 +1,23 @@
 # vibehdf5 - HDF5 File Viewer & Manager
 
 <h1 align="center">
-<img src="https://raw.githubusercontent.com/jacobwilliams/vibehdf5/master/media/screenshot.png" width=800">
+   <img src="https://raw.githubusercontent.com/jacobwilliams/vibehdf5/master/media/screenshot.png" width=800">
 </h1>
+
+<!-- Badges -->
+<p align="left">
+  <!-- Python version badge -->
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/language-python-blue.svg" alt="Python"></a>
+  <!-- License badge -->
+  <a href="https://github.com/jacobwilliams/vibehdf5/blob/master/LICENSE"><img src="https://img.shields.io/github/license/jacobwilliams/vibehdf5.svg" alt="License"></a>
+  <!-- PyPI badge -->
+  <a href="https://pypi.org/project/vibehdf5/"><img src="https://img.shields.io/pypi/v/vibehdf5.svg" alt="PyPI"></a>
+  <!-- conda-forge badge -->
+  <a href="https://anaconda.org/conda-forge/vibehdf5"><img src="https://img.shields.io/conda/vn/conda-forge/vibehdf5.svg" alt="Conda-Forge"></a>
+  <!-- GitHub Actions CI badge -->
+  <a href="https://github.com/jacobwilliams/vibehdf5/actions"><img src="https://github.com/jacobwilliams/vibehdf5/actions/workflows/docs.yml/badge.svg" alt="GitHub CI Status"></a>
+  <a href="https://github.com/jacobwilliams/vibehdf5/actions"><img src="https://github.com/jacobwilliams/vibehdf5/actions/workflows/publish.yml/badge.svg" alt="GitHub CI Status"></a>
+</p>
 
 A powerful, lightweight GUI application for browsing, managing, and visualizing HDF5 file structures. Built with PySide6, it provides an intuitive tree-based interface for exploring groups, datasets, and attributes, with advanced features for content management and data preview.
 
