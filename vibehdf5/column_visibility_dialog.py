@@ -1,5 +1,4 @@
-
-from qtpy.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox, QPushButton, QDialogButtonBox, QScrollArea, QWidget, QFrame
+from qtpy.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox, QPushButton, QDialogButtonBox, QScrollArea, QWidget, QFrame, QLineEdit
 
 
 class ColumnVisibilityDialog(QDialog):
@@ -56,6 +55,19 @@ class ColumnVisibilityDialog(QDialog):
         scroll.setWidget(list_container)
         layout.addWidget(scroll)
 
+        # Search field for filtering columns
+        search_layout = QHBoxLayout()
+        search_label = QLabel("Search:")
+        search_layout.addWidget(search_label)
+
+        self.search_field = QLineEdit()
+        self.search_field.setPlaceholderText("Type to filter columns...")
+        self.search_field.setClearButtonEnabled(True)
+        self.search_field.textChanged.connect(self._filter_columns)
+        search_layout.addWidget(self.search_field)
+
+        layout.addLayout(search_layout)
+
         # Select/Deselect buttons
         button_layout = QHBoxLayout()
         select_all_btn = QPushButton("Select All")
@@ -75,7 +87,7 @@ class ColumnVisibilityDialog(QDialog):
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
-    def _on_show_all_toggled(self, checked):
+    def _on_show_all_toggled(self, checked: bool):
         """Handle show all checkbox toggle.
 
         Args:
@@ -99,6 +111,15 @@ class ColumnVisibilityDialog(QDialog):
         """Deselect all columns."""
         for checkbox in self.column_checkboxes:
             checkbox.setChecked(False)
+
+    def _filter_columns(self, text: str):
+        """Filter the column checkboxes based on the search text.
+
+        Args:
+            text: The search text entered by the user.
+        """
+        for checkbox in self.column_checkboxes:
+            checkbox.setVisible(text.lower() in checkbox.text().lower())
 
     def get_visible_columns(self):
         """Return list of selected column names."""
