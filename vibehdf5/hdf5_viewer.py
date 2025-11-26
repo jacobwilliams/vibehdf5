@@ -242,6 +242,9 @@ class HDF5Viewer(QMainWindow):
         content_layout.addWidget(self.preview_label)
         content_layout.addWidget(self.preview_edit)
 
+        # hide this so only one is visible when application starts up
+        self.preview_edit.setVisible(False)
+
         # Filter panel for CSV tables (hidden by default)
         self.filter_panel = QWidget()
         filter_panel_layout = QHBoxLayout(self.filter_panel)
