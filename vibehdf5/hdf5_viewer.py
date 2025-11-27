@@ -1209,7 +1209,7 @@ class HDF5Viewer(QMainWindow):
         self.act_plot_selected.setEnabled(False)
 
         # DAG actions
-        self.act_show_dag = QAction("Show DAG", self)
+        self.act_show_dag = QAction("Show DAG...", self)
         self.act_show_dag.setToolTip("Show DAG representation of the HDF5 file structure")
         self.act_show_dag.triggered.connect(self._show_dag_visualization)
 
