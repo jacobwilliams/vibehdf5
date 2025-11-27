@@ -1208,6 +1208,11 @@ class HDF5Viewer(QMainWindow):
         self.act_plot_selected.triggered.connect(self.plot_selected_columns)
         self.act_plot_selected.setEnabled(False)
 
+        # DAG actions
+        self.act_show_dag = QAction("Show DAG", self)
+        self.act_show_dag.setToolTip("Show DAG representation of the HDF5 file structure")
+        self.act_show_dag.triggered.connect(self._show_dag_visualization)
+
         # Font size actions
         self.act_increase_font = QAction("Increase Font Size", self)
         self.act_increase_font.setShortcut("Ctrl++")
@@ -1311,6 +1316,8 @@ class HDF5Viewer(QMainWindow):
         view_menu.addAction(self.act_collapse)
         view_menu.addSeparator()
         view_menu.addAction(self.act_plot_selected)
+        view_menu.addSeparator()
+        view_menu.addAction(self.act_show_dag)
         view_menu.addSeparator()
         view_menu.addAction(self.act_increase_font)
         view_menu.addAction(self.act_decrease_font)
@@ -5906,6 +5913,120 @@ class HDF5Viewer(QMainWindow):
 
             except Exception as exc:
                 QMessageBox.critical(self, "Paste Failed", f"Failed to update attribute:\n{exc}")
+
+    def _show_dag_visualization(self) -> None:
+        """Visualize the HDF5 file structure as a DAG using python-graphviz."""
+        import tempfile
+        import graphviz
+        import h5py
+        from PySide6.QtGui import QPixmap
+        from PySide6.QtWidgets import QLabel, QDialog, QVBoxLayout, QPushButton, QScrollArea
+
+        def sanitize_id(name: str) -> str:
+            # Replace slashes and colons with double underscores, remove leading slash
+            return name.replace('/', '__').replace(':', '_').lstrip('_')
+
+        fpath = self.model.filepath
+        if not fpath:
+            QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
+            return
+        try:
+            with h5py.File(fpath, "r") as h5:
+                dot = graphviz.Digraph(comment="HDF5 Structure")
+                dot.attr(rankdir='LR')  #, size='8,5')
+
+                def add_group(g, parent_id=None):
+                    group_id = sanitize_id(f"group:{g.name}")
+                    is_csv = False
+                    if g.name == '/':
+                        # the root group
+                        label = 'root'
+                        shape = 'folder'
+                        fillcolor="#D2CFB8"
+                        fontcolor="#000000"
+                    else:
+                        label = g.name.split('/')[-1]
+                        fontcolor="#000000"
+                        if "source_type" in g.attrs and g.attrs["source_type"] == "csv":
+                            # a CSV dataset
+                            is_csv = True
+                            shape = 'box3d'
+                            fillcolor="#eddef0"
+                        else:
+                            shape = 'folder'
+                            fillcolor="#e0f7fa"
+                    dot.node(group_id, label, shape=shape, style="filled", fillcolor=fillcolor, fontcolor=fontcolor)
+                    if parent_id:
+                        dot.edge(parent_id, group_id)
+                    for key in g:
+                        item = g[key]
+                        if isinstance(item, h5py.Group):
+                            add_group(item, group_id)
+                        else:
+                            ds_id = sanitize_id(f"dataset:{item.name}")
+                            ds_label = item.name.split('/')[-1]
+                            if is_csv:
+                                # Highlight datasets under CSV groups
+                                dot.node(ds_id, ds_label, shape="ellipse", style="filled", fillcolor="#ffe4e4")
+                            else:
+                                dot.node(ds_id, ds_label, shape="box", style="filled", fillcolor="#fefff5")
+                            dot.edge(group_id, ds_id)
+                add_group(h5)
+
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    out_path = f"{tmpdir}/hdf5_dag"
+                    dot.format = "png"
+                    dot.render(filename=out_path, cleanup=True)
+                    png_path = out_path + ".png"
+                    pixmap = QPixmap(png_path)
+                    dialog = QDialog(self)
+                    dialog.setWindowTitle("HDF5 DAG Visualization")
+                    layout = QVBoxLayout(dialog)
+                    scroll_area = QScrollArea(dialog)
+                    label = QLabel()
+                    if not pixmap or pixmap.isNull():
+                        label.setText("Failed to load DAG image.")
+                    else:
+                        label.setPixmap(pixmap)
+                        label.setAlignment(Qt.AlignCenter)
+                    scroll_area.setWidget(label)
+                    scroll_area.setWidgetResizable(True)
+                    layout.addWidget(scroll_area)
+
+                    # Add Save button
+                    btn_layout = QHBoxLayout()
+                    save_btn = QPushButton("Save As...")
+                    close_btn = QPushButton("Close")
+                    btn_layout.addWidget(save_btn)
+                    btn_layout.addWidget(close_btn)
+                    layout.addLayout(btn_layout)
+
+                    def save_dag_image():
+                        from PySide6.QtWidgets import QFileDialog
+                        file_path, _ = QFileDialog.getSaveFileName(
+                            dialog,
+                            "Save DAG Image",
+                            "hdf5_dag.png",
+                            "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;SVG Image (*.svg);;PDF File (*.pdf)"
+                        )
+                        if file_path:
+                            # Determine format from extension
+                            ext = os.path.splitext(file_path)[1].lower()
+                            format_map = {'.png': 'png', '.jpg': 'jpg', '.jpeg': 'jpeg', '.svg': 'svg', '.pdf': 'pdf'}
+                            fmt = format_map.get(ext, 'png')
+                            dot.format = fmt
+                            try:
+                                dot.render(filename=file_path, cleanup=True)
+                                QMessageBox.information(dialog, "Saved", f"DAG image saved to:\n{file_path}")
+                            except Exception as exc:
+                                QMessageBox.critical(dialog, "Save Failed", f"Failed to save DAG image:\n{exc}")
+
+                    save_btn.clicked.connect(save_dag_image)
+                    close_btn.clicked.connect(dialog.accept)
+                    dialog.resize(900, 700)
+                    dialog.exec()
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to generate DAG visualization: {exc}")
 
     def _duplicate_plot_config(self):
         """Duplicate the selected plot configuration."""
