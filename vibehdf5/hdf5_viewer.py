@@ -6006,15 +6006,12 @@ class HDF5Viewer(QMainWindow):
                         file_path, _ = QFileDialog.getSaveFileName(
                             dialog,
                             "Save DAG Image",
-                            "hdf5_dag.png",
+                            os.path.splitext(self.model._filepath)[0] + ".png",
                             "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;SVG Image (*.svg);;PDF File (*.pdf)"
                         )
                         if file_path:
                             # Determine format from extension
-                            ext = os.path.splitext(file_path)[1].lower()
-                            format_map = {'.png': 'png', '.jpg': 'jpg', '.jpeg': 'jpeg', '.svg': 'svg', '.pdf': 'pdf'}
-                            fmt = format_map.get(ext, 'png')
-                            dot.format = fmt
+                            dot.format = os.path.splitext(file_path)[1].lower().strip('.')
                             try:
                                 dot.render(filename=os.path.splitext(file_path)[0], cleanup=True)
                                 QMessageBox.information(dialog, "Saved", f"DAG image saved to:\n{file_path}")
