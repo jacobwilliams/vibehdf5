@@ -2534,6 +2534,38 @@ class HDF5Viewer(QMainWindow):
             )
 
     def _get_dataset_info(self, dataset_path: str) -> dict[str, str]:
+        """
+        Retrieve detailed information about a dataset in the currently loaded HDF5 file.
+
+        Args:
+            dataset_path (str): The HDF5 path to the dataset to inspect.
+
+        Returns:
+            dict[str, str]: A dictionary containing dataset properties and statistics. Keys include:
+                - 'Name': Full HDF5 path of the dataset
+                - 'Shape': Shape of the dataset
+                - 'Data Type': Data type of the dataset
+                - 'Size': Number of elements
+                - 'Memory Size': Size in memory (if available)
+                - 'Storage Size': Actual disk space used (if available)
+                - 'Compression Ratio': Ratio of memory size to storage size (if available)
+                - 'Chunks': Chunk shape (if chunked)
+                - 'Chunked': Whether the dataset is chunked
+                - 'Compression': Compression type (if any)
+                - 'Compression Options': Compression options (if any)
+                - 'Scale-Offset Filter': Scale-offset filter info (if any)
+                - 'Shuffle Filter': Whether shuffle filter is enabled
+                - 'Fletcher32 Checksum': Whether Fletcher32 checksum is enabled
+                - 'Fill Value': Fill value (if any)
+                - 'Attributes': Number of attributes
+                - 'Attribute Names': Names of up to 5 attributes
+                - 'External Storage': Number of external storage files (if any)
+                - 'Dimensions': Number of dimensions (for multidimensional datasets)
+                - '  Dimension N': Size of each dimension
+                - 'Min Value', 'Max Value', 'Mean Value', 'Std Dev': Statistics for numeric datasets (if small enough)
+
+        If the dataset is not found or not a dataset, returns an empty dict.
+        """
 
         if not self.model or not self.model.filepath:
             QMessageBox.information(self, "No File", "No HDF5 file is currently loaded.")
