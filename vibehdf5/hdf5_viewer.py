@@ -21,6 +21,7 @@ from matplotlib.dates import AutoDateLocator, DateFormatter
 from matplotlib.figure import Figure
 from qtpy.QtCore import QSettings, QSize, Qt
 from qtpy.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QPixmap
+from pyqtgraph.exporters import ImageExporter
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -1209,8 +1210,12 @@ class HDF5Viewer(QMainWindow):
         self.act_plot_selected.setEnabled(False)
 
         # DAG actions
-        self.act_show_dag = QAction("Show DAG...", self)
-        self.act_show_dag.setToolTip("Show DAG representation of the HDF5 file structure")
+        self.act_show_dag_pyqt = QAction("Show DAG (Pyqtgraph)...", self)
+        self.act_show_dag_pyqt.setToolTip("Show DAG representation of the HDF5 file structure (using Pyqtgraph)")
+        self.act_show_dag_pyqt.triggered.connect(self._show_dag_visualization_pyqtgraph)
+
+        self.act_show_dag = QAction("Show DAG (Graphviz)...", self)
+        self.act_show_dag.setToolTip("Show DAG representation of the HDF5 file structure (using Graphviz)")
         self.act_show_dag.triggered.connect(self._show_dag_visualization)
 
         # Font size actions
@@ -1318,6 +1323,7 @@ class HDF5Viewer(QMainWindow):
         view_menu.addAction(self.act_plot_selected)
         view_menu.addSeparator()
         view_menu.addAction(self.act_show_dag)
+        view_menu.addAction(self.act_show_dag_pyqt)
         view_menu.addSeparator()
         view_menu.addAction(self.act_increase_font)
         view_menu.addAction(self.act_decrease_font)
@@ -2527,15 +2533,11 @@ class HDF5Viewer(QMainWindow):
                 f"Failed to retrieve file properties:\n\n{exc}"
             )
 
-    def _show_dataset_info_dialog(self, dataset_path: str) -> None:
-        """Show a dialog with detailed dataset information.
+    def _get_dataset_info(self, dataset_path: str) -> dict[str, str]:
 
-        Args:
-            dataset_path: HDF5 path to the dataset
-        """
         if not self.model or not self.model.filepath:
             QMessageBox.information(self, "No File", "No HDF5 file is currently loaded.")
-            return
+            return {}
 
         try:
             with h5py.File(self.model.filepath, 'r') as h5:
@@ -2653,66 +2655,75 @@ class HDF5Viewer(QMainWindow):
                                 info['Std Dev'] = f"{np.std(data):.6g}"
                     except Exception:
                         pass
+        except:
+            return {}
+        return info
 
-                # Create dialog
-                dialog = QDialog(self)
-                dialog.setWindowTitle(f"Dataset Information: {ds.name.split('/')[-1]}")
-                dialog.setMinimumWidth(500)
+    def _show_dataset_info_dialog(self, dataset_path: str) -> None:
+        """Show a dialog with detailed dataset information.
 
-                layout = QVBoxLayout(dialog)
+        Args:
+            dataset_path: HDF5 path to the dataset
+        """
 
-                # Add header label
-                header = QLabel(f"<b>Dataset: {dataset_path}</b>")
-                header.setStyleSheet("font-size: 14px; padding: 5px;")
-                layout.addWidget(header)
+        info = self._get_dataset_info(dataset_path)
 
-                # Create table for properties
-                table = QTableWidget()
-                table.setColumnCount(2)
-                table.setHorizontalHeaderLabels(["Property", "Value"])
-                table.horizontalHeader().setStretchLastSection(True)
-                table.setAlternatingRowColors(True)
-                table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-                table.setSelectionBehavior(QAbstractItemView.SelectRows)
-                table.verticalHeader().setVisible(False)
+        if info:
+            # Create dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"Dataset Information: {info['Name'].split('/')[-1]}")
+            dialog.setMinimumWidth(500)
 
-                # Populate table
-                table.setRowCount(len(info))
-                for i, (key, value) in enumerate(info.items()):
-                    # Property name
-                    key_item = QTableWidgetItem(key)
-                    if not key.startswith('  '):  # Don't bold sub-items
-                        key_item.setFont(QFont(key_item.font().family(), -1, QFont.Bold))
-                    table.setItem(i, 0, key_item)
+            layout = QVBoxLayout(dialog)
 
-                    # Property value
-                    value_item = QTableWidgetItem(str(value))
-                    table.setItem(i, 1, value_item)
+            # Add header label
+            header = QLabel(f"<b>Dataset: {dataset_path}</b>")
+            header.setStyleSheet("font-size: 14px; padding: 5px;")
+            layout.addWidget(header)
 
-                table.resizeColumnsToContents()
-                table.setColumnWidth(0, 180)  # Fixed width for property names
+            # Create table for properties
+            table = QTableWidget()
+            table.setColumnCount(2)
+            table.setHorizontalHeaderLabels(["Property", "Value"])
+            table.horizontalHeader().setStretchLastSection(True)
+            table.setAlternatingRowColors(True)
+            table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            table.setSelectionBehavior(QAbstractItemView.SelectRows)
+            table.verticalHeader().setVisible(False)
 
-                layout.addWidget(table)
+            # Populate table
+            table.setRowCount(len(info))
+            for i, (key, value) in enumerate(info.items()):
+                # Property name
+                key_item = QTableWidgetItem(key)
+                if not key.startswith('  '):  # Don't bold sub-items
+                    key_item.setFont(QFont(key_item.font().family(), -1, QFont.Bold))
+                table.setItem(i, 0, key_item)
 
-                # Add buttons
-                button_box = QHBoxLayout()
-                button_box.addStretch()
+                # Property value
+                value_item = QTableWidgetItem(str(value))
+                table.setItem(i, 1, value_item)
 
-                close_btn = QPushButton("Close")
-                close_btn.clicked.connect(dialog.accept)
-                close_btn.setDefault(True)
-                button_box.addWidget(close_btn)
+            table.resizeColumnsToContents()
+            table.setColumnWidth(0, 180)  # Fixed width for property names
 
-                layout.addLayout(button_box)
+            layout.addWidget(table)
 
-                dialog.exec()
+            # Add buttons
+            button_box = QHBoxLayout()
+            button_box.addStretch()
 
-        except Exception as exc:
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to retrieve dataset information:\n\n{exc}"
-            )
+            close_btn = QPushButton("Close")
+            close_btn.clicked.connect(dialog.accept)
+            close_btn.setDefault(True)
+            button_box.addWidget(close_btn)
+
+            layout.addLayout(button_box)
+
+            dialog.exec()
+
+        else:
+            pass
 
     def _merge_file_dialog(self) -> None:
         """Dialog to select and merge another HDF5 file into the current file."""
@@ -5913,6 +5924,235 @@ class HDF5Viewer(QMainWindow):
 
             except Exception as exc:
                 QMessageBox.critical(self, "Paste Failed", f"Failed to update attribute:\n{exc}")
+
+    def _show_dag_visualization_pyqtgraph(self) -> None:
+        """Visualize the HDF5 file structure as a DAG using pyqtgraph (interactive)."""
+        from qtpy.QtWidgets import QToolTip
+        import pyqtgraph as pg
+        from pyqtgraph.Qt import QtCore, QtGui
+        from qtpy.QtWidgets import QMessageBox
+        from qtpy.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog
+        import networkx as nx
+        import numpy as np
+        import os
+
+        # Custom GraphItem with tooltip support
+        class TooltipGraphItem(pg.GraphItem):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self._positions = None
+            def set_positions(self, positions):
+                self._positions = positions
+            def hoverEvent(self, event):
+                if event.isExit():
+                    QToolTip.hideText()
+                    return
+                if self._positions is None:
+                    return
+                pos = event.pos()
+                x, y = pos.x(), pos.y()
+                dists = np.linalg.norm(self._positions - np.array([x, y]), axis=1)
+                min_idx = np.argmin(dists)
+                if dists[min_idx] < 0.05:
+                    tip = node_tooltip(min_idx)
+                    QToolTip.showText(event.screenPos().toPoint(), tip)
+                else:
+                    QToolTip.hideText()
+
+        fpath = self.model.filepath
+        if not fpath:
+            QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
+            return
+        try:
+            with h5py.File(fpath, "r") as h5:
+                G = nx.DiGraph()
+
+                def add_group(g, parent=None):
+                    group_id = f"group:{g.name}"
+                    is_csv = False
+                    if g.name == '/':
+                        label = 'root'
+                        kind = 'root'
+                    else:
+                        label = g.name.split('/')[-1]
+                        kind = 'group'
+                        if "source_type" in g.attrs and g.attrs["source_type"] == "csv":
+                            is_csv = True
+                            kind = 'csv'
+                    G.add_node(group_id, label=label, kind=kind)
+                    if parent:
+                        G.add_edge(parent, group_id)
+                    for key in g:
+                        item = g[key]
+                        if isinstance(item, h5py.Group):
+                            add_group(item, group_id)
+                        else:
+                            ds_id = f"dataset:{item.name}"
+                            ds_label = item.name.split('/')[-1]
+                            ds_kind = 'csv_dataset' if is_csv else 'dataset'
+                            G.add_node(ds_id, label=ds_label, kind=ds_kind)
+                            G.add_edge(group_id, ds_id)
+                add_group(h5)
+
+            # Layout options
+            layout_options = {
+                "Spring": lambda G: nx.spring_layout(G, k=1.5, iterations=100),
+                "Circular": nx.circular_layout,
+                "Shell": nx.shell_layout,
+                "Kamada-Kawai": nx.kamada_kawai_layout,
+                "Spectral": nx.spectral_layout,
+                "Random": nx.random_layout,
+            }
+
+            # Create dialog and pyqtgraph plot widget
+            dialog = QDialog(self)
+            dialog.setWindowTitle("HDF5 DAG Visualization (pyqtgraph)")
+            main_layout = QVBoxLayout(dialog)
+
+            # Dropdown for layout selection
+            from PySide6.QtWidgets import QComboBox, QLabel
+            layout_select_layout = QHBoxLayout()
+            layout_label = QLabel("Layout:")
+            layout_combo = QComboBox()
+            layout_combo.addItems(list(layout_options.keys()))
+            layout_select_layout.addWidget(layout_label)
+            layout_select_layout.addWidget(layout_combo)
+            main_layout.addLayout(layout_select_layout)
+
+            plot_widget = pg.GraphicsLayoutWidget()
+            # Interactivity: clickable nodes
+            graph_item = TooltipGraphItem()
+
+            # Node info tooltip helper
+            def node_tooltip(idx):
+                if idx is None or idx < 0 or idx >= len(node_ids):
+                    return ""
+                node_id = node_ids[idx]
+                label = node_labels[idx]
+                kind = node_kinds[idx]
+                # If this is a dataset node, show rich info
+                if kind in ("dataset", "csv_dataset"):
+                    # node_id is like 'dataset:/path/to/dataset'
+                    if node_id.startswith("dataset:"):
+                        dataset_path = node_id[len("dataset:"):]
+                        info = self._get_dataset_info(dataset_path)
+                        if info:
+                            # Show key info in tooltip
+                            lines = [f"<b>{label}</b>", f"<i>{dataset_path}</i>"]
+                            for k in ["Shape", "Data Type", "Size", "Memory Size", "Storage Size", "Compression", "Min Value", "Max Value", "Mean Value", "Std Dev", "Attributes", "Attribute Names"]:
+                                if k in info:
+                                    lines.append(f"<b>{k}:</b> {info[k]}")
+                            return "<br>".join(lines)
+                # Otherwise, show basic info
+                return f"<b>{label}</b><br><i>{node_id}</i><br>Type: {kind}"
+
+            # Will be set in update_layout
+            positions = None
+
+            view = pg.ViewBox()
+            plot_widget.addItem(view)
+            view.setAspectLocked()
+            main_layout.addWidget(plot_widget)
+
+            # Prepare node and edge data for pyqtgraph
+            node_ids = list(G.nodes)
+            node_labels = [G.nodes[n].get('label', n) for n in node_ids]
+            node_kinds = [G.nodes[n].get('kind', 'group') for n in node_ids]
+            edges = [(node_ids.index(e[0]), node_ids.index(e[1])) for e in G.edges]
+
+            # Map node kind to symbol
+            kind_to_symbol = {
+                'root': 'o',          # circle
+                'group': 's',         # square
+                'csv': 't',           # triangle
+                'csv_dataset': 'd',   # diamond
+                'dataset': 'h',       # hexagon
+            }
+            node_symbols = [kind_to_symbol.get(k, 'o') for k in node_kinds]
+
+            def get_color(kind):
+                if kind == 'root':
+                    return (210, 207, 184, 255)
+                elif kind == 'csv':
+                    return (237, 222, 240, 255)
+                elif kind == 'group':
+                    return (224, 247, 250, 255)
+                elif kind == 'csv_dataset':
+                    return (255, 228, 228, 255)
+                else:
+                    return (254, 255, 245, 255)
+            node_colors = np.array([get_color(k) for k in node_kinds], dtype=np.ubyte)
+
+            def tip_func(x, y, data):
+                try:
+                    idx = int(data)
+                    return node_tooltip(idx)
+                except Exception:
+                    return ""
+
+            # Store text items for easy removal
+            text_items = []
+
+            def update_layout():
+                nonlocal positions
+                # Remove previous items
+                view.clear()
+                # Get selected layout
+                layout_name = layout_combo.currentText()
+                pos_dict = layout_options[layout_name](G)
+                positions = np.array([pos_dict[n] for n in node_ids])
+                # Add node labels as text items (below nodes)
+                for i, (x, y) in enumerate(positions):
+                    label = node_labels[i]
+                    text_item = pg.TextItem(label, anchor=(0.5, -0.2), color=(255, 255, 255))
+                    text_item.setPos(x, y)
+                    view.addItem(text_item)
+                    text_items.append(text_item)
+                graph_item.setData(
+                    pos=positions,
+                    adj=np.array(edges),
+                    size=18,
+                    symbol=node_symbols,
+                    pxMode=True,
+                    text=node_labels,
+                    pen={'color': (255, 255, 255, 255), 'width': 2},  # White edge lines
+                    brush=node_colors
+                )
+                graph_item.set_positions(positions)
+                view.addItem(graph_item)
+
+            # Initial plot
+            update_layout()
+
+            # Update plot when layout changes
+            layout_combo.currentIndexChanged.connect(update_layout)
+
+            # Add Save and Close buttons
+            btn_layout = QHBoxLayout()
+            save_btn = QPushButton("Save As...")
+            close_btn = QPushButton("Close")
+            btn_layout.addWidget(save_btn)
+            btn_layout.addWidget(close_btn)
+            main_layout.addLayout(btn_layout)
+
+            def save_dag_image():
+                file_path, _ = QFileDialog.getSaveFileName(
+                    dialog,
+                    "Save DAG Image",
+                    os.path.splitext(self.model.filepath)[0] + "_dag.png",
+                    "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg)"
+                )
+                if file_path:
+                    exporter = ImageExporter(plot_widget.scene())
+                    exporter.export(file_path)
+                    QMessageBox.information(dialog, "Saved", f"DAG image saved to:\n{file_path}")
+
+            save_btn.clicked.connect(save_dag_image)
+            close_btn.clicked.connect(dialog.accept)
+            dialog.resize(900, 700)
+            dialog.exec()
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to generate DAG visualization: {exc}")
 
     def _show_dag_visualization(self) -> None:
         """Visualize the HDF5 file structure as a DAG using python-graphviz."""
