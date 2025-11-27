@@ -6016,7 +6016,7 @@ class HDF5Viewer(QMainWindow):
                             fmt = format_map.get(ext, 'png')
                             dot.format = fmt
                             try:
-                                dot.render(filename=file_path, cleanup=True)
+                                dot.render(filename=os.path.splitext(file_path)[0], cleanup=True)
                                 QMessageBox.information(dialog, "Saved", f"DAG image saved to:\n{file_path}")
                             except Exception as exc:
                                 QMessageBox.critical(dialog, "Save Failed", f"Failed to save DAG image:\n{exc}")
