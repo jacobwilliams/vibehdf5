@@ -1324,12 +1324,15 @@ class HDF5Viewer(QMainWindow):
         self._update_recent_files_menu()
 
         # View menu
+
         view_menu = menubar.addMenu("&View")
         view_menu.addAction(self.act_expand)
         view_menu.addAction(self.act_collapse)
         view_menu.addSeparator()
-        view_menu.addAction(self.act_plot_selected)
-        view_menu.addAction(self.act_contourf_selected)
+        # Add plot actions to a submenu
+        plot_menu = view_menu.addMenu("Plot Selected Columns")
+        plot_menu.addAction(self.act_plot_selected)
+        plot_menu.addAction(self.act_contourf_selected)
         view_menu.addSeparator()
         dag_menu = view_menu.addMenu("Visualize HDF5 File DAG")
         dag_menu.addAction(self.act_show_dag)
