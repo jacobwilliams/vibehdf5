@@ -5995,10 +5995,19 @@ class HDF5Viewer(QMainWindow):
         if not fpath:
             QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
             return
+
+        """Visualize the HDF5 file structure as a DAG using pyqtgraph (interactive), embedded in a new tab panel."""
+        from qtpy.QtWidgets import QToolTip
+        from pyqtgraph.Qt import QtCore, QtGui
+        from qtpy.QtWidgets import QMessageBox, QFileDialog
+        from qtpy.QtWidgets import QComboBox, QLabel, QWidget, QVBoxLayout, QHBoxLayout, QPushButton
         try:
+            fpath = self.model.filepath
+            if not fpath:
+                QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
+                return
             with h5py.File(fpath, "r") as h5:
                 G = nx.DiGraph()
-
                 def add_group(g, parent=None):
                     group_id = f"group:{g.name}"
                     is_csv = False
@@ -6026,7 +6035,6 @@ class HDF5Viewer(QMainWindow):
                             G.add_edge(group_id, ds_id)
                 add_group(h5)
 
-            # Layout options
             layout_options = {
                 "Spring": lambda G: nx.spring_layout(G, k=1.5, iterations=100),
                 "Circular": nx.circular_layout,
@@ -6034,15 +6042,21 @@ class HDF5Viewer(QMainWindow):
                 "Kamada-Kawai": nx.kamada_kawai_layout,
                 "Spectral": nx.spectral_layout,
                 "Random": nx.random_layout,
+                "ForceAtlas2": nx.forceatlas2_layout,
+                # "Pydot": lambda G: nx.nx_pydot.pydot_layout(G, prog="dot"), # have some error
+                # "Graphviz": lambda G: nx.nx_pydot.graphviz_layout(G, prog="dot"),
+                "Pygraphviz": lambda G: nx.nx_agraph.pygraphviz_layout(G, prog="dot"),
+                "Planar": nx.planar_layout,
+                "BFS": lambda G: nx.bfs_layout(G, start='group:/'),
+                "ARF": lambda G: nx.arf_layout(G),
             }
 
-            # Create dialog and pyqtgraph plot widget
-            dialog = QDialog(self)
-            dialog.setWindowTitle("HDF5 DAG Visualization (pyqtgraph)")
-            main_layout = QVBoxLayout(dialog)
+            # Create a QWidget to serve as the tab panel
+            dag_panel = QWidget()
+            from qtpy.QtWidgets import QSizePolicy
+            main_layout = QVBoxLayout(dag_panel)
 
-            # Dropdown for layout selection
-            from PySide6.QtWidgets import QComboBox, QLabel
+            # Layout selection dropdown
             layout_select_layout = QHBoxLayout()
             layout_label = QLabel("Layout:")
             layout_combo = QComboBox()
@@ -6051,9 +6065,38 @@ class HDF5Viewer(QMainWindow):
             layout_select_layout.addWidget(layout_combo)
             main_layout.addLayout(layout_select_layout)
 
+            import pyqtgraph as pg
+            from pyqtgraph.exporters import ImageExporter
             plot_widget = pg.GraphicsLayoutWidget()
-            # Interactivity: clickable nodes
-            graph_item = TooltipGraphItem()
+            graph_item = None
+            plot_widget.setMinimumSize(100, 100)
+            from qtpy.QtWidgets import QScrollArea
+            scroll_area = QScrollArea()
+            scroll_area.setWidget(plot_widget)
+            scroll_area.setWidgetResizable(True)
+
+            # Custom GraphItem with tooltip support
+            class TooltipGraphItem(pg.GraphItem):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    self._positions = None
+                def set_positions(self, positions):
+                    self._positions = positions
+                def hoverEvent(self, event):
+                    if event.isExit():
+                        QToolTip.hideText()
+                        return
+                    if self._positions is None:
+                        return
+                    pos = event.pos()
+                    x, y = pos.x(), pos.y()
+                    dists = np.linalg.norm(self._positions - np.array([x, y]), axis=1)
+                    min_idx = np.argmin(dists)
+                    if dists[min_idx] < 0.05:
+                        tip = node_tooltip(min_idx)
+                        QToolTip.showText(event.screenPos().toPoint(), tip)
+                    else:
+                        QToolTip.hideText()
 
             # Node info tooltip helper
             def node_tooltip(idx):
@@ -6077,14 +6120,6 @@ class HDF5Viewer(QMainWindow):
                             return "<br>".join(lines)
                 # Otherwise, show basic info
                 return f"<b>{label}</b><br><i>{node_id}</i><br>Type: {kind}"
-
-            # Will be set in update_layout
-            positions = None
-
-            view = pg.ViewBox()
-            plot_widget.addItem(view)
-            view.setAspectLocked()
-            main_layout.addWidget(plot_widget)
 
             # Prepare node and edge data for pyqtgraph
             node_ids = list(G.nodes)
@@ -6115,19 +6150,15 @@ class HDF5Viewer(QMainWindow):
                     return (254, 255, 245, 255)
             node_colors = np.array([get_color(k) for k in node_kinds], dtype=np.ubyte)
 
-            def tip_func(x, y, data):
-                try:
-                    idx = int(data)
-                    return node_tooltip(idx)
-                except Exception:
-                    return ""
-
-            # Store text items for easy removal
             text_items = []
+            positions = None
+            view = pg.ViewBox()
+            plot_widget.addItem(view)
+            view.setAspectLocked()
+            main_layout.addWidget(scroll_area)
 
             def update_layout():
-                nonlocal positions
-                # Remove previous items
+                nonlocal positions, graph_item
                 view.clear()
                 # Get selected layout
                 layout_name = layout_combo.currentText()
@@ -6140,6 +6171,7 @@ class HDF5Viewer(QMainWindow):
                     text_item.setPos(x, y)
                     view.addItem(text_item)
                     text_items.append(text_item)
+                graph_item = TooltipGraphItem()
                 graph_item.setData(
                     pos=positions,
                     adj=np.array(edges),
@@ -6162,14 +6194,12 @@ class HDF5Viewer(QMainWindow):
             # Add Save and Close buttons
             btn_layout = QHBoxLayout()
             save_btn = QPushButton("Save As...")
-            close_btn = QPushButton("Close")
             btn_layout.addWidget(save_btn)
-            btn_layout.addWidget(close_btn)
             main_layout.addLayout(btn_layout)
 
             def save_dag_image():
                 file_path, _ = QFileDialog.getSaveFileName(
-                    dialog,
+                    dag_panel,
                     "Save DAG Image",
                     os.path.splitext(self.model.filepath)[0] + "_dag.png",
                     "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg)"
@@ -6177,56 +6207,62 @@ class HDF5Viewer(QMainWindow):
                 if file_path:
                     exporter = ImageExporter(plot_widget.scene())
                     exporter.export(file_path)
-                    QMessageBox.information(dialog, "Saved", f"DAG image saved to:\n{file_path}")
+                    QMessageBox.information(dag_panel, "Saved", f"DAG image saved to:\n{file_path}")
 
             save_btn.clicked.connect(save_dag_image)
-            close_btn.clicked.connect(dialog.accept)
-            dialog.resize(900, 700)
-            dialog.exec()
+
+
+            # Add the DAG panel as a new tab in the main window's tab widget
+            # If a previous DAG tab exists, remove it first
+            dag_tab_name = "DAG (pyqtgraph)"
+            tab_widget = getattr(self, 'bottom_tabs', None)
+            if tab_widget is not None:
+                # Remove previous DAG tab if present
+                for i in range(tab_widget.count()):
+                    if tab_widget.tabText(i) == dag_tab_name:
+                        tab_widget.removeTab(i)
+                        break
+                tab_widget.addTab(dag_panel, dag_tab_name)
+                tab_widget.setCurrentWidget(dag_panel)
+            else:
+                QMessageBox.warning(self, "No Tab Widget", "Main tab widget not found.")
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to generate DAG visualization: {exc}")
 
     def _show_dag_visualization(self) -> None:
         """Visualize the HDF5 file structure as a DAG using python-graphviz."""
-        import tempfile
-        import graphviz
+        import tempfile, os
+        import networkx as nx
         import h5py
-        from PySide6.QtGui import QPixmap
-        from PySide6.QtWidgets import QLabel, QDialog, QVBoxLayout, QPushButton, QScrollArea
-
-        def sanitize_id(name: str) -> str:
-            # Replace slashes and colons with double underscores, remove leading slash
-            return name.replace('/', '__').replace(':', '_').lstrip('_')
-
-        fpath = self.model.filepath
-        if not fpath:
-            QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
-            return
+        from qtpy.QtGui import QPixmap
+        from qtpy.QtWidgets import QLabel, QDialog, QVBoxLayout, QPushButton, QScrollArea, QHBoxLayout, QMessageBox
         try:
+            fpath = self.model.filepath
+            if not fpath:
+                QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
+                return
+            import graphviz
+            dot = graphviz.Digraph(comment="HDF5 DAG")
+            fontcolor = "#222"
+            def sanitize_id(name: str) -> str:
+                return name.replace('/', '_').replace(':', '_')
             with h5py.File(fpath, "r") as h5:
-                dot = graphviz.Digraph(comment="HDF5 Structure")
-                dot.attr(rankdir='LR')  #, size='8,5')
-
                 def add_group(g, parent_id=None):
                     group_id = sanitize_id(f"group:{g.name}")
                     is_csv = False
                     if g.name == '/':
-                        # the root group
                         label = 'root'
                         shape = 'folder'
-                        fillcolor="#D2CFB8"
-                        fontcolor="#000000"
+                        fillcolor = "#d2cfb8"
                     else:
                         label = g.name.split('/')[-1]
-                        fontcolor="#000000"
                         if "source_type" in g.attrs and g.attrs["source_type"] == "csv":
-                            # a CSV dataset
                             is_csv = True
                             shape = 'box3d'
-                            fillcolor="#eddef0"
+                            fillcolor = "#eddef0"
                         else:
                             shape = 'folder'
-                            fillcolor="#e0f7fa"
+                            fillcolor = "#e0f7fa"
                     dot.node(group_id, label, shape=shape, style="filled", fillcolor=fillcolor, fontcolor=fontcolor)
                     if parent_id:
                         dot.edge(parent_id, group_id)
@@ -6238,62 +6274,58 @@ class HDF5Viewer(QMainWindow):
                             ds_id = sanitize_id(f"dataset:{item.name}")
                             ds_label = item.name.split('/')[-1]
                             if is_csv:
-                                # Highlight datasets under CSV groups
                                 dot.node(ds_id, ds_label, shape="ellipse", style="filled", fillcolor="#ffe4e4")
                             else:
                                 dot.node(ds_id, ds_label, shape="box", style="filled", fillcolor="#fefff5")
                             dot.edge(group_id, ds_id)
                 add_group(h5)
 
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    out_path = f"{tmpdir}/hdf5_dag"
-                    dot.format = "png"
-                    dot.render(filename=out_path, cleanup=True)
-                    png_path = out_path + ".png"
-                    pixmap = QPixmap(png_path)
-                    dialog = QDialog(self)
-                    dialog.setWindowTitle("HDF5 DAG Visualization")
-                    layout = QVBoxLayout(dialog)
-                    scroll_area = QScrollArea(dialog)
-                    label = QLabel()
-                    if not pixmap or pixmap.isNull():
-                        label.setText("Failed to load DAG image.")
-                    else:
-                        label.setPixmap(pixmap)
-                        label.setAlignment(Qt.AlignCenter)
-                    scroll_area.setWidget(label)
-                    scroll_area.setWidgetResizable(True)
-                    layout.addWidget(scroll_area)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                out_path = f"{tmpdir}/hdf5_dag"
+                dot.format = "png"
+                dot.render(filename=out_path, cleanup=True)
+                png_path = out_path + ".png"
+                pixmap = QPixmap(png_path)
+                dialog = QDialog(self)
+                dialog.setWindowTitle("HDF5 DAG Visualization")
+                layout = QVBoxLayout(dialog)
+                scroll_area = QScrollArea(dialog)
+                label = QLabel()
+                if not pixmap or pixmap.isNull():
+                    label.setText("Failed to load DAG image.")
+                else:
+                    label.setPixmap(pixmap)
+                    label.setAlignment(Qt.AlignCenter)
+                scroll_area.setWidget(label)
+                scroll_area.setWidgetResizable(True)
+                layout.addWidget(scroll_area)
 
-                    # Add Save button
-                    btn_layout = QHBoxLayout()
-                    save_btn = QPushButton("Save As...")
-                    close_btn = QPushButton("Close")
-                    btn_layout.addWidget(save_btn)
-                    btn_layout.addWidget(close_btn)
-                    layout.addLayout(btn_layout)
+                btn_layout = QHBoxLayout()
+                save_btn = QPushButton("Save As...")
+                close_btn = QPushButton("Close")
+                btn_layout.addWidget(save_btn)
+                btn_layout.addWidget(close_btn)
+                layout.addLayout(btn_layout)
 
-                    def save_dag_image():
-                        from PySide6.QtWidgets import QFileDialog
-                        file_path, _ = QFileDialog.getSaveFileName(
-                            dialog,
-                            "Save DAG Image",
-                            os.path.splitext(self.model._filepath)[0] + ".png",
-                            "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;SVG Image (*.svg);;PDF File (*.pdf)"
-                        )
-                        if file_path:
-                            # Determine format from extension
-                            dot.format = os.path.splitext(file_path)[1].lower().strip('.')
-                            try:
-                                dot.render(filename=os.path.splitext(file_path)[0], cleanup=True)
-                                QMessageBox.information(dialog, "Saved", f"DAG image saved to:\n{file_path}")
-                            except Exception as exc:
-                                QMessageBox.critical(dialog, "Save Failed", f"Failed to save DAG image:\n{exc}")
+                def save_dag_image():
+                    file_path, _ = QFileDialog.getSaveFileName(
+                        dialog,
+                        "Save DAG Image",
+                        os.path.splitext(self.model.filepath)[0] + "_dag.png",
+                        "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;SVG Image (*.svg);;PDF File (*.pdf)"
+                    )
+                    if file_path:
+                        dot.format = os.path.splitext(file_path)[1].lower().strip('.')
+                        try:
+                            dot.render(filename=os.path.splitext(file_path)[0], cleanup=True)
+                            QMessageBox.information(dialog, "Saved", f"DAG image saved to:\n{file_path}")
+                        except Exception as exc:
+                            QMessageBox.critical(dialog, "Save Failed", f"Failed to save DAG image:\n{exc}")
 
-                    save_btn.clicked.connect(save_dag_image)
-                    close_btn.clicked.connect(dialog.accept)
-                    dialog.resize(900, 700)
-                    dialog.exec()
+                save_btn.clicked.connect(save_dag_image)
+                close_btn.clicked.connect(dialog.accept)
+                dialog.resize(900, 700)
+                dialog.exec()
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to generate DAG visualization: {exc}")
 
