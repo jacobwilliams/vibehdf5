@@ -3239,10 +3239,14 @@ class HDF5Viewer(QMainWindow):
 
         # Add dataset information option
         act_info = None
+        act_show_dag_dataset = None
         if kind == "dataset":
             act_info = menu.addAction(f"Dataset Information...")
             act_info.setIcon(style.standardIcon(QStyle.SP_MessageBoxInformation))
-            menu.addSeparator()
+        elif kind == "group":
+            act_show_dag_dataset = menu.addAction("Show DAG for this group...")
+            act_show_dag_dataset.setIcon(style.standardIcon(QStyle.SP_FileDialogContentsView))
+            act_show_dag_dataset.setIcon(style.standardIcon(QStyle.SP_FileDialogListView))
 
         # Add CSV group expand/collapse option
         act_toggle_csv = None
@@ -3279,7 +3283,7 @@ class HDF5Viewer(QMainWindow):
             act_delete.setIcon(style.standardIcon(QStyle.SP_TrashIcon))
 
         # If no actions available, don't show menu
-        if not act_info and not act_toggle_csv and not act_save_csv and not act_save_excel and not act_save_json and not act_save_html and not act_save_latex and not act_save_markdown and not act_delete:
+        if not act_info and not act_toggle_csv and not act_save_csv and not act_save_excel and not act_save_json and not act_save_html and not act_save_latex and not act_save_markdown and not act_delete and not act_show_dag_dataset:
             return
 
         global_pos = self.tree.viewport().mapToGlobal(point)
@@ -3287,6 +3291,8 @@ class HDF5Viewer(QMainWindow):
 
         if chosen and chosen == act_info and act_info is not None:
             self._show_dataset_info_dialog(path)
+        elif chosen == act_show_dag_dataset and act_show_dag_dataset is not None:
+            self._show_dag_visualization_pyqtgraph(path)
         elif chosen == act_toggle_csv:
             self.model.toggle_csv_group_expansion(item)
         elif chosen == act_save_csv:
@@ -5958,13 +5964,17 @@ class HDF5Viewer(QMainWindow):
             except Exception as exc:
                 QMessageBox.critical(self, "Paste Failed", f"Failed to update attribute:\n{exc}")
 
-    def _show_dag_visualization_pyqtgraph(self) -> None:
-        """Visualize the HDF5 file structure as a DAG using pyqtgraph (interactive)."""
-        from qtpy.QtWidgets import QToolTip
+    def _show_dag_visualization_pyqtgraph(self, dataset_path: str | None = None) -> None:
+        """
+        Visualize the HDF5 file structure as a DAG using pyqtgraph (interactive), in a separate dialog window.
+
+        Args:
+            dataset_path (str | None): Optional path to a specific dataset or group within the HDF5 file. If provided, the DAG will be constructed starting from this path; otherwise, the DAG will represent the entire file structure.
+        """
+
+        from qtpy.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QToolTip, QMessageBox, QComboBox, QLabel, QScrollArea
         import pyqtgraph as pg
-        from pyqtgraph.Qt import QtCore, QtGui
-        from qtpy.QtWidgets import QMessageBox
-        from qtpy.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog
+        from pyqtgraph.exporters import ImageExporter
         import networkx as nx
         import numpy as np
         import os
@@ -5997,11 +6007,6 @@ class HDF5Viewer(QMainWindow):
             QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
             return
 
-        """Visualize the HDF5 file structure as a DAG using pyqtgraph (interactive), in a separate dialog window."""
-        from qtpy.QtWidgets import QToolTip
-        from pyqtgraph.Qt import QtCore, QtGui
-        from qtpy.QtWidgets import QMessageBox, QFileDialog
-        from qtpy.QtWidgets import QComboBox, QLabel, QWidget, QVBoxLayout, QHBoxLayout, QPushButton
         try:
             fpath = self.model.filepath
             if not fpath:
@@ -6034,7 +6039,7 @@ class HDF5Viewer(QMainWindow):
                             ds_kind = 'csv_dataset' if is_csv else 'dataset'
                             G.add_node(ds_id, label=ds_label, kind=ds_kind)
                             G.add_edge(group_id, ds_id)
-                add_group(h5)
+                add_group(h5[dataset_path] if dataset_path else h5)
 
             layout_options = {
                 "Spring": lambda G: nx.spring_layout(G, k=1.5, iterations=100),
@@ -6044,8 +6049,6 @@ class HDF5Viewer(QMainWindow):
                 "Spectral": nx.spectral_layout,
                 "Random": nx.random_layout,
                 "ForceAtlas2": nx.forceatlas2_layout,
-                # "Pydot": lambda G: nx.nx_pydot.pydot_layout(G, prog="dot"), # have some error
-                # "Graphviz": lambda G: nx.nx_pydot.graphviz_layout(G, prog="dot"),
                 "Pygraphviz": lambda G: nx.nx_agraph.pygraphviz_layout(G, prog="dot"),
                 "Planar": nx.planar_layout,
                 "BFS": lambda G: nx.bfs_layout(G, start='group:/'),
@@ -6067,12 +6070,9 @@ class HDF5Viewer(QMainWindow):
             layout_select_layout.addWidget(layout_combo)
             main_layout.addLayout(layout_select_layout)
 
-            import pyqtgraph as pg
-            from pyqtgraph.exporters import ImageExporter
             plot_widget = pg.GraphicsLayoutWidget()
             graph_item = None
             plot_widget.setMinimumSize(100, 100)
-            from qtpy.QtWidgets import QScrollArea
             scroll_area = QScrollArea()
             scroll_area.setWidget(plot_widget)
             scroll_area.setWidgetResizable(True)
@@ -6223,8 +6223,8 @@ class HDF5Viewer(QMainWindow):
     def _show_dag_visualization(self) -> None:
         """Visualize the HDF5 file structure as a DAG using python-graphviz."""
         import tempfile, os
-        import networkx as nx
         import h5py
+        import graphviz
         from qtpy.QtGui import QPixmap
         from qtpy.QtWidgets import QLabel, QDialog, QVBoxLayout, QPushButton, QScrollArea, QHBoxLayout, QMessageBox
         try:
@@ -6232,7 +6232,6 @@ class HDF5Viewer(QMainWindow):
             if not fpath:
                 QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
                 return
-            import graphviz
             dot = graphviz.Digraph(comment="HDF5 DAG")
             fontcolor = "#222"
             def sanitize_id(name: str) -> str:
