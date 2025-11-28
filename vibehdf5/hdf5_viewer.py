@@ -21,7 +21,6 @@ from matplotlib.dates import AutoDateLocator, DateFormatter
 from matplotlib.figure import Figure
 from qtpy.QtCore import QSettings, QSize, Qt
 from qtpy.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QPixmap
-from pyqtgraph.exporters import ImageExporter
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -6041,6 +6040,7 @@ class HDF5Viewer(QMainWindow):
                             G.add_edge(group_id, ds_id)
                 add_group(h5[dataset_path] if dataset_path else h5)
 
+            # different layout options from networkx:
             layout_options = {
                 "Spring": lambda G: nx.spring_layout(G, k=1.5, iterations=100),
                 "Circular": nx.circular_layout,
