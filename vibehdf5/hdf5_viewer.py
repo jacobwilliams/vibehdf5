@@ -5996,7 +5996,7 @@ class HDF5Viewer(QMainWindow):
             QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
             return
 
-        """Visualize the HDF5 file structure as a DAG using pyqtgraph (interactive), embedded in a new tab panel."""
+        """Visualize the HDF5 file structure as a DAG using pyqtgraph (interactive), in a separate dialog window."""
         from qtpy.QtWidgets import QToolTip
         from pyqtgraph.Qt import QtCore, QtGui
         from qtpy.QtWidgets import QMessageBox, QFileDialog
@@ -6049,12 +6049,13 @@ class HDF5Viewer(QMainWindow):
                 "Planar": nx.planar_layout,
                 "BFS": lambda G: nx.bfs_layout(G, start='group:/'),
                 "ARF": lambda G: nx.arf_layout(G),
+                "Spiral": lambda G: nx.spiral_layout(G),
             }
 
-            # Create a QWidget to serve as the tab panel
-            dag_panel = QWidget()
-            from qtpy.QtWidgets import QSizePolicy
-            main_layout = QVBoxLayout(dag_panel)
+            # Create a QDialog to serve as the DAG window
+            dag_dialog = QDialog(self)
+            dag_dialog.setWindowTitle("DAG Visualization")
+            main_layout = QVBoxLayout(dag_dialog)
 
             # Layout selection dropdown
             layout_select_layout = QHBoxLayout()
@@ -6194,12 +6195,14 @@ class HDF5Viewer(QMainWindow):
             # Add Save and Close buttons
             btn_layout = QHBoxLayout()
             save_btn = QPushButton("Save As...")
+            close_btn = QPushButton("Close")
             btn_layout.addWidget(save_btn)
+            btn_layout.addWidget(close_btn)
             main_layout.addLayout(btn_layout)
 
             def save_dag_image():
                 file_path, _ = QFileDialog.getSaveFileName(
-                    dag_panel,
+                    dag_dialog,
                     "Save DAG Image",
                     os.path.splitext(self.model.filepath)[0] + "_dag.png",
                     "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg)"
@@ -6207,25 +6210,12 @@ class HDF5Viewer(QMainWindow):
                 if file_path:
                     exporter = ImageExporter(plot_widget.scene())
                     exporter.export(file_path)
-                    QMessageBox.information(dag_panel, "Saved", f"DAG image saved to:\n{file_path}")
+                    QMessageBox.information(dag_dialog, "Saved", f"DAG image saved to:\n{file_path}")
 
             save_btn.clicked.connect(save_dag_image)
-
-
-            # Add the DAG panel as a new tab in the main window's tab widget
-            # If a previous DAG tab exists, remove it first
-            dag_tab_name = "DAG (pyqtgraph)"
-            tab_widget = getattr(self, 'bottom_tabs', None)
-            if tab_widget is not None:
-                # Remove previous DAG tab if present
-                for i in range(tab_widget.count()):
-                    if tab_widget.tabText(i) == dag_tab_name:
-                        tab_widget.removeTab(i)
-                        break
-                tab_widget.addTab(dag_panel, dag_tab_name)
-                tab_widget.setCurrentWidget(dag_panel)
-            else:
-                QMessageBox.warning(self, "No Tab Widget", "Main tab widget not found.")
+            close_btn.clicked.connect(dag_dialog.close)
+            dag_dialog.resize(900, 700)
+            dag_dialog.exec()
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to generate DAG visualization: {exc}")
 
