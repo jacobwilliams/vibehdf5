@@ -1210,11 +1210,11 @@ class HDF5Viewer(QMainWindow):
         self.act_plot_selected.setEnabled(False)
 
         # DAG actions
-        self.act_show_dag_pyqt = QAction("Show DAG (Pyqtgraph)...", self)
+        self.act_show_dag_pyqt = QAction("Use Pyqtgraph...", self)
         self.act_show_dag_pyqt.setToolTip("Show DAG representation of the HDF5 file structure (using Pyqtgraph)")
         self.act_show_dag_pyqt.triggered.connect(self._show_dag_visualization_pyqtgraph)
 
-        self.act_show_dag = QAction("Show DAG (Graphviz)...", self)
+        self.act_show_dag = QAction("Use Graphviz...", self)
         self.act_show_dag.setToolTip("Show DAG representation of the HDF5 file structure (using Graphviz)")
         self.act_show_dag.triggered.connect(self._show_dag_visualization)
 
@@ -1322,8 +1322,9 @@ class HDF5Viewer(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(self.act_plot_selected)
         view_menu.addSeparator()
-        view_menu.addAction(self.act_show_dag)
-        view_menu.addAction(self.act_show_dag_pyqt)
+        dag_menu = view_menu.addMenu("Visualize HDF5 File DAG")
+        dag_menu.addAction(self.act_show_dag)
+        dag_menu.addAction(self.act_show_dag_pyqt)
         view_menu.addSeparator()
         view_menu.addAction(self.act_increase_font)
         view_menu.addAction(self.act_decrease_font)
