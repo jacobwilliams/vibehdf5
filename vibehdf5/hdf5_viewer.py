@@ -1200,13 +1200,21 @@ class HDF5Viewer(QMainWindow):
         self.act_about.triggered.connect(self.show_about_dialog)
 
         # Plotting action for CSV tables
-        self.act_plot_selected = QAction("Plot Selected Columns", self)
+        self.act_plot_selected = QAction("Plot Selected Columns (2D Lines)", self)
         self.act_plot_selected.setIcon(style.standardIcon(QStyle.SP_FileDialogContentsView))
         self.act_plot_selected.setToolTip(
             "Plot selected table columns (1 column: Y vs point count; 2+ columns: first is X, others are Y)"
         )
         self.act_plot_selected.triggered.connect(self.plot_selected_columns)
         self.act_plot_selected.setEnabled(False)
+
+        self.act_contourf_selected = QAction("Plot Selected Columns (Contourf)", self)
+        self.act_contourf_selected.setIcon(style.standardIcon(QStyle.SP_FileDialogContentsView))
+        self.act_contourf_selected.setToolTip(
+            "Plot selected table columns (3D contourf plot: X, Y, Z columns required)"
+        )
+        self.act_contourf_selected.triggered.connect(self.plot_selected_columns_contourf)
+        self.act_contourf_selected.setEnabled(False)
 
         # DAG actions
         self.act_show_dag_pyqt = QAction("Use Pyqtgraph...", self)
@@ -1279,6 +1287,7 @@ class HDF5Viewer(QMainWindow):
         tb.addAction(self.act_collapse)
         tb.addSeparator()
         tb.addAction(self.act_plot_selected)
+        tb.addAction(self.act_contourf_selected)
 
     def _create_menu_bar(self) -> None:
         """Create and populate the menu bar."""
@@ -1320,6 +1329,7 @@ class HDF5Viewer(QMainWindow):
         view_menu.addAction(self.act_collapse)
         view_menu.addSeparator()
         view_menu.addAction(self.act_plot_selected)
+        view_menu.addAction(self.act_contourf_selected)
         view_menu.addSeparator()
         dag_menu = view_menu.addMenu("Visualize HDF5 File DAG")
         dag_menu.addAction(self.act_show_dag)
@@ -4302,6 +4312,7 @@ class HDF5Viewer(QMainWindow):
         is_csv = self._current_csv_group_path is not None and self.preview_table.isVisible()
         sel_cols = self._get_selected_column_indices() if is_csv else []
         self.act_plot_selected.setEnabled(is_csv and len(sel_cols) >= 1)
+        self.act_contourf_selected.setEnabled(is_csv and len(sel_cols) == 3)
 
         # Also update plot management buttons
         self._update_plot_buttons_state()
@@ -4391,11 +4402,40 @@ class HDF5Viewer(QMainWindow):
             return result
         return result
 
-    def plot_selected_columns(self) -> None:
+    def get_col(self, name: str) -> np.ndarray | None:
+        """Get a column array by name from the currently loaded CSV data.
+
+        Args:
+            name: Column name
+
+        Returns:
+            Numpy array of the column data (1-D). None if not found.
+        """
+        if self._csv_data_dict is None or name not in self._csv_data_dict:
+            return None
+
+        # Get the actual data length after loading
+        actual_data_len = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
+
+        # Filter indices to only valid range (in case of partial loading)
+        valid_filtered_indices = self._csv_filtered_indices[self._csv_filtered_indices < actual_data_len]
+
+        full_data = self._csv_data_dict[name]
+        if isinstance(full_data, np.ndarray):
+            return full_data[valid_filtered_indices]
+        else:
+            return np.array([full_data[i] for i in valid_filtered_indices if i < len(full_data)])
+
+    def plot_selected_columns_contourf(self) -> None:
+        """Plot selected columns as contourf plot."""
+        self.plot_selected_columns(contourf=True)
+
+    def plot_selected_columns(self, contourf: bool = False) -> None:
         """Plot selected columns from the current CSV table using matplotlib.
 
         - If 1 column selected: Y-axis is that column, X-axis is point count (0, 1, 2, ...)
         - If 2+ columns: First selected (or current) column is X, others are Y series
+        - If 3 columns and contourf=True: X, Y, Z columns for contourf plot
         - Adds legend and shows plot in embedded canvas
         """
         if self._current_csv_group_path is None or not self.preview_table.isVisible():
@@ -4414,13 +4454,31 @@ class HDF5Viewer(QMainWindow):
                 "Select at least one column to plot.",
             )
             return
+        if contourf and len(sel_cols) != 3:
+            QMessageBox.information(
+                self,
+                "Contourf Plot",
+                "Contourf plot requires exactly three selected columns (X, Y, Z).",
+            )
+            return
 
         # Always resolve column names from current model headers
         model = self.preview_table.model()
         headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())] if model else []
 
-        # Handle single column selection: use point count as x-axis
-        if len(sel_cols) == 1:
+        # Use filtered data from the table instead of reading from HDF5
+        # This ensures we only plot what's visible (respecting filters)
+        if not self._csv_data_dict or self._csv_filtered_indices is None:
+            QMessageBox.warning(self, "Plot", "No CSV data available.")
+            return
+
+        if contourf:
+            # If exactly three columns are selected, offer contourf plot option
+            x_name, y_name, z_name = [headers[i] for i in sel_cols]
+            y_names = [y_name, z_name]  # For consistency: set to [y,z] here
+            x_idx = sel_cols[0]
+        elif len(sel_cols) == 1:
+            # Handle single column selection: use point count as x-axis
             x_idx = None
             y_idx = sel_cols[0]
             y_names = [headers[y_idx]] if headers and y_idx < len(headers) else []
@@ -4440,34 +4498,11 @@ class HDF5Viewer(QMainWindow):
             QMessageBox.warning(self, "Plot", "Failed to resolve column headers for plotting.")
             return
 
-        model = self.preview_table.model()
-        if model:
-            headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
-        else:
-            headers = []
-
-        # Use filtered data from the table instead of reading from HDF5
-        # This ensures we only plot what's visible (respecting filters)
-        if not self._csv_data_dict or self._csv_filtered_indices is None:
-            QMessageBox.warning(self, "Plot", "No CSV data available.")
-            return
-
-        # Get the actual data length after loading
-        actual_data_len = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict) if self._csv_data_dict else 0
-
-        # Filter indices to only valid range (in case of partial loading)
-        valid_filtered_indices = self._csv_filtered_indices[self._csv_filtered_indices < actual_data_len]
-
         col_data = {}
         columns_to_load = y_names if x_idx is None else [x_name] + y_names
         for name in columns_to_load:
-            if name in self._csv_data_dict:
-                # Get only the filtered rows
-                full_data = self._csv_data_dict[name]
-                if isinstance(full_data, np.ndarray):
-                    col_data[name] = full_data[valid_filtered_indices]
-                else:
-                    col_data[name] = np.array([full_data[i] for i in valid_filtered_indices if i < len(full_data)])
+            # Get only the filtered rows
+            col_data[name] = self.get_col(name)
 
         if not any(name in col_data for name in y_names):
             QMessageBox.warning(self, "Plot", "Failed to get selected columns for plotting.")
@@ -4494,24 +4529,45 @@ class HDF5Viewer(QMainWindow):
             # Clear the previous plot
             self.plot_figure.clear()
 
-            # For immediate plotting (without saved config), use default light background
+            # For immediate plotting (without saved config), use default dark background
             ax = self.plot_figure.add_subplot(111)
             self._apply_plot_style(self.plot_figure, ax, use_dark=False)
 
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
 
-            any_plotted = False
-            for y_name in y_names:
-                if y_name not in col_data:
-                    continue
-                y_arr = col_data[y_name].ravel()[:min_len]
-                y_num = pd.to_numeric(pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
+            if contourf:
+                any_plotted = True
+                x = col_data[x_name]
+                y = col_data[y_names[0]]
+                z = col_data[y_names[1]]
+                # Defensive: flatten and convert to float
+                x = np.asarray(x).ravel().astype(float)
+                y = np.asarray(y).ravel().astype(float)
+                z = np.asarray(z).ravel().astype(float)
+                # Try to create a grid for contourf
+                from scipy.interpolate import griddata
+                # Create grid
+                xi = np.linspace(np.nanmin(x), np.nanmax(x), 100)
+                yi = np.linspace(np.nanmin(y), np.nanmax(y), 100)
+                xi, yi = np.meshgrid(xi, yi)
+                zi = griddata((x, y), z, (xi, yi), method='linear')
 
-                valid = np.isfinite(x_num) & np.isfinite(y_num)
-                if valid.any():
-                    ax.plot(x_num[valid], y_num[valid], label=y_name)
-                    any_plotted = True
+                cf = ax.contourf(xi, yi, zi, levels=20, cmap='viridis')
+                self.plot_figure.colorbar(cf, ax=ax)
+
+            else:
+                any_plotted = False
+                for y_name in y_names:
+                    if y_name not in col_data:
+                        continue
+                    y_arr = col_data[y_name].ravel()[:min_len]
+                    y_num = pd.to_numeric(pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
+
+                    valid = np.isfinite(x_num) & np.isfinite(y_num)
+                    if valid.any():
+                        ax.plot(x_num[valid], y_num[valid], label=y_name)
+                        any_plotted = True
 
             if not any_plotted:
                 QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
@@ -4519,7 +4575,10 @@ class HDF5Viewer(QMainWindow):
 
             # Set axis labels and title
             ax.set_xlabel(x_name)
-            ax.set_ylabel(", ".join(y_names))
+            if contourf:
+                ax.set_ylabel(y_names[0])
+            else:
+                ax.set_ylabel(", ".join(y_names))
 
             try:
                 # Use group base name as title
@@ -4537,8 +4596,9 @@ class HDF5Viewer(QMainWindow):
                 title_obj.set_color('black')
             except Exception:
                 pass
-            legend = ax.legend()
-            self._make_legend_interactive(ax, legend)
+            if not contourf:
+                legend = ax.legend()
+                self._make_legend_interactive(ax, legend)
             ax.grid(True)
 
             # Format x-axis (datetime or categorical strings)
