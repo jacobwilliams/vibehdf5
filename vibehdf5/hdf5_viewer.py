@@ -6167,6 +6167,15 @@ class HDF5Viewer(QMainWindow):
                 layout_name = layout_combo.currentText()
                 pos_dict = layout_options[layout_name](G)
                 positions = np.array([pos_dict[n] for n in node_ids])
+                if 'pygraphviz' in layout_name.lower():
+                    # Normalize positions for pygraphviz layout
+                    # [this is so the mouseover logic will work for the tooltips]
+                    min_xy = positions.min(axis=0)
+                    max_xy = positions.max(axis=0)
+                    span_xy = max_xy - min_xy
+                    span_xy[span_xy == 0] = 1.0  # Avoid division by zero
+                    positions = (positions - min_xy) / span_xy
+                    positions = positions * 2.0 - 1.0  # Scale to [-1, 1] for both axes
                 # Add node labels as text items (below nodes)
                 for i, (x, y) in enumerate(positions):
                     label = node_labels[i]
