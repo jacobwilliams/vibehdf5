@@ -6042,6 +6042,8 @@ class HDF5Viewer(QMainWindow):
 
             # different layout options from networkx:
             layout_options = {
+                "Pygraphviz (neato)": lambda G: nx.nx_agraph.pygraphviz_layout(G, prog="neato"),
+                "Pygraphviz (dot)": lambda G: nx.nx_agraph.pygraphviz_layout(G, prog="dot"),
                 "Spring": lambda G: nx.spring_layout(G, k=1.5, iterations=100),
                 "Circular": nx.circular_layout,
                 "Shell": nx.shell_layout,
@@ -6049,7 +6051,6 @@ class HDF5Viewer(QMainWindow):
                 "Spectral": nx.spectral_layout,
                 "Random": nx.random_layout,
                 "ForceAtlas2": nx.forceatlas2_layout,
-                "Pygraphviz": lambda G: nx.nx_agraph.pygraphviz_layout(G, prog="dot"),
                 "Planar": nx.planar_layout,
                 "BFS": lambda G: nx.bfs_layout(G, start='group:/'),
                 "ARF": lambda G: nx.arf_layout(G),
@@ -6186,6 +6187,9 @@ class HDF5Viewer(QMainWindow):
                 )
                 graph_item.set_positions(positions)
                 view.addItem(graph_item)
+                # Use pyqtgraph's built-in 'View All' feature to recenter the plot
+                view.enableAutoRange()
+                view.autoRange()
 
             # Initial plot
             update_layout()
