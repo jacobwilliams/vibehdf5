@@ -1012,9 +1012,16 @@ class HDF5Viewer(QMainWindow):
             use_dark: Whether dark background is enabled
             interactive_legend: Whether to make legend interactive (only for UI plots)
         """
+
+        plot_type = plot_options.get("type", "line")
+
         # Apply custom labels or use defaults
         xlabel = plot_options.get("xlabel", "").strip() or x_name
-        ylabel = plot_options.get("ylabel", "").strip() or ", ".join(y_names)
+        if plot_type == "contourf":
+            # for these, there is only one y label [z is the color value]
+            ylabel = plot_options.get("ylabel", "").strip() or y_names[0].strip()
+        else:
+            ylabel = plot_options.get("ylabel", "").strip() or ", ".join(y_names)
         custom_title = plot_options.get("title", "").strip()
         title_text = custom_title if custom_title else plot_config.get("name", "Plot")
 
@@ -1036,7 +1043,8 @@ class HDF5Viewer(QMainWindow):
         grid_alpha = 0.3 if plot_options.get("grid", True) else None
         if grid_alpha:
             ax.grid(True, alpha=grid_alpha)
-        if plot_options.get("legend", True):
+        if plot_options.get("legend", True) and plot_type != "contourf":
+            # for now, contour plots don't have a legend
             legend_loc = plot_options.get("legend_loc", "best")
             legend = ax.legend(
                 fontsize=plot_options.get("legend_fontsize", 9),
@@ -4435,7 +4443,20 @@ class HDF5Viewer(QMainWindow):
         self.plot_selected_columns(contourf=True)
 
     def plot_contourf_from_data(self, col_data, x_name, y_names, ax) -> None:
-        """Plot contourf from given column data on the provided Axes."""
+        """
+        Plot a filled contour plot (contourf) using three columns of data.
+
+        Args:
+            col_data (dict): Dictionary mapping column names to numpy arrays.
+            x_name (str): Name of the column to use for the X axis.
+            y_names (list[str]): List of two column names; first for Y axis, second for Z values.
+            ax (matplotlib.axes.Axes): The matplotlib Axes object to plot on.
+
+        Notes:
+            - The function flattens and converts all input arrays to float.
+            - Uses scipy.interpolate.griddata to interpolate Z values on a grid.
+            - Plots the filled contour using ax.contourf and adds a colorbar.
+        """
         x = col_data[x_name]
         y = col_data[y_names[0]]
         z = col_data[y_names[1]]
@@ -4454,231 +4475,80 @@ class HDF5Viewer(QMainWindow):
         self.plot_figure.colorbar(cf, ax=ax)
 
     def plot_selected_columns(self, contourf: bool = False) -> None:
-        """Plot selected columns from the current CSV table using matplotlib.
+        """
+        Generate and display a plot from the currently selected columns in the CSV table.
 
-        - If 1 column selected: Y-axis is that column, X-axis is point count (0, 1, 2, ...)
-        - If 2+ columns: First selected (or current) column is X, others are Y series
-        - If 3 columns and contourf=True: X, Y, Z columns for contourf plot
-        - Adds legend and shows plot in embedded canvas
+        Args:
+            contourf (bool, optional): If True, create a contourf plot using three selected columns.
+                If False, create a line plot using one or more selected columns. Default is False.
+
+        Behavior:
+            - Ensures all CSV data is loaded before plotting.
+            - Determines which columns are selected and builds a plot configuration dict.
+            - For contourf, expects exactly three columns selected (X, Y, Z).
+            - For line plots, uses one or more columns (X and Y).
+            - Calls _apply_saved_plot_config to perform the actual plotting.
         """
         if self._current_csv_group_path is None or not self.preview_table.isVisible():
-            QMessageBox.information(self, "Plot", "No CSV table is active to plot.")
             return
-
-        # Ensure all data is loaded before plotting
         self._ensure_all_data_loaded()
-
-        # Determine selected columns and their order
         sel_cols = self._get_selected_column_indices()
         if len(sel_cols) < 1:
-            QMessageBox.information(
-                self,
-                "Plot",
-                "Select at least one column to plot.",
-            )
             return
         if contourf and len(sel_cols) != 3:
-            QMessageBox.information(
-                self,
-                "Contourf Plot",
-                "Contourf plot requires exactly three selected columns (X, Y, Z).",
-            )
             return
-
-        # Always resolve column names from current model headers
         model = self.preview_table.model()
         headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())] if model else []
-
-        # Use filtered data from the table instead of reading from HDF5
-        # This ensures we only plot what's visible (respecting filters)
-        if not self._csv_data_dict or self._csv_filtered_indices is None:
-            QMessageBox.warning(self, "Plot", "No CSV data available.")
-            return
-
-        if contourf:
-            # If exactly three columns are selected, offer contourf plot option
-            x_name, y_name, z_name = [headers[i] for i in sel_cols]
-            y_names = [y_name, z_name]  # For consistency: set to [y,z] here
-            x_idx = sel_cols[0]
-        elif len(sel_cols) == 1:
-            # Handle single column selection: use point count as x-axis
+        # Determine x and y indices
+        if len(sel_cols) == 1:
             x_idx = None
-            y_idx = sel_cols[0]
-            y_names = [headers[y_idx]] if headers and y_idx < len(headers) else []
-            x_name = "Point"
-            y_idxs = [sel_cols[0]]
+            y_idxs = sel_cols
         else:
-            # Use current column as X if part of selection; else use the leftmost selected
             current_index = self.preview_table.selectionModel().currentIndex()
             current_col = current_index.column() if current_index.isValid() else None
             x_idx = current_col if current_col in sel_cols else min(sel_cols)
             y_idxs = [c for c in sel_cols if c != x_idx]
-            x_name = headers[x_idx] if headers and x_idx is not None and x_idx < len(headers) else None
-            y_names = [headers[i] for i in y_idxs if headers and i < len(headers)]
+        # Build plot config
+        plot_type = "contourf" if contourf else "line"
+        series_visibility = {}
+        plot_config = {
+            "name": "Quick Plot",
+            "csv_group_path": self._current_csv_group_path,
+            "column_names": headers,
+            "x_col_idx": x_idx,
+            "y_col_idxs": y_idxs,
+            "filtered_indices": _indices_to_ranges(self._csv_filtered_indices) if self._csv_filtered_indices is not None else None,
+            "start_row": int(self._csv_filtered_indices[0]) if self._csv_filtered_indices is not None and len(self._csv_filtered_indices) > 0 else 0,
+            "end_row": int(self._csv_filtered_indices[-1]) if self._csv_filtered_indices is not None and len(self._csv_filtered_indices) > 0 else 0,
+            "csv_filters": self._csv_filters.copy() if self._csv_filters else [],
+            "csv_sort": self._csv_sort_specs.copy() if hasattr(self, '_csv_sort_specs') and self._csv_sort_specs else [],
+            "timestamp": time.time(),
+            "plot_options": {
+                "type": plot_type,
+                "title": "",
+                "xlabel": "",
+                "ylabel": "",
+                "grid": True,
+                "legend": True,
+                "series": {},
+                "series_visibility": series_visibility,
+            },
+        }
+        # Call unified plot logic
+        self._apply_saved_plot_config(plot_config)
 
-        # Defensive check
-        if not y_names or (x_name is None and len(sel_cols) > 1):
-            QMessageBox.warning(self, "Plot", "Failed to resolve column headers for plotting.")
-            return
-
-        col_data = {}
-        columns_to_load = y_names if x_idx is None else [x_name] + y_names
-        for name in columns_to_load:
-            # Get only the filtered rows
-            col_data[name] = self.get_col(name)
-
-        if not any(name in col_data for name in y_names):
-            QMessageBox.warning(self, "Plot", "Failed to get selected columns for plotting.")
-            return
-
-        # Prepare numeric data, align lengths
-        try:
-            # Determine minimum length from Y columns
-            min_len = min(len(col_data.get(n, [])) for n in y_names if n in col_data)
-            if min_len <= 0:
-                QMessageBox.warning(self, "Plot", "No data to plot.")
-                return
-
-            # Process X-axis data using helper method (reuses logic from saved plots)
-            plot_options = {}  # Quick plot uses default options
-            x_arr, x_num, x_is_string, xaxis_datetime, min_len = self._process_x_axis_data(
-                x_idx, col_data, y_names, x_name, plot_options
-            )
-
-            if min_len <= 0:
-                QMessageBox.warning(self, "Plot", "No data to plot.")
-                return
-
-            # Clear the previous plot
-            self.plot_figure.clear()
-
-            # For immediate plotting (without saved config), use default dark background
-            ax = self.plot_figure.add_subplot(111)
-            self._apply_plot_style(self.plot_figure, ax, use_dark=False)
-
-            # Disable offset notation on axes
-            ax.ticklabel_format(useOffset=False)
-
-            if contourf:
-                # countourf plot
-                self.plot_contourf_from_data(col_data, x_name, y_names, ax)
-            else:
-                # Standard line plot for multiple Y series
-                any_plotted = False
-                for y_name in y_names:
-                    if y_name not in col_data:
-                        continue
-                    y_arr = col_data[y_name].ravel()[:min_len]
-                    y_num = pd.to_numeric(pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
-                    valid = np.isfinite(x_num) & np.isfinite(y_num)
-                    if valid.any():
-                        ax.plot(x_num[valid], y_num[valid], label=y_name)
-                        any_plotted = True
-                if not any_plotted:
-                    QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
-                    return
-
-            # Set axis labels and title
-            ax.set_xlabel(x_name)
-            if contourf:
-                ax.set_ylabel(y_names[0])
-            else:
-                ax.set_ylabel(", ".join(y_names))
-
-            try:
-                # Use group base name as title
-                title = os.path.basename(self._current_csv_group_path.rstrip("/"))
-                # Add filter indicator if filters are active
-                if self._csv_filters:
-                    total_rows = max(len(self._csv_data_dict[col]) for col in self._csv_data_dict)
-                    filtered_rows = (
-                        len(self._csv_filtered_indices)
-                        if self._csv_filtered_indices is not None
-                        else 0
-                    )
-                    title += f" ({filtered_rows}/{total_rows} rows, filtered)"
-                title_obj = ax.set_title(title)
-                title_obj.set_color('black')
-            except Exception:
-                pass
-            if not contourf:
-                legend = ax.legend()
-                self._make_legend_interactive(ax, legend)
-            ax.grid(True)
-
-            # Format x-axis (datetime or categorical strings)
-            self._format_xaxis(ax, self.plot_figure, xaxis_datetime, x_is_string, x_arr, min_len)
-            self.updateCanvas()
-
-            # Switch to the Plot tab
-            self.bottom_tabs.setCurrentIndex(1)
-
-        except Exception as exc:  # noqa: BLE001
-            import traceback
-            tb_str = traceback.format_exc()
-            QMessageBox.critical(self, "Plot error", f"Failed to plot data:\n{exc}\n\nTraceback:\n{tb_str}")
-
-    def _get_hdf5_file_path(self) -> str | None:
-        """Get the currently loaded HDF5 file path, or None if no file is loaded.
-
-        Returns:
-            str or None: File path if a file is loaded, None otherwise
+    def _apply_saved_plot_config(self, plot_config: dict) -> None:
         """
-        return self.model.filepath if self.model else None
+        Wrapper to apply a plot configuration using the unified logic in _apply_saved_plot.
 
-    def _configure_filters_dialog(self) -> None:
-        """Open dialog to configure column filters."""
-        if not self._csv_column_names:
-            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
-            return
+        Args:
+            plot_config (dict): Plot configuration dictionary containing all necessary plot parameters.
 
-        dialog = ColumnFilterDialog(self._csv_column_names, self)
-        dialog.set_filters(self._csv_filters)
-
-        if dialog.exec() == QDialog.Accepted:
-            self._csv_filters = dialog.get_filters()
-            self._save_filters_to_hdf5()
-            self._apply_filters()
-
-    def _show_statistics_dialog(self) -> None:
-        """Open dialog to show statistics for CSV columns."""
-        if not self._csv_column_names or (not self._csv_data_dict and not self._csv_dataset_info):
-            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
-            return
-
-        # Ensure all data is loaded before calculating statistics
-        self._ensure_all_data_loaded()
-
-        # Use filtered indices if available
-        filtered_indices = self._csv_filtered_indices if hasattr(self, '_csv_filtered_indices') else None
-
-        dialog = ColumnStatisticsDialog(
-            self._csv_column_names,
-            self._csv_data_dict,
-            filtered_indices,
-            self
-        )
-        dialog.exec()
-
-    def _clear_filters(self) -> None:
-        """Clear all active filters and show full dataset."""
-        self._csv_filters = []
-        self._save_filters_to_hdf5()
-        self._apply_filters()
-
-    def _configure_sort_dialog(self) -> None:
-        """Open dialog to configure column sorting."""
-        if not self._csv_column_names:
-            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
-            return
-
-        dialog = ColumnSortDialog(self._csv_column_names, self)
-        dialog.set_sort_specs(self._csv_sort_specs)
-
-        if dialog.exec() == QDialog.Accepted:
-            self._csv_sort_specs = dialog.get_sort_specs()
-            self._save_sort_to_hdf5()
-            self._apply_sort()
+        Behavior:
+            - Delegates to _apply_saved_plot for actual plotting logic.
+        """
+        # Always use the provided plot_config for ad-hoc plotting
+        self._apply_saved_plot(plot_config=plot_config)
 
     def _clear_sort(self) -> None:
         """Clear all sorting and display data in original order."""
@@ -5065,6 +4935,7 @@ class HDF5Viewer(QMainWindow):
         # Capture current visibility state from plot if available
         series_visibility = self._capture_plot_visibility_state()
 
+        plot_type = "contourf" if (len(y_idxs) == 2 and x_idx is not None) else "line"
         plot_config = {
             "name": plot_name,
             "csv_group_path": self._current_csv_group_path,
@@ -5078,6 +4949,7 @@ class HDF5Viewer(QMainWindow):
             "csv_sort": self._csv_sort_specs.copy() if hasattr(self, '_csv_sort_specs') and self._csv_sort_specs else [],  # Store sort specs
             "timestamp": time.time(),
             "plot_options": {
+                "type": plot_type,
                 "title": "",
                 "xlabel": "",
                 "ylabel": "",
@@ -5096,6 +4968,9 @@ class HDF5Viewer(QMainWindow):
 
         # Update list widget
         self._refresh_saved_plots_list()
+
+        # Select the newly added plot in the list
+        self.saved_plots_list.setCurrentRow(len(self._saved_plots) - 1)
 
         self.statusBar().showMessage(f"Saved plot configuration: {plot_name}", 3000)
 
@@ -5295,130 +5170,108 @@ class HDF5Viewer(QMainWindow):
                 result[col_name] = col_array
         return result
 
-    def _apply_saved_plot(self, item: QListWidgetItem | None = None) -> None:
-        """Apply a saved plot configuration.
+    def _apply_saved_plot(self, item: QListWidgetItem | None = None, plot_config: dict = None) -> None:
+        """
+        Apply a saved plot configuration, or an ad-hoc plot config if provided.
 
         Args:
             item: QListWidgetItem that was clicked/selected (optional)
+            plot_config: Optional plot configuration dict. If provided, use this config directly.
         """
-        if item is None:
-            item = self.saved_plots_list.currentItem()
-
-        if item is None:
-            return
-
-        # Get the plot configuration
-        row = self.saved_plots_list.row(item)
-        if row < 0 or row >= len(self._saved_plots):
-            return
-
-        plot_config = self._saved_plots[row]
-
-        # Extract configuration
-        x_idx = plot_config.get("x_col_idx")  # Can be None for single-column plots
-        y_idxs = plot_config.get("y_col_idxs", [])
-        # Ensure y_idxs is a list (handle legacy configs where it might be an integer)
+        if plot_config is not None:
+            config = plot_config
+            # Use headers from config
+            headers = config.get("column_names", [])
+        else:
+            if item is None:
+                item = self.saved_plots_list.currentItem()
+            if item is None:
+                return
+            row = self.saved_plots_list.row(item)
+            if row < 0 or row >= len(self._saved_plots):
+                return
+            config = self._saved_plots[row]
+            # Use headers from current model
+            model = self.preview_table.model()
+            if model:
+                headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
+            else:
+                headers = []
+        x_idx = config.get("x_col_idx")
+        y_idxs = config.get("y_col_idxs", [])
         if isinstance(y_idxs, int):
             y_idxs = [y_idxs]
-        filtered_indices_raw = plot_config.get("filtered_indices")
-        # Convert from compact range format if needed
+        filtered_indices_raw = config.get("filtered_indices")
         if filtered_indices_raw is not None and len(filtered_indices_raw) > 0:
             # Check if it's in the new compact format (contains strings or is a mixed list)
             if any(isinstance(x, str) for x in filtered_indices_raw):
                 filtered_indices = _ranges_to_indices(filtered_indices_raw)
             else:
-                # Legacy format: plain list of integers
                 filtered_indices = np.array(filtered_indices_raw, dtype=np.int64)
         else:
             filtered_indices = filtered_indices_raw
-        start_row = plot_config.get("start_row", 0)
-        end_row = plot_config.get("end_row", -1)
-
+        start_row = config.get("start_row", 0)
+        end_row = config.get("end_row", -1)
         if not y_idxs:
-            QMessageBox.warning(
-                self, "Invalid Configuration", "Plot configuration is missing column information."
-            )
+            QMessageBox.warning(self, "Invalid Configuration", "Plot configuration is missing column information.")
             return
-
         # Check if we have the CSV data loaded
         if not self._csv_data_dict or not self._current_csv_group_path:
             QMessageBox.information(self, "No Data", "CSV data is not loaded.")
             return
-
-        model = self.preview_table.model()
-        if model:
-            headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
-        else:
-            headers = []
-
         # Validate column indices
         if (x_idx is not None and x_idx >= len(headers)) or any(y_idx >= len(headers) for y_idx in y_idxs):
-            QMessageBox.warning(
-                self, "Invalid Columns", "Plot configuration references invalid column indices."
-            )
+            QMessageBox.warning(self, "Invalid Columns", "Plot configuration references invalid column indices.")
             return
-
         try:
             x_name = headers[x_idx] if x_idx is not None else "Point"
             y_names = [headers[i] for i in y_idxs]
         except Exception:
-            QMessageBox.warning(
-                self, "Plot Error", "Failed to resolve column headers for plotting."
-            )
+            QMessageBox.warning(self, "Plot Error", "Failed to resolve column headers for plotting.")
             return
-
         # Read column data directly from HDF5 for plotting (don't use table's lazy-loading cache)
         columns_to_read = y_names if x_idx is None else [x_name] + y_names
         col_data = self._read_csv_columns(self._current_csv_group_path, columns_to_read)
         if not col_data:
             QMessageBox.warning(self, "Plot Error", "Failed to read column data from HDF5.")
             return
-
         # Handle non-array data
         for name in list(col_data.keys()):
             if not isinstance(col_data[name], np.ndarray):
                 col_data[name] = np.array([col_data[name]])
-
         # Apply filtered indices with bounds checking
         col_data = self._apply_filtered_indices_to_data(col_data, filtered_indices, start_row, end_row)
-
         if not any(name in col_data for name in y_names):
             QMessageBox.warning(self, "Plot Error", "Failed to get column data for plotting.")
             return
-
-        # Plot the data
         try:
-            # Get plot options from configuration
-            plot_options = plot_config.get("plot_options", {})
-
-            # Process X-axis data using helper method
+            plot_options = config.get("plot_options", {})
             x_arr, x_num, x_is_string, xaxis_datetime, min_len = self._process_x_axis_data(
                 x_idx, col_data, y_names, x_name, plot_options
             )
-
             if min_len <= 0:
                 QMessageBox.warning(self, "Plot Error", "No data to plot.")
                 return
-
             # Clear previous plot
             self.plot_figure.clear()
-
             # Get plot options to check for dark background
             use_dark = plot_options.get("dark_background", False)
-
             # Create subplot and apply style
             ax = self.plot_figure.add_subplot(111)
             self._apply_plot_style(self.plot_figure, ax, use_dark)
-
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
-
-            # Determine plot type (line or contourf)
+            series_visibility = plot_options.get("series_visibility", {})
             contourf = plot_options.get("type", 'line') == "contourf"
-
             if contourf:
-                # Plot filled contour
-                self.plot_contourf_from_data(col_data, x_name, y_names, ax)
+                if x_name not in col_data or len(y_names) != 2 or any(y not in col_data for y in y_names):
+                    QMessageBox.warning(self, "Plot Error", "Contourf plot requires one X and two Y columns (Z as second Y).")
+                    return
+                try:
+                    self.plot_contourf_from_data(col_data, x_name, y_names, ax)
+                except Exception as exc:
+                    QMessageBox.critical(self, "Plot Error", f"Failed to plot contourf: {exc}")
+                    return
             else:
                 # Get series styling options
                 series_styles = plot_options.get("series", {})
@@ -5438,199 +5291,146 @@ class HDF5Viewer(QMainWindow):
                 if not any_plotted:
                     QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
                     return
-
             # Adjust title for row range if needed
             title_suffix = ""
             if start_row > 0 or end_row < len(self._csv_data_dict.get(x_name, [])) - 1:
                 title_suffix = f" (rows {start_row}-{end_row})"
-
             # Create modified plot_config with title suffix
-            modified_config = plot_config.copy()
+            modified_config = config.copy()
             if not plot_options.get("title", "").strip():
-                modified_config["name"] = plot_config.get("name", "Plot") + title_suffix
-
+                modified_config["name"] = config.get("name", "Plot") + title_suffix
             # Format x-axis (datetime or categorical strings)
             self._format_xaxis(ax, self.plot_figure, xaxis_datetime, x_is_string, x_arr, min_len, plot_options)
-
             # Apply axis limits
             self._apply_axis_limits(ax, plot_options)
-
             # Apply labels, fonts, grid, legend, log scale, and reference lines
             self._apply_plot_labels_and_formatting(
                 ax, self.plot_figure, x_name, y_names, modified_config, plot_options, use_dark
             )
-
             if not contourf:
                 # Apply saved visibility state AFTER formatting (so legend is already created)
                 self._apply_plot_visibility_state(ax, y_names, series_visibility)
-
             # Refresh canvas
             self.updateCanvas()
-
             # Switch to Plot tab
             self.bottom_tabs.setCurrentIndex(1)
-
             self.statusBar().showMessage(
-                f"Applied plot: {plot_config.get('name', 'Unnamed')}", 3000
+                f"Applied plot: {config.get('name', 'Unnamed')}", 3000
             )
-
         except Exception as exc:
             QMessageBox.critical(self, "Plot Error", f"Failed to plot data:\n{exc}")
 
+    def _configure_filters_dialog(self) -> None:
+        """Open dialog to configure column filters."""
+        if not self._csv_column_names:
+            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
+            return
+
+        dialog = ColumnFilterDialog(self._csv_column_names, self)
+        dialog.set_filters(self._csv_filters)
+
+        if dialog.exec() == QDialog.Accepted:
+            self._csv_filters = dialog.get_filters()
+            self._save_filters_to_hdf5()
+            self._apply_filters()
+
+    def _show_statistics_dialog(self) -> None:
+        """Open dialog to show statistics for CSV columns."""
+        if not self._csv_column_names or (not self._csv_data_dict and not self._csv_dataset_info):
+            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
+            return
+
+        # Ensure all data is loaded before calculating statistics
+        self._ensure_all_data_loaded()
+
+        # Use filtered indices if available
+        filtered_indices = self._csv_filtered_indices if hasattr(self, '_csv_filtered_indices') else None
+
+        dialog = ColumnStatisticsDialog(
+            self._csv_column_names,
+            self._csv_data_dict,
+            filtered_indices,
+            self
+        )
+        dialog.exec()
+
+    def _clear_filters(self) -> None:
+        """Clear all active filters and show full dataset."""
+        self._csv_filters = []
+        self._save_filters_to_hdf5()
+        self._apply_filters()
+
+    def _configure_sort_dialog(self) -> None:
+        """Open dialog to configure column sorting."""
+        if not self._csv_column_names:
+            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
+            return
+
+        dialog = ColumnSortDialog(self._csv_column_names, self)
+        dialog.set_sort_specs(self._csv_sort_specs)
+
+        if dialog.exec() == QDialog.Accepted:
+            self._csv_sort_specs = dialog.get_sort_specs()
+            self._save_sort_to_hdf5()
+            self._apply_sort()
+
+    def _configure_filters_dialog(self) -> None:
+        """Open dialog to configure column filters."""
+        if not self._csv_column_names:
+            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
+            return
+
+        dialog = ColumnFilterDialog(self._csv_column_names, self)
+        dialog.set_filters(self._csv_filters)
+
+        if dialog.exec() == QDialog.Accepted:
+            self._csv_filters = dialog.get_filters()
+            self._save_filters_to_hdf5()
+            self._apply_filters()
+
+    def _show_statistics_dialog(self) -> None:
+        """Open dialog to show statistics for CSV columns."""
+        if not self._csv_column_names or (not self._csv_data_dict and not self._csv_dataset_info):
+            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
+            return
+
+        # Ensure all data is loaded before calculating statistics
+        self._ensure_all_data_loaded()
+
+        # Use filtered indices if available
+        filtered_indices = self._csv_filtered_indices if hasattr(self, '_csv_filtered_indices') else None
+
+        dialog = ColumnStatisticsDialog(
+            self._csv_column_names,
+            self._csv_data_dict,
+            filtered_indices,
+            self
+        )
+        dialog.exec()
+
     def _export_plot_to_file(self, plot_config: dict, filepath: str) -> tuple[bool, str]:
-        """Export a plot configuration to a file.
-
-        Args:
-            plot_config: Plot configuration dictionary
-            filepath: Target file path for export
-
-        Returns:
-            tuple: (success: bool, error_msg: str) - True and empty string if successful, False and error message otherwise
-        """
+        """Export a plot configuration to a file using unified plot logic."""
         try:
-
-            # Get group path and column names from plot config
-            # Support backward compatibility: use current CSV group if not in config
-            group_path = plot_config.get("csv_group_path")
-            if not group_path:
-                # Fallback to current CSV group path (for older configs)
-                group_path = self._current_csv_group_path
-                if not group_path:
-                    return False, "No CSV group path available (load CSV data first)"
-
-            x_idx = plot_config.get("x_col_idx")
-            y_idxs = plot_config.get("y_col_idxs", [])
-            # Ensure y_idxs is a list (handle legacy configs)
-            if isinstance(y_idxs, int):
-                y_idxs = [y_idxs]
-
-            # Get column names from the config or current table
-            stored_columns = plot_config.get("column_names", [])
-            if stored_columns:
-                headers = stored_columns
-            else:
-                # Fallback to current table headers (for older configs)
-                model = self.preview_table.model()
-                if model:
-                    headers = [str(model.headerData(i, Qt.Horizontal)) for i in range(model.columnCount())]
-                else:
-                    headers = []
-
-            # Validate column indices (x_idx can be None for single-column plots)
-            if x_idx is not None and x_idx >= len(headers):
-                return False, "Invalid X column index"
-            if not all(idx < len(headers) for idx in y_idxs):
-                return False, "Invalid Y column indices"
-
-            # Get column names
-            x_name = headers[x_idx] if x_idx is not None else "Point"
-            y_names = [headers[i] for i in y_idxs]
-
-            # Read column data (only for columns that exist)
-            columns_to_read = y_names if x_idx is None else [x_name] + y_names
-            col_data = self._read_csv_columns(group_path, columns_to_read)
-            if not col_data:
-                return False, "Failed to read column data"
-
-            if not any(name in col_data for name in y_names):
-                return False, "Y column data not found"
-
-            # For None x_idx, x_name won't be in col_data, which is expected
-            if x_idx is not None and x_name not in col_data:
-                return False, "X column data not found"
-
-            # Apply filtering if specified in plot config
-            # This ensures filtered data is used during export (respects filters from when plot was saved)
-            filtered_indices_raw = plot_config.get("filtered_indices")
-            # Convert from compact range format if needed
-            if filtered_indices_raw is not None and len(filtered_indices_raw) > 0:
-                # Check if it's in the new compact format (contains strings or is a mixed list)
-                if any(isinstance(x, str) for x in filtered_indices_raw):
-                    filtered_indices = _ranges_to_indices(filtered_indices_raw)
-                else:
-                    # Legacy format: plain list of integers
-                    filtered_indices = np.array(filtered_indices_raw, dtype=np.int64)
-            else:
-                filtered_indices = filtered_indices_raw
-            start_row = plot_config.get("start_row", 0)
-            end_row = plot_config.get("end_row", -1)
-
-            # Apply filtered indices with bounds checking
-            col_data = self._apply_filtered_indices_to_data(col_data, filtered_indices, start_row, end_row)
-
-            # Get plot options
+            # Save current figure size
+            prev_size = self.plot_figure.get_size_inches()
+            # Apply plot config and update plot
+            self._apply_saved_plot_config(plot_config)
             plot_options = plot_config.get("plot_options", {})
             figwidth = plot_options.get("figwidth", 8.0)
             figheight = plot_options.get("figheight", 6.0)
             dpi = plot_options.get("dpi", 100)
-            use_dark = plot_options.get("dark_background", False)
-
-            # Create figure with specified size
-            fig = Figure(figsize=(figwidth, figheight), dpi=dpi)
-
-            # Create subplot and apply style
-            ax = fig.add_subplot(111)
-            self._apply_plot_style(fig, ax, use_dark)
-
-            # Disable offset notation on axes
-            ax.ticklabel_format(useOffset=False)
-
-            # Process X-axis data using helper method
-            x_arr, x_num, x_is_string, xaxis_datetime, min_len = self._process_x_axis_data(
-                x_idx, col_data, y_names, x_name, plot_options
-            )
-
-            if min_len <= 0:
-                return False, "No data to plot"
-
-            # Plot series with smoothing support
-            series_styles = plot_options.get("series", {})
-            series_visibility = plot_options.get("series_visibility", {})
-            any_plotted = False
-            for y_name in y_names:
-                if y_name not in col_data:
-                    continue
-                y_arr = col_data[y_name].ravel()[:min_len]
-                y_num = pd.to_numeric(pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
-                valid = np.isfinite(x_num) & np.isfinite(y_num)
-                if valid.any():
-                    series_opts = series_styles.get(y_name, {})
-                    any_plotted = self._plot_series_with_options(
-                        ax, x_num, y_num, valid, y_name, series_opts, any_plotted
-                    )
-
-            if not any_plotted:
-                return False, "No valid numeric data to plot"
-
-            # Format x-axis (datetime or categorical strings)
-            self._format_xaxis(ax, self.plot_figure, xaxis_datetime, x_is_string, x_arr, min_len, plot_options)
-
-            # Apply axis limits
-            self._apply_axis_limits(ax, plot_options)
-
-            # Apply labels, fonts, grid, legend, log scale, and reference lines
-            # Note: interactive_legend=False for export to avoid event handler issues
-            self._apply_plot_labels_and_formatting(
-                ax, fig, x_name, y_names, plot_config, plot_options, use_dark, interactive_legend=False
-            )
-
-            # Apply saved visibility state AFTER formatting (so legend is already created)
-            self._apply_plot_visibility_state(ax, y_names, series_visibility)
-
-            # Refresh canvas
+            # Set export size and save
+            self.plot_figure.set_size_inches(figwidth, figheight)
+            self.plot_figure.savefig(filepath, dpi=dpi, bbox_inches='tight')
+            # Restore previous figure size and update canvas
+            self.plot_figure.set_size_inches(prev_size[0], prev_size[1])
             self.updateCanvas()
-
-            # Save to file
-            fig.savefig(filepath, dpi=dpi, bbox_inches='tight')
-            plt.close(fig)
-
             return True, ""
-
         except Exception as e:
             error_msg = f"Error exporting plot: {e}"
             print(error_msg)
             traceback.print_exc()
-            return False, str(e)
+            return False, error_msg
 
     def _export_all_plots(self) -> None:
         """Export all saved plots to a selected directory."""
@@ -5751,6 +5551,16 @@ class HDF5Viewer(QMainWindow):
 
         # Refresh list widget
         self._refresh_saved_plots_list()
+
+        # Select and display previous plot if present
+        new_count = len(self._saved_plots)
+        if new_count > 0:
+            # Select previous plot, or first if deleted first
+            new_row = min(current_row, new_count - 1)
+            self.saved_plots_list.setCurrentRow(new_row)
+            self._apply_saved_plot(self.saved_plots_list.item(new_row))
+        else:
+            self._clear_plot_display()
 
         self.statusBar().showMessage(f"Deleted plot configuration: {plot_name}", 3000)
 
