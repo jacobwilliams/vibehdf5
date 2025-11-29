@@ -27,6 +27,10 @@ class PlotOptionsDialog(QDialog):
         "X",
         "Point",
     ]
+    PLOT_TYPES = [
+        ("line", "Line Plot"),
+        ("contourf", "Filled Contour Plot"),
+    ]
 
     def __init__(self, plot_config, column_names, parent=None):
         """Initialize the plot options dialog.
@@ -52,6 +56,21 @@ class PlotOptionsDialog(QDialog):
         # Tab 1: General options
         general_tab = QWidget()
         general_layout = QVBoxLayout(general_tab)
+
+        # Plot type selection
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("Plot Type:"))
+        self.type_combo = QComboBox()
+        for type_val, type_name in self.PLOT_TYPES:
+            self.type_combo.addItem(type_name, type_val)
+        # Set current value from config
+        current_type = self.plot_config.get("plot_options", {}).get("type", "line")
+        idx = self.type_combo.findData(current_type)
+        if idx >= 0:
+            self.type_combo.setCurrentIndex(idx)
+        type_layout.addWidget(self.type_combo)
+        type_layout.addStretch()
+        general_layout.addLayout(type_layout)
 
         # Plot name
         name_layout = QHBoxLayout()
@@ -950,6 +969,8 @@ class PlotOptionsDialog(QDialog):
             self.plot_config["plot_options"] = {}
 
         plot_opts = self.plot_config["plot_options"]
+        # Save plot type
+        plot_opts["type"] = self.type_combo.currentData()
         plot_opts["title"] = self.title_edit.text()
         plot_opts["xlabel"] = self.xlabel_edit.text()
         plot_opts["ylabel"] = self.ylabel_edit.text()

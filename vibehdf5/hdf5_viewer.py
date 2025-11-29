@@ -791,6 +791,7 @@ class HDF5Viewer(QMainWindow):
             min_len: Length of data
             plot_options: Optional plot options dict (for custom datetime format)
         """
+
         if xaxis_datetime:
             # Format datetime x-axis
             if plot_options:
@@ -4433,6 +4434,25 @@ class HDF5Viewer(QMainWindow):
         """Plot selected columns as contourf plot."""
         self.plot_selected_columns(contourf=True)
 
+    def plot_contourf_from_data(self, col_data, x_name, y_names, ax) -> None:
+        """Plot contourf from given column data on the provided Axes."""
+        x = col_data[x_name]
+        y = col_data[y_names[0]]
+        z = col_data[y_names[1]]
+        # Defensive: flatten and convert to float
+        x = np.asarray(x).ravel().astype(float)
+        y = np.asarray(y).ravel().astype(float)
+        z = np.asarray(z).ravel().astype(float)
+        # Try to create a grid for contourf
+        from scipy.interpolate import griddata
+        # Create grid
+        xi = np.linspace(np.nanmin(x), np.nanmax(x), 100)
+        yi = np.linspace(np.nanmin(y), np.nanmax(y), 100)
+        xi, yi = np.meshgrid(xi, yi)
+        zi = griddata((x, y), z, (xi, yi), method='linear')
+        cf = ax.contourf(xi, yi, zi, levels=20, cmap='viridis')
+        self.plot_figure.colorbar(cf, ax=ax)
+
     def plot_selected_columns(self, contourf: bool = False) -> None:
         """Plot selected columns from the current CSV table using matplotlib.
 
@@ -4540,41 +4560,23 @@ class HDF5Viewer(QMainWindow):
             ax.ticklabel_format(useOffset=False)
 
             if contourf:
-                any_plotted = True
-                x = col_data[x_name]
-                y = col_data[y_names[0]]
-                z = col_data[y_names[1]]
-                # Defensive: flatten and convert to float
-                x = np.asarray(x).ravel().astype(float)
-                y = np.asarray(y).ravel().astype(float)
-                z = np.asarray(z).ravel().astype(float)
-                # Try to create a grid for contourf
-                from scipy.interpolate import griddata
-                # Create grid
-                xi = np.linspace(np.nanmin(x), np.nanmax(x), 100)
-                yi = np.linspace(np.nanmin(y), np.nanmax(y), 100)
-                xi, yi = np.meshgrid(xi, yi)
-                zi = griddata((x, y), z, (xi, yi), method='linear')
-
-                cf = ax.contourf(xi, yi, zi, levels=20, cmap='viridis')
-                self.plot_figure.colorbar(cf, ax=ax)
-
+                # countourf plot
+                self.plot_contourf_from_data(col_data, x_name, y_names, ax)
             else:
+                # Standard line plot for multiple Y series
                 any_plotted = False
                 for y_name in y_names:
                     if y_name not in col_data:
                         continue
                     y_arr = col_data[y_name].ravel()[:min_len]
                     y_num = pd.to_numeric(pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
-
                     valid = np.isfinite(x_num) & np.isfinite(y_num)
                     if valid.any():
                         ax.plot(x_num[valid], y_num[valid], label=y_name)
                         any_plotted = True
-
-            if not any_plotted:
-                QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
-                return
+                if not any_plotted:
+                    QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
+                    return
 
             # Set axis labels and title
             ax.set_xlabel(x_name)
@@ -4606,11 +4608,7 @@ class HDF5Viewer(QMainWindow):
 
             # Format x-axis (datetime or categorical strings)
             self._format_xaxis(ax, self.plot_figure, xaxis_datetime, x_is_string, x_arr, min_len)
-
-            self.plot_figure.tight_layout()
-
-            # Refresh the canvas to display the plot
-            self.plot_canvas.draw()
+            self.updateCanvas()
 
             # Switch to the Plot tab
             self.bottom_tabs.setCurrentIndex(1)
@@ -5415,26 +5413,31 @@ class HDF5Viewer(QMainWindow):
             # Disable offset notation on axes
             ax.ticklabel_format(useOffset=False)
 
-            # Get series styling options
-            series_styles = plot_options.get("series", {})
-            series_visibility = plot_options.get("series_visibility", {})
+            # Determine plot type (line or contourf)
+            contourf = plot_options.get("type", 'line') == "contourf"
 
-            any_plotted = False
-            for y_name in y_names:
-                if y_name not in col_data:
-                    continue
-                y_arr = col_data[y_name].ravel()[:min_len]
-                y_num = pd.to_numeric(pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
-                valid = np.isfinite(x_num) & np.isfinite(y_num)
-                if valid.any():
-                    series_opts = series_styles.get(y_name, {})
-                    any_plotted = self._plot_series_with_options(
-                        ax, x_num, y_num, valid, y_name, series_opts, any_plotted
-                    )
-
-            if not any_plotted:
-                QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
-                return
+            if contourf:
+                # Plot filled contour
+                self.plot_contourf_from_data(col_data, x_name, y_names, ax)
+            else:
+                # Get series styling options
+                series_styles = plot_options.get("series", {})
+                series_visibility = plot_options.get("series_visibility", {})
+                any_plotted = False
+                for y_name in y_names:
+                    if y_name not in col_data:
+                        continue
+                    y_arr = col_data[y_name].ravel()[:min_len]
+                    y_num = pd.to_numeric(pd.Series(y_arr), errors="coerce").astype(float).to_numpy()
+                    valid = np.isfinite(x_num) & np.isfinite(y_num)
+                    if valid.any():
+                        series_opts = series_styles.get(y_name, {})
+                        any_plotted = self._plot_series_with_options(
+                            ax, x_num, y_num, valid, y_name, series_opts, any_plotted
+                        )
+                if not any_plotted:
+                    QMessageBox.information(self, "Plot", "No valid numeric data found to plot.")
+                    return
 
             # Adjust title for row range if needed
             title_suffix = ""
@@ -5457,11 +5460,12 @@ class HDF5Viewer(QMainWindow):
                 ax, self.plot_figure, x_name, y_names, modified_config, plot_options, use_dark
             )
 
-            # Apply saved visibility state AFTER formatting (so legend is already created)
-            self._apply_plot_visibility_state(ax, y_names, series_visibility)
+            if not contourf:
+                # Apply saved visibility state AFTER formatting (so legend is already created)
+                self._apply_plot_visibility_state(ax, y_names, series_visibility)
 
             # Refresh canvas
-            self.plot_canvas.draw()
+            self.updateCanvas()
 
             # Switch to Plot tab
             self.bottom_tabs.setCurrentIndex(1)
@@ -5583,7 +5587,6 @@ class HDF5Viewer(QMainWindow):
             series_styles = plot_options.get("series", {})
             series_visibility = plot_options.get("series_visibility", {})
             any_plotted = False
-
             for y_name in y_names:
                 if y_name not in col_data:
                     continue
@@ -5599,14 +5602,8 @@ class HDF5Viewer(QMainWindow):
             if not any_plotted:
                 return False, "No valid numeric data to plot"
 
-            # Date formatting (must be done before labels/formatting)
-            if xaxis_datetime:
-                display_format = plot_options.get("datetime_display_format", "").strip()
-                if display_format:
-                    ax.xaxis.set_major_formatter(DateFormatter(display_format))
-                else:
-                    ax.xaxis.set_major_locator(AutoDateLocator())
-                fig.autofmt_xdate()
+            # Format x-axis (datetime or categorical strings)
+            self._format_xaxis(ax, self.plot_figure, xaxis_datetime, x_is_string, x_arr, min_len, plot_options)
 
             # Apply axis limits
             self._apply_axis_limits(ax, plot_options)
@@ -5619,6 +5616,9 @@ class HDF5Viewer(QMainWindow):
 
             # Apply saved visibility state AFTER formatting (so legend is already created)
             self._apply_plot_visibility_state(ax, y_names, series_visibility)
+
+            # Refresh canvas
+            self.updateCanvas()
 
             # Save to file
             fig.savefig(filepath, dpi=dpi, bbox_inches='tight')
