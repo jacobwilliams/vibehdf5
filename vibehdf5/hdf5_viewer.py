@@ -1090,6 +1090,28 @@ class HDF5Viewer(QMainWindow):
 
         fig.tight_layout()
 
+        # Apply colorbar font and label styling for contourf plots
+        if plot_options.get("type", "line") == "contourf":
+            # Find colorbar in figure
+            z_label = y_names[1] if len(y_names) > 1 else ""
+            for cax in fig.axes:
+                # Heuristic: colorbar axes have a label matching the z-series name
+                if hasattr(cax, 'get_ylabel') and cax.get_ylabel() == z_label:
+                    font_family = plot_options.get('font_family', 'serif')
+                    font_size = plot_options.get('axis_label_fontsize', 10)
+                    tick_font_size = plot_options.get('tick_fontsize', 10)
+                    font_color = 'white' if use_dark else 'black'
+                    # Set colorbar label font
+                    cax.yaxis.label.set_fontfamily(font_family)
+                    cax.yaxis.label.set_fontsize(font_size)
+                    cax.yaxis.label.set_color(font_color)
+                    # Set colorbar tick font
+                    for tick in cax.get_yticklabels():
+                        tick.set_fontfamily(font_family)
+                        tick.set_fontsize(tick_font_size)
+                        tick.set_color(font_color)
+                    break
+
     def _create_actions(self) -> None:
         """Create all QAction objects for menu and toolbar items."""
         # Get standard icon theme
@@ -4472,7 +4494,12 @@ class HDF5Viewer(QMainWindow):
         xi, yi = np.meshgrid(xi, yi)
         zi = griddata((x, y), z, (xi, yi), method='linear')
         cf = ax.contourf(xi, yi, zi, levels=20, cmap='viridis')
-        self.plot_figure.colorbar(cf, ax=ax)
+        # Label colorbar with z-series name (second entry in y_names)
+        # TODO: really this should be a setting in the plot config
+        z_label = y_names[1] if len(y_names) > 1 else ""
+        cbar = self.plot_figure.colorbar(cf, ax=ax)
+        if z_label:
+            cbar.set_label(z_label)
 
     def plot_selected_columns(self, contourf: bool = False) -> None:
         """
@@ -4568,6 +4595,15 @@ class HDF5Viewer(QMainWindow):
 
     def _load_sort_from_hdf5(self, grp: h5py.Group) -> list:
         """Load sort specifications from the HDF5 group attributes."""
+        """
+        Load sort specifications from the HDF5 group attributes.
+
+        Args:
+            grp: HDF5 group to load sort specs from
+
+        Returns:
+            List of sort specifications as tuples (column_name, ascending: bool), or empty list if not found.
+        """
         def validate_sort(specs):
             if isinstance(specs, list):
                 return [tuple(spec) for spec in specs if isinstance(spec, list) and len(spec) == 2]
