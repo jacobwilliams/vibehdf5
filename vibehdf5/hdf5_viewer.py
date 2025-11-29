@@ -3332,24 +3332,20 @@ class HDF5Viewer(QMainWindow):
         global_pos = self.tree.viewport().mapToGlobal(point)
         chosen = menu.exec(global_pos)
 
+        # mapping of actions to format strings
+        save_as_formats = {act_save_csv : "csv",
+                           act_save_excel : "xlsx",
+                           act_save_json : "json",
+                           act_save_html : "html",
+                           act_save_latex : "tex",
+                           act_save_markdown : "md"}
+
         if chosen and chosen == act_info and act_info is not None:
             self._show_dataset_info_dialog(path)
         elif chosen == act_show_dag_dataset and act_show_dag_dataset is not None:
             self._show_dag_visualization_pyqtgraph(path)
         elif chosen == act_toggle_csv:
             self.model.toggle_csv_group_expansion(item)
-        elif chosen == act_save_csv:
-            self._save_csv_group_as(path, format="csv")
-        elif chosen == act_save_excel:
-            self._save_csv_group_as(path, format="xlsx")
-        elif chosen == act_save_json:
-            self._save_csv_group_as(path, format="json")
-        elif chosen == act_save_html:
-            self._save_csv_group_as(path, format="html")
-        elif chosen == act_save_latex:
-            self._save_csv_group_as(path, format="tex")
-        elif chosen == act_save_markdown:
-            self._save_csv_group_as(path, format="md")
         elif chosen == act_delete:
             # Confirm destructive action
             target_desc = label.replace("Delete ", "") if label else "item"
@@ -3362,6 +3358,8 @@ class HDF5Viewer(QMainWindow):
             )
             if resp == QMessageBox.Yes:
                 self._perform_delete(kind, path, attr_key)
+        else:
+            self._save_csv_group_as(path, format=save_as_formats[chosen])
 
     def _save_csv_group_as(self, csv_group_path: str, format: str = "csv") -> None:
         """Save a CSV group to a file using a save dialog.
@@ -5330,7 +5328,8 @@ class HDF5Viewer(QMainWindow):
                     QMessageBox.warning(self, "Plot Error", "Contourf plot requires one X and two Y columns (Z as second Y).")
                     return
                 try:
-                    self.plot_contourf_from_data(col_data, x_name, y_names, ax)
+                    cmap = plot_options.get("cmap", "Blues")
+                    self.plot_contourf_from_data(col_data, x_name, y_names, ax, cmap = cmap)
                 except Exception as exc:
                     QMessageBox.critical(self, "Plot Error", f"Failed to plot contourf: {exc}")
                     return
