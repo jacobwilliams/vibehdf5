@@ -1,4 +1,7 @@
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+import matplotlib as mpl
 
 from qtpy.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox, QComboBox, QTabWidget, QWidget, QScrollArea, QFrame, QDoubleSpinBox, QSpinBox, QPushButton, QDialogButtonBox, QColorDialog
 from qtpy.QtGui import QColor, QDoubleValidator
@@ -450,6 +453,26 @@ class PlotOptionsDialog(QDialog):
             if idx >= 0:
                 self.cmap_combo.setCurrentIndex(idx)
             contour_layout.addWidget(self.cmap_combo)
+
+            # Add colorbar preview
+            self.cmap_colorbar_fig = Figure(figsize=(3, 0.4), dpi=100)
+            self.cmap_colorbar_canvas = FigureCanvas(self.cmap_colorbar_fig)
+            contour_layout.addWidget(self.cmap_colorbar_canvas)
+
+            def update_colorbar():
+                cmap_name = self.cmap_combo.currentText()
+                self.cmap_colorbar_fig.clear()
+                ax = self.cmap_colorbar_fig.add_subplot(111)
+                norm = mpl.colors.Normalize(vmin=0, vmax=1)
+                cb = mpl.colorbar.ColorbarBase(ax, cmap=mpl.colormaps[cmap_name], norm=norm, orientation='horizontal')
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.set_title(cmap_name, fontsize=8)
+                self.cmap_colorbar_canvas.draw()
+
+            self.cmap_combo.currentIndexChanged.connect(update_colorbar)
+            update_colorbar()  # Initial draw
+
             contour_layout.addStretch()
             self._contour_tab = contour_tab
             self.tabs.addTab(contour_tab, "Contour")
