@@ -4352,9 +4352,23 @@ class HDF5Viewer(QMainWindow):
         self._update_plot_buttons_state()
 
     def _read_csv_columns(self, group_path: str, column_names: list[str]) -> dict[str, np.ndarray]:
-        """Read one or more column arrays from a CSV-derived group by original column names.
+        """
+        Read one or more column arrays from a CSV-derived group by original column names.
 
-        Returns a dict mapping original column name -> numpy array (1-D). Strings remain strings.
+        Args:
+            group_path (str): HDF5 path to the CSV-derived group.
+            column_names (list[str]): List of original column names to read.
+
+        Returns:
+            dict[str, np.ndarray]: Dictionary mapping original column name to numpy array (1-D). Strings remain strings.
+
+        Behavior:
+            - Attempts to map original column names to HDF5 dataset keys, using optional 'column_dataset_names' attribute if present.
+            - Handles byte string decoding to UTF-8 for string columns.
+            - Handles object dtype columns, decoding bytes if present.
+            - If no filter or sort is active, updates filtered indices and table model for string columns.
+            - Returns only columns found in the group; missing columns are skipped.
+            - Handles scalar datasets and bytes gracefully.
         """
         # Always reset mapping and result for each call
         result: dict[str, np.ndarray] = {}
@@ -4464,15 +4478,27 @@ class HDF5Viewer(QMainWindow):
         """Plot selected columns as contourf plot."""
         self.plot_selected_columns(contourf=True)
 
-    def plot_contourf_from_data(self, col_data, x_name, y_names, ax) -> None:
+    def plot_contourf_from_data(
+        self,
+        col_data: dict[str, np.ndarray],
+        x_name: str,
+        y_names: list[str],
+        ax,
+        grid_size: int = 100,
+        method: str = 'linear',
+        cmap: str = 'Blues'
+    ) -> None:
         """
         Plot a filled contour plot (contourf) using three columns of data.
 
         Args:
-            col_data (dict): Dictionary mapping column names to numpy arrays.
+            col_data (dict[str, np.ndarray]): Dictionary mapping column names to numpy arrays.
             x_name (str): Name of the column to use for the X axis.
             y_names (list[str]): List of two column names; first for Y axis, second for Z values.
             ax (matplotlib.axes.Axes): The matplotlib Axes object to plot on.
+            grid_size (int, optional): Size of the grid for interpolation. Default is 100.
+            method (str, optional): Interpolation method for griddata (e.g., 'linear', 'nearest', 'cubic'). Default is 'linear'.
+            cmap (str, optional): Colormap to use for contourf. Default is 'Blues'.
 
         Notes:
             - The function flattens and converts all input arrays to float.
@@ -4489,11 +4515,11 @@ class HDF5Viewer(QMainWindow):
         # Try to create a grid for contourf
         from scipy.interpolate import griddata
         # Create grid
-        xi = np.linspace(np.nanmin(x), np.nanmax(x), 100)
-        yi = np.linspace(np.nanmin(y), np.nanmax(y), 100)
+        xi = np.linspace(np.nanmin(x), np.nanmax(x), grid_size)
+        yi = np.linspace(np.nanmin(y), np.nanmax(y), grid_size)
         xi, yi = np.meshgrid(xi, yi)
-        zi = griddata((x, y), z, (xi, yi), method='linear')
-        cf = ax.contourf(xi, yi, zi, levels=20, cmap='viridis')
+        zi = griddata((x, y), z, (xi, yi), method=method)
+        cf = ax.contourf(xi, yi, zi, levels=20, cmap=cmap)
         # Label colorbar with z-series name (second entry in y_names)
         # TODO: really this should be a setting in the plot config
         z_label = y_names[1] if len(y_names) > 1 else ""
