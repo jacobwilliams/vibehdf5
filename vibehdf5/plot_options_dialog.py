@@ -585,12 +585,17 @@ class PlotOptionsDialog(QDialog):
                 if levels > 1:
                     # Use ListedColormap for discrete colorbar
                     import numpy as np
+
                     colors = cmap(np.linspace(0, 1, levels))
                     discrete_cmap = mpl.colors.ListedColormap(colors)
                     bounds = np.linspace(0, 1, levels + 1)
                     norm = mpl.colors.BoundaryNorm(bounds, discrete_cmap.N)
                     cb = mpl.colorbar.ColorbarBase(
-                        ax, cmap=discrete_cmap, norm=norm, boundaries=bounds, orientation="horizontal"
+                        ax,
+                        cmap=discrete_cmap,
+                        norm=norm,
+                        boundaries=bounds,
+                        orientation="horizontal",
                     )
                 else:
                     norm = mpl.colors.Normalize(vmin=0, vmax=1)

@@ -2239,6 +2239,7 @@ class HDF5Viewer(QMainWindow):
 
     def show_about_dialog(self) -> None:
         """Show the About VibeHDF5 dialog."""
+
         try:
             from vibehdf5 import __version__
 
@@ -2246,10 +2247,17 @@ class HDF5Viewer(QMainWindow):
         except ImportError:
             version = "unknown"
 
-        about_text = f"""<h2>VibeHDF5</h2>
+        # Create a custom dialog for About with a System Info button
+        from qtpy.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QTextEdit, QHBoxLayout
+
+        about_dialog = QDialog(self)
+        about_dialog.setWindowTitle("About VibeHDF5")
+        layout = QVBoxLayout(about_dialog)
+
+        about_text = f"""
+        <h2>VibeHDF5</h2>
         <p><b>Version:</b> {version}</p>
         <p>A powerful, lightweight GUI application for browsing, managing, and visualizing HDF5 file structures.</p>
-
         <p><b>Features:</b></p>
         <ul>
         <li>Browse and explore HDF5 file hierarchies</li>
@@ -2258,13 +2266,73 @@ class HDF5Viewer(QMainWindow):
         <li>Drag-and-drop file import and export</li>
         <li>Interactive matplotlib plotting</li>
         </ul>
-
         <p><b>Author:</b> Jacob Williams</p>
-        <p><b>Repository:</b> <a href="https://github.com/jacobwilliams/vibehdf5">github.com/jacobwilliams/vibehdf5</a></p>
+        <p><b>Repository:</b> <a href='https://github.com/jacobwilliams/vibehdf5'>github.com/jacobwilliams/vibehdf5</a></p>
         <p><b>License:</b> MIT</p>
         """
+        label = QLabel()
+        label.setTextFormat(Qt.RichText)
+        label.setText(about_text)
+        layout.addWidget(label)
 
-        QMessageBox.about(self, "About VibeHDF5", about_text)
+        btn_layout = QHBoxLayout()
+        btn_system_info = QPushButton("System Info")
+        btn_close = QPushButton("Close")
+        btn_layout.addWidget(btn_system_info)
+        btn_layout.addStretch()
+        btn_layout.addWidget(btn_close)
+        layout.addLayout(btn_layout)
+
+        def show_system_info():
+            import platform, sys
+            from qtpy.QtCore import QLibraryInfo
+
+            qt_version = (
+                QLibraryInfo.version().toString() if hasattr(QLibraryInfo, "version") else "unknown"
+            )
+            info = [
+                f"<b>Platform:</b> {platform.system()} {platform.release()} ({platform.version()})",
+                f"<b>Machine:</b> {platform.machine()}",
+                f"<b>Node:</b> {platform.node()}",
+                f"<b>Processor:</b> {platform.processor()}",
+                f"<b>Architecture:</b> {', '.join(platform.architecture())}",
+                f"<b>Python Version:</b> {platform.python_version()} ({sys.executable})",
+                f"<b>Current Working Directory:</b> {os.getcwd()}",
+                f"<br><b>Qt Version:</b> {qt_version}",
+            ]
+            try:
+                import qtpy, numpy, h5py, matplotlib, scipy, pygraphviz
+
+                info.append(f"<b>qtpy:</b> {qtpy.__version__}")
+                info.append(f"<b>Qt API:</b> {qtpy.API_NAME}")
+                if qtpy.PYSIDE_VERSION:
+                    info.append(f"<b>PySide:</b> {qtpy.PYSIDE_VERSION}")
+                if qtpy.PYQT_VERSION:
+                    info.append(f"<b>PyQt:</b> {qtpy.PYQT_VERSION}")
+                info.append(f"<b>NumPy:</b> {numpy.__version__}")
+                info.append(f"<b>h5py:</b> {h5py.__version__}")
+                info.append(f"<b>matplotlib:</b> {matplotlib.__version__}")
+                info.append(f"<b>SciPy:</b> {scipy.__version__}")
+                info.append(f"<b>PyGraphviz:</b> {pygraphviz.__version__}")
+            except Exception:
+                pass
+            sys_dialog = QDialog(about_dialog)
+            sys_dialog.setWindowTitle("System Info")
+            sys_layout = QVBoxLayout(sys_dialog)
+            text = QTextEdit()
+            text.setReadOnly(True)
+            text.setHtml("<br>".join(info))
+            sys_layout.addWidget(text)
+            btn_close_sys = QPushButton("Close")
+            btn_close_sys.clicked.connect(sys_dialog.accept)
+            sys_layout.addWidget(btn_close_sys)
+            sys_dialog.resize(500, 300)
+            sys_dialog.exec_()
+
+        btn_system_info.clicked.connect(show_system_info)
+        btn_close.clicked.connect(about_dialog.accept)
+        about_dialog.resize(500, 400)
+        about_dialog.exec_()
 
     def _increase_font_size(self) -> None:
         """Increase the application font size."""
@@ -5563,8 +5631,13 @@ class HDF5Viewer(QMainWindow):
                     cmap_label = plot_options.get("cmap_label", "")
                     levels = plot_options.get("levels", 20)
                     self.plot_contourf_from_data(
-                        col_data, x_name, y_names, ax,
-                        cmap=cmap, cmap_label=cmap_label, levels=levels
+                        col_data,
+                        x_name,
+                        y_names,
+                        ax,
+                        cmap=cmap,
+                        cmap_label=cmap_label,
+                        levels=levels,
                     )
                 except Exception as exc:
                     QMessageBox.critical(self, "Plot Error", f"Failed to plot contourf: {exc}")
