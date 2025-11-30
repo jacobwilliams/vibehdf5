@@ -3355,8 +3355,11 @@ class HDF5Viewer(QMainWindow):
             )
             if resp == QMessageBox.Yes:
                 self._perform_delete(kind, path, attr_key)
-        else:
+        elif chosen in save_as_formats:
             self._save_csv_group_as(path, format=save_as_formats[chosen])
+        else:
+            # No valid action selected (e.g., menu closed), do nothing
+            pass
 
     def _save_csv_group_as(self, csv_group_path: str, format: str = "csv") -> None:
         """Save a CSV group to a file using a save dialog.
