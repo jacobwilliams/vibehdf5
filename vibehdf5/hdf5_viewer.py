@@ -1092,25 +1092,22 @@ class HDF5Viewer(QMainWindow):
 
         # Apply colorbar font and label styling for contourf plots
         if plot_options.get("type", "line") == "contourf":
-            # Find colorbar in figure
-            z_label = y_names[1] if len(y_names) > 1 else ""
-            for cax in fig.axes:
-                # Heuristic: colorbar axes have a label matching the z-series name
-                if hasattr(cax, 'get_ylabel') and cax.get_ylabel() == z_label:
-                    font_family = plot_options.get('font_family', 'serif')
-                    font_size = plot_options.get('axis_label_fontsize', 10)
-                    tick_font_size = plot_options.get('tick_fontsize', 10)
-                    font_color = 'white' if use_dark else 'black'
-                    # Set colorbar label font
-                    cax.yaxis.label.set_fontfamily(font_family)
-                    cax.yaxis.label.set_fontsize(font_size)
-                    cax.yaxis.label.set_color(font_color)
-                    # Set colorbar tick font
-                    for tick in cax.get_yticklabels():
-                        tick.set_fontfamily(font_family)
-                        tick.set_fontsize(tick_font_size)
-                        tick.set_color(font_color)
-                    break
+            # if the figure has a colorbar attached:
+            if self.cbar:
+                cax = self.cbar.ax
+                font_family = plot_options.get('font_family', 'serif')
+                font_size = plot_options.get('axis_label_fontsize', 10)
+                tick_font_size = plot_options.get('tick_fontsize', 10)
+                font_color = 'white' if use_dark else 'black'
+                # Set colorbar label font
+                cax.yaxis.label.set_fontfamily(font_family)
+                cax.yaxis.label.set_fontsize(font_size)
+                cax.yaxis.label.set_color(font_color)
+                # Set colorbar tick font
+                for tick in cax.get_yticklabels():
+                    tick.set_fontfamily(font_family)
+                    tick.set_fontsize(tick_font_size)
+                    tick.set_color(font_color)
 
     def _create_actions(self) -> None:
         """Create all QAction objects for menu and toolbar items."""
@@ -4484,7 +4481,8 @@ class HDF5Viewer(QMainWindow):
         ax,
         grid_size: int = 100,
         method: str = 'linear',
-        cmap: str = 'Blues'
+        cmap: str = 'Blues',
+        cmap_label: str = ''
     ) -> None:
         """
         Plot a filled contour plot (contourf) using three columns of data.
@@ -4497,6 +4495,7 @@ class HDF5Viewer(QMainWindow):
             grid_size (int, optional): Size of the grid for interpolation. Default is 100.
             method (str, optional): Interpolation method for griddata (e.g., 'linear', 'nearest', 'cubic'). Default is 'linear'.
             cmap (str, optional): Colormap to use for contourf. Default is 'Blues'.
+            cmap_label (str, optional): Label for the colorbar. Default is ''.
 
         Notes:
             - The function flattens and converts all input arrays to float.
@@ -4518,12 +4517,15 @@ class HDF5Viewer(QMainWindow):
         xi, yi = np.meshgrid(xi, yi)
         zi = griddata((x, y), z, (xi, yi), method=method)
         cf = ax.contourf(xi, yi, zi, levels=20, cmap=cmap)
-        # Label colorbar with z-series name (second entry in y_names)
-        # TODO: really this should be a setting in the plot config
-        z_label = y_names[1] if len(y_names) > 1 else ""
         cbar = self.plot_figure.colorbar(cf, ax=ax)
-        if z_label:
-            cbar.set_label(z_label)
+        self.cbar = cbar # save it so we can adjust it later
+        if cmap_label:
+            cbar.set_label(cmap_label)
+        else:
+            # Label colorbar with z-series name (second entry in y_names)
+            z_label = y_names[1] if len(y_names) > 1 else ""
+            if z_label:
+                cbar.set_label(z_label)
 
     def plot_selected_columns(self, contourf: bool = False) -> None:
         """
@@ -5259,6 +5261,7 @@ class HDF5Viewer(QMainWindow):
                 headers = []
         x_idx = config.get("x_col_idx")
         y_idxs = config.get("y_col_idxs", [])
+        self.cbar = None  # initialize
         if isinstance(y_idxs, int):
             y_idxs = [y_idxs]
         filtered_indices_raw = config.get("filtered_indices")
@@ -5329,7 +5332,9 @@ class HDF5Viewer(QMainWindow):
                     return
                 try:
                     cmap = plot_options.get("cmap", "Blues")
-                    self.plot_contourf_from_data(col_data, x_name, y_names, ax, cmap = cmap)
+                    cmap_label = plot_options.get("cmap_label", "")
+                    self.plot_contourf_from_data(col_data, x_name, y_names, ax,
+                                                 cmap = cmap, cmap_label = cmap_label)
                 except Exception as exc:
                     QMessageBox.critical(self, "Plot Error", f"Failed to plot contourf: {exc}")
                     return

@@ -459,6 +459,17 @@ class PlotOptionsDialog(QDialog):
             self.cmap_colorbar_canvas = FigureCanvas(self.cmap_colorbar_fig)
             contour_layout.addWidget(self.cmap_colorbar_canvas)
 
+            # Add cmap label field
+            cmap_label_layout = QHBoxLayout()
+            cmap_label_layout.addWidget(QLabel("Colorbar Label:"))
+            self.cmap_label_edit = QLineEdit()
+            self.cmap_label_edit.setPlaceholderText("Label for colorbar (e.g. Z series name)")
+            current_label = self.plot_config.get("plot_options", {}).get("cmap_label", "")
+            self.cmap_label_edit.setText(current_label)
+            cmap_label_layout.addWidget(self.cmap_label_edit)
+            contour_layout.addLayout(cmap_label_layout)
+
+
             def update_colorbar():
                 cmap_name = self.cmap_combo.currentText()
                 self.cmap_colorbar_fig.clear()
@@ -467,10 +478,14 @@ class PlotOptionsDialog(QDialog):
                 cb = mpl.colorbar.ColorbarBase(ax, cmap=mpl.colormaps[cmap_name], norm=norm, orientation='horizontal')
                 ax.set_xticks([])
                 ax.set_yticks([])
+                # Use label from field
+                label = self.cmap_label_edit.text()
+                cb.set_label(label, fontsize=9)
                 ax.set_title(cmap_name, fontsize=8)
                 self.cmap_colorbar_canvas.draw()
 
             self.cmap_combo.currentIndexChanged.connect(update_colorbar)
+            self.cmap_label_edit.textChanged.connect(update_colorbar)
             update_colorbar()  # Initial draw
 
             contour_layout.addStretch()
@@ -1121,9 +1136,10 @@ class PlotOptionsDialog(QDialog):
                     pass
         plot_opts["reference_lines"] = ref_lines
 
-        # Save colormap if contourf is selected
+        # Save colormap and label if contourf is selected
         if plot_opts["type"] == "contourf" and hasattr(self, "cmap_combo"):
             plot_opts["cmap"] = self.cmap_combo.currentText()
+            plot_opts["cmap_label"] = self.cmap_label_edit.text()
 
         # Update series options
         series_opts = {}
