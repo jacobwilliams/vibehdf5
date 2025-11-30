@@ -104,5 +104,3 @@ class DropTreeView(QTreeView):
             return
 
         super().dropEvent(event)
-
-

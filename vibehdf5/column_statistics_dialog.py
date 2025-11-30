@@ -1,7 +1,15 @@
 import pandas as pd
 import numpy as np
 
-from qtpy.QtWidgets import QDialog, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QAbstractItemView, QDialogButtonBox
+from qtpy.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QLabel,
+    QTableWidget,
+    QTableWidgetItem,
+    QAbstractItemView,
+    QDialogButtonBox,
+)
 
 
 class ColumnStatisticsDialog(QDialog):
@@ -29,7 +37,9 @@ class ColumnStatisticsDialog(QDialog):
         # Info label
         if filtered_indices is not None and len(filtered_indices) > 0:
             total_rows = max(len(data_dict[col]) for col in data_dict if col in column_names)
-            info_text = f"Statistics for {len(filtered_indices)} filtered rows (out of {total_rows} total)"
+            info_text = (
+                f"Statistics for {len(filtered_indices)} filtered rows (out of {total_rows} total)"
+            )
         else:
             total_rows = max(len(data_dict[col]) for col in data_dict if col in column_names)
             info_text = f"Statistics for all {total_rows} rows"
@@ -96,12 +106,26 @@ class ColumnStatisticsDialog(QDialog):
 
                 if is_numeric:
                     # Numeric statistics
-                    stats["Min"] = f"{numeric_series.min():.6g}" if not numeric_series.isna().all() else "N/A"
-                    stats["Max"] = f"{numeric_series.max():.6g}" if not numeric_series.isna().all() else "N/A"
-                    stats["Mean"] = f"{numeric_series.mean():.6g}" if not numeric_series.isna().all() else "N/A"
-                    stats["Median"] = f"{numeric_series.median():.6g}" if not numeric_series.isna().all() else "N/A"
-                    stats["Std Dev"] = f"{numeric_series.std():.6g}" if not numeric_series.isna().all() else "N/A"
-                    stats["Sum"] = f"{numeric_series.sum():.6g}" if not numeric_series.isna().all() else "N/A"
+                    stats["Min"] = (
+                        f"{numeric_series.min():.6g}" if not numeric_series.isna().all() else "N/A"
+                    )
+                    stats["Max"] = (
+                        f"{numeric_series.max():.6g}" if not numeric_series.isna().all() else "N/A"
+                    )
+                    stats["Mean"] = (
+                        f"{numeric_series.mean():.6g}" if not numeric_series.isna().all() else "N/A"
+                    )
+                    stats["Median"] = (
+                        f"{numeric_series.median():.6g}"
+                        if not numeric_series.isna().all()
+                        else "N/A"
+                    )
+                    stats["Std Dev"] = (
+                        f"{numeric_series.std():.6g}" if not numeric_series.isna().all() else "N/A"
+                    )
+                    stats["Sum"] = (
+                        f"{numeric_series.sum():.6g}" if not numeric_series.isna().all() else "N/A"
+                    )
                 else:
                     # String statistics
                     stats["Min"] = str(series.min()) if len(series) > 0 else "N/A"
@@ -128,4 +152,3 @@ class ColumnStatisticsDialog(QDialog):
 
         # Resize columns to content
         self.stats_table.resizeColumnsToContents()
-

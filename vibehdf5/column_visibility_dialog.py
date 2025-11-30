@@ -1,10 +1,24 @@
-from qtpy.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox, QPushButton, QDialogButtonBox, QScrollArea, QWidget, QFrame, QLineEdit
+from qtpy.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QCheckBox,
+    QPushButton,
+    QDialogButtonBox,
+    QScrollArea,
+    QWidget,
+    QFrame,
+    QLineEdit,
+)
 
 
 class ColumnVisibilityDialog(QDialog):
     """Dialog for selecting which columns to display in the CSV table."""
 
-    def __init__(self, column_names: list[str], visible_columns: list[str] | None = None, parent = None):
+    def __init__(
+        self, column_names: list[str], visible_columns: list[str] | None = None, parent=None
+    ):
         """Initialize the column visibility dialog.
 
         Args:
@@ -17,7 +31,9 @@ class ColumnVisibilityDialog(QDialog):
         self.resize(400, 500)
 
         self.column_names = column_names
-        self.visible_columns = visible_columns if visible_columns is not None else column_names.copy()
+        self.visible_columns = (
+            visible_columns if visible_columns is not None else column_names.copy()
+        )
 
         layout = QVBoxLayout(self)
 
@@ -124,5 +140,3 @@ class ColumnVisibilityDialog(QDialog):
     def get_visible_columns(self):
         """Return list of selected column names."""
         return [cb.text() for cb in self.column_checkboxes if cb.isChecked()]
-
-

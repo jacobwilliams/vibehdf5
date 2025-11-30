@@ -3,7 +3,24 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib as mpl
 
-from qtpy.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox, QComboBox, QTabWidget, QWidget, QScrollArea, QFrame, QDoubleSpinBox, QSpinBox, QPushButton, QDialogButtonBox, QColorDialog
+from qtpy.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QCheckBox,
+    QComboBox,
+    QTabWidget,
+    QWidget,
+    QScrollArea,
+    QFrame,
+    QDoubleSpinBox,
+    QSpinBox,
+    QPushButton,
+    QDialogButtonBox,
+    QColorDialog,
+)
 from qtpy.QtGui import QColor, QDoubleValidator
 
 from .column_sort_dialog import ColumnSortDialog
@@ -16,7 +33,7 @@ class PlotOptionsDialog(QDialog):
     # Available line styles and colors
     LINE_STYLES = ["-", "--", "-.", ":", "None"]
     LINE_STYLE_NAMES = ["Solid", "Dashed", "Dash-dot", "Dotted", "None"]
-    COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]   # matplotlib's default color cycle
+    COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]  # matplotlib's default color cycle
     MARKERS = ["", "o", "s", "^", "v", "D", "*", "+", "x", "."]
     MARKER_NAMES = [
         "None",
@@ -215,15 +232,11 @@ class PlotOptionsDialog(QDialog):
         log_scale_layout.setContentsMargins(0, 5, 0, 10)
 
         self.xlog_checkbox = QCheckBox("X-axis Log Scale")
-        self.xlog_checkbox.setChecked(
-            self.plot_config.get("plot_options", {}).get("xlog", False)
-        )
+        self.xlog_checkbox.setChecked(self.plot_config.get("plot_options", {}).get("xlog", False))
         log_scale_layout.addWidget(self.xlog_checkbox)
 
         self.ylog_checkbox = QCheckBox("Y-axis Log Scale")
-        self.ylog_checkbox.setChecked(
-            self.plot_config.get("plot_options", {}).get("ylog", False)
-        )
+        self.ylog_checkbox.setChecked(self.plot_config.get("plot_options", {}).get("ylog", False))
         log_scale_layout.addWidget(self.ylog_checkbox)
 
         log_scale_layout.addStretch()
@@ -264,7 +277,9 @@ class PlotOptionsDialog(QDialog):
         display_format_layout.addWidget(QLabel("Display Format:"))
         self.datetime_display_format_edit = QLineEdit()
         self.datetime_display_format_edit.setPlaceholderText("%Y-%m-%d")
-        datetime_display_format = self.plot_config.get("plot_options", {}).get("datetime_display_format", "")
+        datetime_display_format = self.plot_config.get("plot_options", {}).get(
+            "datetime_display_format", ""
+        )
         if datetime_display_format:
             self.datetime_display_format_edit.setText(datetime_display_format)
         self.datetime_display_format_edit.setToolTip(
@@ -359,7 +374,9 @@ class PlotOptionsDialog(QDialog):
         font_size_layout.addWidget(QLabel("Title:"))
         self.title_fontsize_spin = QSpinBox()
         self.title_fontsize_spin.setRange(6, 72)
-        self.title_fontsize_spin.setValue(self.plot_config.get("plot_options", {}).get("title_fontsize", 12))
+        self.title_fontsize_spin.setValue(
+            self.plot_config.get("plot_options", {}).get("title_fontsize", 12)
+        )
         self.title_fontsize_spin.setSuffix(" pt")
         self.title_fontsize_spin.setToolTip("Font size for plot title")
         self.title_fontsize_spin.setMinimumWidth(80)
@@ -368,7 +385,9 @@ class PlotOptionsDialog(QDialog):
         font_size_layout.addWidget(QLabel("Axis Labels:"))
         self.axis_label_fontsize_spin = QSpinBox()
         self.axis_label_fontsize_spin.setRange(6, 72)
-        self.axis_label_fontsize_spin.setValue(self.plot_config.get("plot_options", {}).get("axis_label_fontsize", 10))
+        self.axis_label_fontsize_spin.setValue(
+            self.plot_config.get("plot_options", {}).get("axis_label_fontsize", 10)
+        )
         self.axis_label_fontsize_spin.setSuffix(" pt")
         self.axis_label_fontsize_spin.setToolTip("Font size for axis labels")
         self.axis_label_fontsize_spin.setMinimumWidth(80)
@@ -377,7 +396,9 @@ class PlotOptionsDialog(QDialog):
         font_size_layout.addWidget(QLabel("Tick Labels:"))
         self.tick_fontsize_spin = QSpinBox()
         self.tick_fontsize_spin.setRange(6, 72)
-        self.tick_fontsize_spin.setValue(self.plot_config.get("plot_options", {}).get("tick_fontsize", 9))
+        self.tick_fontsize_spin.setValue(
+            self.plot_config.get("plot_options", {}).get("tick_fontsize", 9)
+        )
         self.tick_fontsize_spin.setSuffix(" pt")
         self.tick_fontsize_spin.setToolTip("Font size for axis tick labels")
         self.tick_fontsize_spin.setMinimumWidth(80)
@@ -386,7 +407,9 @@ class PlotOptionsDialog(QDialog):
         font_size_layout.addWidget(QLabel("Legend:"))
         self.legend_fontsize_spin = QSpinBox()
         self.legend_fontsize_spin.setRange(6, 72)
-        self.legend_fontsize_spin.setValue(self.plot_config.get("plot_options", {}).get("legend_fontsize", 9))
+        self.legend_fontsize_spin.setValue(
+            self.plot_config.get("plot_options", {}).get("legend_fontsize", 9)
+        )
         self.legend_fontsize_spin.setSuffix(" pt")
         self.legend_fontsize_spin.setToolTip("Font size for legend text")
         self.legend_fontsize_spin.setMinimumWidth(80)
@@ -430,23 +453,91 @@ class PlotOptionsDialog(QDialog):
             self.cmap_combo = QComboBox()
             # see https://matplotlib.org/stable/users/explain/colors/colormaps.html
             cmaps = [
-                "viridis", "plasma", "inferno", "magma", "cividis",
-                "Greys", "Purples", "Blues", "Greens", "Oranges", "Reds",
-                "YlOrBr", "YlOrRd", "OrRd", "PuRd", "RdPu", "BuPu", "GnBu", "PuBu", "YlGnBu", "PuBuGn", "YlGn",
-                'binary', 'gist_yarg', 'gist_gray', 'gray', 'bone',
-                'pink', 'spring', 'summer', 'autumn', 'winter', 'cool',
-                'Wistia', 'hot', 'afmhot', 'gist_heat', 'copper',
-                'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdGy', 'RdBu', 'RdYlBu',
-                'RdYlGn', 'Spectral', 'coolwarm', 'bwr', 'seismic',
-                'berlin', 'managua', 'vanimo',
-                'twilight', 'twilight_shifted', 'hsv',
-                'Pastel1', 'Pastel2', 'Paired', 'Accent', 'Dark2',
-                'Set1', 'Set2', 'Set3', 'tab10', 'tab20', 'tab20b',
-                'tab20c',
-                'flag', 'prism', 'ocean', 'gist_earth', 'terrain',
-                'gist_stern', 'gnuplot', 'gnuplot2', 'CMRmap',
-                'cubehelix', 'brg', 'gist_rainbow', 'rainbow', 'jet',
-                'turbo', 'nipy_spectral', 'gist_ncar'
+                "viridis",
+                "plasma",
+                "inferno",
+                "magma",
+                "cividis",
+                "Greys",
+                "Purples",
+                "Blues",
+                "Greens",
+                "Oranges",
+                "Reds",
+                "YlOrBr",
+                "YlOrRd",
+                "OrRd",
+                "PuRd",
+                "RdPu",
+                "BuPu",
+                "GnBu",
+                "PuBu",
+                "YlGnBu",
+                "PuBuGn",
+                "YlGn",
+                "binary",
+                "gist_yarg",
+                "gist_gray",
+                "gray",
+                "bone",
+                "pink",
+                "spring",
+                "summer",
+                "autumn",
+                "winter",
+                "cool",
+                "Wistia",
+                "hot",
+                "afmhot",
+                "gist_heat",
+                "copper",
+                "PiYG",
+                "PRGn",
+                "BrBG",
+                "PuOr",
+                "RdGy",
+                "RdBu",
+                "RdYlBu",
+                "RdYlGn",
+                "Spectral",
+                "coolwarm",
+                "bwr",
+                "seismic",
+                "berlin",
+                "managua",
+                "vanimo",
+                "twilight",
+                "twilight_shifted",
+                "hsv",
+                "Pastel1",
+                "Pastel2",
+                "Paired",
+                "Accent",
+                "Dark2",
+                "Set1",
+                "Set2",
+                "Set3",
+                "tab10",
+                "tab20",
+                "tab20b",
+                "tab20c",
+                "flag",
+                "prism",
+                "ocean",
+                "gist_earth",
+                "terrain",
+                "gist_stern",
+                "gnuplot",
+                "gnuplot2",
+                "CMRmap",
+                "cubehelix",
+                "brg",
+                "gist_rainbow",
+                "rainbow",
+                "jet",
+                "turbo",
+                "nipy_spectral",
+                "gist_ncar",
             ]
             self.cmap_combo.addItems(cmaps)
             current_cmap = self.plot_config.get("plot_options", {}).get("cmap", "Blues")
@@ -470,14 +561,15 @@ class PlotOptionsDialog(QDialog):
             cmap_label_layout.addWidget(self.cmap_label_edit)
             contour_layout.addLayout(cmap_label_layout)
 
-
             def update_colorbar() -> None:
                 """Update the colorbar preview in the Contour tab based on selected colormap and label."""
                 cmap_name = self.cmap_combo.currentText()
                 self.cmap_colorbar_fig.clear()
                 ax = self.cmap_colorbar_fig.add_subplot(111)
                 norm = mpl.colors.Normalize(vmin=0, vmax=1)
-                cb = mpl.colorbar.ColorbarBase(ax, cmap=mpl.colormaps[cmap_name], norm=norm, orientation='horizontal')
+                cb = mpl.colorbar.ColorbarBase(
+                    ax, cmap=mpl.colormaps[cmap_name], norm=norm, orientation="horizontal"
+                )
                 ax.set_xticks([])
                 ax.set_yticks([])
                 # Use label from field
@@ -558,7 +650,7 @@ class PlotOptionsDialog(QDialog):
                     refline.get("color", "#FF0000"),
                     refline.get("linestyle", "--"),
                     refline.get("linewidth", 1.0),
-                    refline.get("label", "")
+                    refline.get("label", ""),
                 )
             self.reflines_layout.addStretch()
             reflines_scroll.setWidget(reflines_container)
@@ -680,7 +772,9 @@ class PlotOptionsDialog(QDialog):
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
-    def _create_series_widget(self, series_name: str, series_idx: int, series_options: dict) -> QFrame:
+    def _create_series_widget(
+        self, series_name: str, series_idx: int, series_options: dict
+    ) -> QFrame:
         """Create a widget for configuring one series.
 
         Args:
@@ -821,7 +915,9 @@ class PlotOptionsDialog(QDialog):
         smooth_window_spin = QSpinBox()
         smooth_window_spin.setRange(2, 1000)
         smooth_window_spin.setValue(series_options.get("smooth_window", 5))
-        smooth_window_spin.setToolTip("Number of points to average (must be odd for centered averaging)")
+        smooth_window_spin.setToolTip(
+            "Number of points to average (must be odd for centered averaging)"
+        )
         smooth_window_spin.setMinimumWidth(80)
         smooth_params_layout.addWidget(smooth_window_spin)
 
@@ -854,7 +950,13 @@ class PlotOptionsDialog(QDialog):
         trend_type_combo.addItem("Polynomial (degree 3)", "poly3")
         trend_type_combo.addItem("Polynomial (degree 4)", "poly4")
         current_trend_type = series_options.get("trendline_type", "linear")
-        trend_type_idx = 0 if current_trend_type == "linear" else (1 if current_trend_type == "poly2" else (2 if current_trend_type == "poly3" else 3))
+        trend_type_idx = (
+            0
+            if current_trend_type == "linear"
+            else (
+                1 if current_trend_type == "poly2" else (2 if current_trend_type == "poly3" else 3)
+            )
+        )
         trend_type_combo.setCurrentIndex(trend_type_idx)
         trend_type_combo.setMinimumWidth(150)
         trend_params_layout.addWidget(trend_type_combo)
@@ -890,7 +992,15 @@ class PlotOptionsDialog(QDialog):
 
         return widget
 
-    def _add_refline_widget(self, line_type: str, value: float = None, color: str = None, linestyle: str = None, linewidth: float = None, label: str = None) -> QFrame:
+    def _add_refline_widget(
+        self,
+        line_type: str,
+        value: float = None,
+        color: str = None,
+        linestyle: str = None,
+        linewidth: float = None,
+        label: str = None,
+    ) -> QFrame:
         """
         Add a reference line configuration widget.
 
@@ -1026,17 +1136,21 @@ class PlotOptionsDialog(QDialog):
         """Get status text for filters."""
         if not self.csv_filters:
             return "No filters applied"
-        return f"{len(self.csv_filters)} filter(s) applied: " + ", ".join(
-            f"{col} {op} {val}" for col, op, val in self.csv_filters[:3]
-        ) + ("..." if len(self.csv_filters) > 3 else "")
+        return (
+            f"{len(self.csv_filters)} filter(s) applied: "
+            + ", ".join(f"{col} {op} {val}" for col, op, val in self.csv_filters[:3])
+            + ("..." if len(self.csv_filters) > 3 else "")
+        )
 
     def _get_sort_status_text(self) -> str:
         """Get status text for sort."""
         if not self.csv_sort:
             return "No sorting applied"
-        return f"Sorted by {len(self.csv_sort)} column(s): " + ", ".join(
-            f"{col} ({order})" for col, order in self.csv_sort[:3]
-        ) + ("..." if len(self.csv_sort) > 3 else "")
+        return (
+            f"Sorted by {len(self.csv_sort)} column(s): "
+            + ", ".join(f"{col} ({order})" for col, order in self.csv_sort[:3])
+            + ("..." if len(self.csv_sort) > 3 else "")
+        )
 
     def _edit_filters(self) -> None:
         """Open the filter configuration dialog."""
@@ -1134,14 +1248,16 @@ class PlotOptionsDialog(QDialog):
                 try:
                     value = float(value_text)
                     label_text = widget._label_edit.text().strip()
-                    ref_lines.append({
-                        "type": widget._line_type,
-                        "value": value,
-                        "color": widget._color_button._color.name(),
-                        "linestyle": widget._linestyle_combo.currentData(),
-                        "linewidth": widget._width_spin.value(),
-                        "label": label_text if label_text else None
-                    })
+                    ref_lines.append(
+                        {
+                            "type": widget._line_type,
+                            "value": value,
+                            "color": widget._color_button._color.name(),
+                            "linestyle": widget._linestyle_combo.currentData(),
+                            "linewidth": widget._width_spin.value(),
+                            "label": label_text if label_text else None,
+                        }
+                    )
                 except ValueError:
                     # Skip invalid values
                     pass
@@ -1177,4 +1293,3 @@ class PlotOptionsDialog(QDialog):
         self.plot_config["csv_sort"] = self.csv_sort
 
         return self.plot_config
-

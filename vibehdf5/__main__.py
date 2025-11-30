@@ -8,6 +8,7 @@ from qtpy.QtWidgets import QApplication
 
 from .hdf5_viewer import HDF5Viewer
 
+
 def main(argv: list[str] | None = None) -> int:
     """
     Launch the VibeHDF5 GUI application.
@@ -31,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
 
     win.show()
     return app.exec()
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -85,7 +85,11 @@ class DraggablePlotListWidget(QListWidget):
                 # Execute drag operation
                 drag.exec_(Qt.CopyAction)
             else:
-                QMessageBox.warning(self, "Export Failed", f"Failed to export plot for drag-and-drop.\n\nError: {error_msg}")
+                QMessageBox.warning(
+                    self,
+                    "Export Failed",
+                    f"Failed to export plot for drag-and-drop.\n\nError: {error_msg}",
+                )
         except Exception as e:
             tb = traceback.format_exc()
             QMessageBox.warning(self, "Export Error", f"Error exporting plot: {e}\n\n{tb}")

@@ -1,5 +1,15 @@
-
-from qtpy.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QScrollArea, QWidget, QFrame, QDialogButtonBox
+from qtpy.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QComboBox,
+    QPushButton,
+    QScrollArea,
+    QWidget,
+    QFrame,
+    QDialogButtonBox,
+)
 
 
 class ColumnSortDialog(QDialog):
@@ -44,7 +54,9 @@ class ColumnSortDialog(QDialog):
 
         # Add sort button
         add_btn = QPushButton("+ Add Sort Column")
-        add_btn.setToolTip("Add a new column to sort by (columns are sorted in order from top to bottom)")
+        add_btn.setToolTip(
+            "Add a new column to sort by (columns are sorted in order from top to bottom)"
+        )
         add_btn.clicked.connect(self._add_sort_row)
         layout.addWidget(add_btn)
 
@@ -172,4 +184,3 @@ class ColumnSortDialog(QDialog):
         # Add rows for each sort spec
         for col_name, ascending in sort_specs:
             self._add_sort_row(col_name, ascending)
-

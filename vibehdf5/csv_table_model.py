@@ -5,7 +5,13 @@ import numpy as np
 class CSVTableModel(QAbstractTableModel):
     """Table model for displaying CSV data in a QTableView."""
 
-    def __init__(self, data_dict: dict[str, np.ndarray], col_names: list[str], row_indices: list[int] | None = None, parent=None):
+    def __init__(
+        self,
+        data_dict: dict[str, np.ndarray],
+        col_names: list[str],
+        row_indices: list[int] | None = None,
+        parent=None,
+    ):
         """
         Initialize the table model for QTableView.
         Args:

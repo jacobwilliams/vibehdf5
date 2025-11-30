@@ -249,7 +249,6 @@ class HDF5TreeModel(QStandardItemModel):
             QIcon with system icon (and optional red dot), or None if not available
         """
         try:
-
             ext = os.path.splitext(filename)[1].lower()
             if not ext:
                 return None
@@ -306,7 +305,9 @@ class HDF5TreeModel(QStandardItemModel):
         else:
             self._csv_filtered_indices[csv_group_path] = indices
 
-    def set_csv_visible_columns(self, csv_group_path: str, visible_columns: list[str] | None) -> None:
+    def set_csv_visible_columns(
+        self, csv_group_path: str, visible_columns: list[str] | None
+    ) -> None:
         """Set the visible columns for a CSV group export.
 
         Args:
@@ -329,7 +330,9 @@ class HDF5TreeModel(QStandardItemModel):
         """
         return self._csv_visible_columns.get(csv_group_path)
 
-    def set_csv_sort_specs(self, csv_group_path: str, sort_specs: list[tuple[str, bool]] | None) -> None:
+    def set_csv_sort_specs(
+        self, csv_group_path: str, sort_specs: list[tuple[str, bool]] | None
+    ) -> None:
         """Set the sort specifications for a CSV group.
 
         Args:
@@ -553,7 +556,12 @@ class HDF5TreeModel(QStandardItemModel):
             return "unnamed"
 
     def _reconstruct_csv_tempfile(
-        self, group: h5py.Group, group_path: str, row_indices: np.ndarray | None = None, return_dataframe: bool = False, sort_specs: list[tuple[str, bool]] | None = None
+        self,
+        group: h5py.Group,
+        group_path: str,
+        row_indices: np.ndarray | None = None,
+        return_dataframe: bool = False,
+        sort_specs: list[tuple[str, bool]] | None = None,
     ) -> str | None:
         """Rebuild a CSV file from a CSV-derived group and return the temp file path or DataFrame.
 
@@ -647,7 +655,7 @@ class HDF5TreeModel(QStandardItemModel):
                 # Keep data in its original form (numpy array or scalar)
                 if isinstance(data, np.ndarray):
                     # Decode byte strings if needed, but keep numeric types as-is
-                    if data.dtype.kind == 'S' or data.dtype.kind == 'O':
+                    if data.dtype.kind == "S" or data.dtype.kind == "O":
                         # Byte strings or object arrays - decode to unicode
                         entries = []
                         for v in data.ravel().tolist():
@@ -701,8 +709,10 @@ class HDF5TreeModel(QStandardItemModel):
                         data_dict[col_name] = filtered
                     else:
                         # For lists (string columns), use list comprehension
-                        col_values = [col_arr[row_idx] if row_idx < len(col_arr) else ""
-                                      for row_idx in export_indices]
+                        col_values = [
+                            col_arr[row_idx] if row_idx < len(col_arr) else ""
+                            for row_idx in export_indices
+                        ]
                         data_dict[col_name] = col_values
                 df = pd.DataFrame(data_dict)
 
@@ -717,7 +727,9 @@ class HDF5TreeModel(QStandardItemModel):
 
                     if sort_columns:
                         try:
-                            df = df.sort_values(by=sort_columns, ascending=sort_orders, na_position='last')
+                            df = df.sort_values(
+                                by=sort_columns, ascending=sort_orders, na_position="last"
+                            )
                         except Exception:
                             # If sorting fails, continue with unsorted data
                             pass
@@ -744,8 +756,10 @@ class HDF5TreeModel(QStandardItemModel):
                     data_dict[col_name] = filtered
                 else:
                     # For lists (string columns), use list comprehension
-                    col_values = [col_arr[row_idx] if row_idx < len(col_arr) else ""
-                                  for row_idx in export_indices]
+                    col_values = [
+                        col_arr[row_idx] if row_idx < len(col_arr) else ""
+                        for row_idx in export_indices
+                    ]
                     data_dict[col_name] = col_values
             df = pd.DataFrame(data_dict)
 
@@ -760,7 +774,9 @@ class HDF5TreeModel(QStandardItemModel):
 
                 if sort_columns:
                     try:
-                        df = df.sort_values(by=sort_columns, ascending=sort_orders, na_position='last')
+                        df = df.sort_values(
+                            by=sort_columns, ascending=sort_orders, na_position="last"
+                        )
                     except Exception:
                         # If sorting fails, continue with unsorted data
                         pass
@@ -840,7 +856,17 @@ class HDF5TreeModel(QStandardItemModel):
                         icon_set = False
 
                         # Try to use image thumbnail for known image formats
-                        image_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tif', '.tiff', '.webp', '.ico')
+                        image_extensions = (
+                            ".png",
+                            ".jpg",
+                            ".jpeg",
+                            ".gif",
+                            ".bmp",
+                            ".tif",
+                            ".tiff",
+                            ".webp",
+                            ".ico",
+                        )
                         if name.lower().endswith(image_extensions):
                             img_icon = self._create_image_thumbnail_icon(obj, has_attrs)
                             if img_icon:

@@ -1,5 +1,16 @@
-
-from qtpy.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QLineEdit, QPushButton, QDialogButtonBox, QScrollArea, QWidget, QFrame
+from qtpy.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QComboBox,
+    QLineEdit,
+    QPushButton,
+    QDialogButtonBox,
+    QScrollArea,
+    QWidget,
+    QFrame,
+)
 
 
 class ColumnFilterDialog(QDialog):
@@ -133,4 +144,3 @@ class ColumnFilterDialog(QDialog):
         """
         for col_name, operator, value in filters:
             self._add_filter_row(col_name, operator, value)
-

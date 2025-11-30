@@ -160,9 +160,9 @@ def ranges_to_indices(ranges: list[str | int]) -> np.ndarray:
 
     indices = []
     for item in ranges:
-        if isinstance(item, str) and '-' in item:
+        if isinstance(item, str) and "-" in item:
             # Parse range string
-            start_str, end_str = item.split('-', 1)
+            start_str, end_str = item.split("-", 1)
             start = int(start_str)
             end = int(end_str)
             indices.extend(range(start, end + 1))
@@ -308,4 +308,3 @@ def _bytes_to_text(
             note = "Preview truncated"
         suffix = " (decompressed)" if decompressed else ""
         return grouped, ((note or "binary data shown as hex") + suffix)
-

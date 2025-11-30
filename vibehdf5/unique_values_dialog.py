@@ -1,5 +1,12 @@
-
-from qtpy.QtWidgets import QDialog, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QAbstractItemView, QDialogButtonBox
+from qtpy.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QLabel,
+    QTableWidget,
+    QTableWidgetItem,
+    QAbstractItemView,
+    QDialogButtonBox,
+)
 
 
 class UniqueValuesDialog(QDialog):
@@ -20,7 +27,9 @@ class UniqueValuesDialog(QDialog):
         layout = QVBoxLayout(self)
 
         # Info label
-        info_label = QLabel(f"Unique values in column '{column_name}' ({len(unique_values)} unique):")
+        info_label = QLabel(
+            f"Unique values in column '{column_name}' ({len(unique_values)} unique):"
+        )
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
 
