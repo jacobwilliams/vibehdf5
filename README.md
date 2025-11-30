@@ -500,6 +500,7 @@ Built with:
 - [PySide6](https://wiki.qt.io/Qt_for_Python) - Python bindings for Qt
 - [NumPy](https://numpy.org/) - Numerical computing library
 - [Pandas](https://pandas.pydata.org) - Data analysis and manipulation tool
+- [Pyqtgraph](https://www.pyqtgraph.org) - Scientific Graphics and GUI Library for Python
 
 ## Similar projects
 
