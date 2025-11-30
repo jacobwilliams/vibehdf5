@@ -35,7 +35,7 @@ class PlotOptionsDialog(QDialog):
         ("contourf", "Filled Contour Plot"),
     ]
 
-    def __init__(self, plot_config, column_names, parent=None):
+    def __init__(self, plot_config: dict, column_names: list[str], parent=None):
         """Initialize the plot options dialog.
 
         Args:
@@ -343,7 +343,7 @@ class PlotOptionsDialog(QDialog):
         export_layout.addLayout(export_format_layout)
 
         export_layout.addStretch()
-        self.tabs.addTab(export_tab, "Figure & Export")
+        self.tabs.addTab(export_tab, "Exporting")
 
         # Tab 3: Fonts
         fonts_tab = QWidget()
@@ -422,7 +422,8 @@ class PlotOptionsDialog(QDialog):
         self._series_tab = None
         self._reflines_tab = None
 
-        def add_contour_tab():
+        def add_contour_tab() -> None:
+            """Add the Contour tab for contourf plot options (colormap, colorbar label, preview)."""
             contour_tab = QWidget()
             contour_layout = QVBoxLayout(contour_tab)
             contour_layout.addWidget(QLabel("Colormap (cmap):"))
@@ -470,7 +471,8 @@ class PlotOptionsDialog(QDialog):
             contour_layout.addLayout(cmap_label_layout)
 
 
-            def update_colorbar():
+            def update_colorbar() -> None:
+                """Update the colorbar preview in the Contour tab based on selected colormap and label."""
                 cmap_name = self.cmap_combo.currentText()
                 self.cmap_colorbar_fig.clear()
                 ax = self.cmap_colorbar_fig.add_subplot(111)
@@ -495,7 +497,8 @@ class PlotOptionsDialog(QDialog):
         # Always define refline_widgets to avoid AttributeError
         self.refline_widgets = []
 
-        def add_series_and_reflines_tabs():
+        def add_series_and_reflines_tabs() -> None:
+            """Add the Series Styles and Reference Lines tabs for line/bar plots."""
             # Series Styles Tab
             series_tab = QWidget()
             series_layout = QVBoxLayout(series_tab)
@@ -583,7 +586,8 @@ class PlotOptionsDialog(QDialog):
             add_series_and_reflines_tabs()
 
         # Handle dynamic tab switching on plot type change
-        def on_type_changed(_):
+        def on_type_changed(_: int) -> None:
+            """Handle plot type change and switch dynamic tabs accordingly."""
             plot_type = self.type_combo.currentData()
             # Remove all dynamic tabs
             for tab in [self._contour_tab, self._series_tab, self._reflines_tab]:
@@ -676,7 +680,7 @@ class PlotOptionsDialog(QDialog):
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
-    def _create_series_widget(self, series_name, series_idx, series_options):
+    def _create_series_widget(self, series_name: str, series_idx: int, series_options: dict) -> QFrame:
         """Create a widget for configuring one series.
 
         Args:
@@ -734,7 +738,8 @@ class PlotOptionsDialog(QDialog):
         color_button._color = qcolor
 
         # Connect to color picker dialog
-        def pick_color():
+        def pick_color() -> None:
+            """Open a color picker dialog to select a color for a data series."""
             color = QColorDialog.getColor(color_button._color, self, "Select Color")
             if color.isValid():
                 color_button._color = color
@@ -885,16 +890,20 @@ class PlotOptionsDialog(QDialog):
 
         return widget
 
-    def _add_refline_widget(self, line_type, value=None, color=None, linestyle=None, linewidth=None, label=None):
-        """Add a reference line configuration widget.
+    def _add_refline_widget(self, line_type: str, value: float = None, color: str = None, linestyle: str = None, linewidth: float = None, label: str = None) -> QFrame:
+        """
+        Add a reference line configuration widget.
 
         Args:
-            line_type: "horizontal" or "vertical"
-            value: Position value (y for horizontal, x for vertical)
-            color: Line color (hex string or None for default)
-            linestyle: Line style string (default: "solid")
-            linewidth: Line width float (default: 1.5)
-            label: Optional label for the line
+            line_type (str): "horizontal" or "vertical".
+            value (float, optional): Position value (y for horizontal, x for vertical).
+            color (str, optional): Line color (hex string or None for default).
+            linestyle (str, optional): Line style string (default: "solid").
+            linewidth (float, optional): Line width (default: 1.5).
+            label (str, optional): Optional label for the line.
+
+        Returns:
+            QFrame: The reference line configuration widget.
         """
         widget = QFrame()
         widget.setFrameStyle(QFrame.Panel | QFrame.Raised)
@@ -939,7 +948,8 @@ class PlotOptionsDialog(QDialog):
         color_button._color = initial_color
         color_button.setStyleSheet(f"background-color: {initial_color.name()};")
 
-        def choose_color():
+        def choose_color() -> None:
+            """Open a color picker dialog to select a color for a reference line."""
             color = QColorDialog.getColor(color_button._color, self, "Choose Reference Line Color")
             if color.isValid():
                 color_button._color = color
@@ -1001,7 +1011,7 @@ class PlotOptionsDialog(QDialog):
 
         return widget
 
-    def _remove_refline_widget(self, widget):
+    def _remove_refline_widget(self, widget: QFrame) -> None:
         """Remove a reference line widget.
 
         Args:
@@ -1012,7 +1022,7 @@ class PlotOptionsDialog(QDialog):
             self.reflines_layout.removeWidget(widget)
             widget.deleteLater()
 
-    def _get_filter_status_text(self):
+    def _get_filter_status_text(self) -> str:
         """Get status text for filters."""
         if not self.csv_filters:
             return "No filters applied"
@@ -1020,7 +1030,7 @@ class PlotOptionsDialog(QDialog):
             f"{col} {op} {val}" for col, op, val in self.csv_filters[:3]
         ) + ("..." if len(self.csv_filters) > 3 else "")
 
-    def _get_sort_status_text(self):
+    def _get_sort_status_text(self) -> str:
         """Get status text for sort."""
         if not self.csv_sort:
             return "No sorting applied"
@@ -1028,7 +1038,7 @@ class PlotOptionsDialog(QDialog):
             f"{col} ({order})" for col, order in self.csv_sort[:3]
         ) + ("..." if len(self.csv_sort) > 3 else "")
 
-    def _edit_filters(self):
+    def _edit_filters(self) -> None:
         """Open the filter configuration dialog."""
         dialog = ColumnFilterDialog(self.column_names, self)
         dialog.set_filters(self.csv_filters)
@@ -1037,12 +1047,12 @@ class PlotOptionsDialog(QDialog):
             self.csv_filters = dialog.get_filters()
             self.filter_status_label.setText(self._get_filter_status_text())
 
-    def _clear_filters(self):
+    def _clear_filters(self) -> None:
         """Clear all filters."""
         self.csv_filters = []
         self.filter_status_label.setText(self._get_filter_status_text())
 
-    def _edit_sort(self):
+    def _edit_sort(self) -> None:
         """Open the sort configuration dialog."""
         dialog = ColumnSortDialog(self.column_names, self)
         dialog.set_sort_specs(self.csv_sort)
@@ -1051,12 +1061,12 @@ class PlotOptionsDialog(QDialog):
             self.csv_sort = dialog.get_sort_specs()
             self.sort_status_label.setText(self._get_sort_status_text())
 
-    def _clear_sort(self):
+    def _clear_sort(self) -> None:
         """Clear all sorting."""
         self.csv_sort = []
         self.sort_status_label.setText(self._get_sort_status_text())
 
-    def get_plot_config(self):
+    def get_plot_config(self) -> dict:
         """Return updated plot configuration."""
         # Update name
         self.plot_config["name"] = self.name_edit.text()
@@ -1077,7 +1087,8 @@ class PlotOptionsDialog(QDialog):
         plot_opts["dark_background"] = self.dark_background_checkbox.isChecked()
 
         # Save axis limits (convert to float or None)
-        def parse_limit(text):
+        def parse_limit(text: str) -> float | None:
+            """Parse a text field as a float for axis limits, or return None if invalid/empty."""
             text = text.strip()
             if not text:
                 return None
