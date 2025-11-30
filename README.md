@@ -19,7 +19,7 @@
   <a href="https://github.com/jacobwilliams/vibehdf5/actions"><img src="https://github.com/jacobwilliams/vibehdf5/actions/workflows/publish.yml/badge.svg" alt="GitHub CI Status"></a>
 </p>
 
-A powerful, lightweight GUI application for browsing, managing, and visualizing HDF5 file structures. Built with PySide6, it provides an intuitive tree-based interface for exploring groups, datasets, and attributes, with advanced features for content management and data preview.
+[VibeHDF5](https://github.com/jacobwilliams/vibehdf5) is a powerful, lightweight GUI application for browsing, managing, and visualizing HDF5 file structures. Built with PySide6, it provides an intuitive tree-based interface for exploring groups, datasets, and attributes, with advanced features for content management and data preview.
 
 ## Features
 
