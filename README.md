@@ -496,6 +496,7 @@ For detailed instructions, customization options, and troubleshooting, see [BUIL
 ## Acknowledgments
 
 Built with:
+- [HDF5](https://www.hdfgroup.org/solutions/hdf5/) - High-performance data management and storage suite
 - [h5py](https://www.h5py.org/) - Pythonic interface to HDF5
 - [PySide6](https://wiki.qt.io/Qt_for_Python) - Python bindings for Qt
 - [NumPy](https://numpy.org/) - Numerical computing library
@@ -508,6 +509,7 @@ Built with:
 * [hdf5view](https://github.com/tgwoodcock/hdf5view/)
 * [hdf5-viewer](https://github.com/loenard97/hdf5-viewer)
 * [argos](https://github.com/titusjan/argos)
+* [myHDF5](https://myhdf5.hdfgroup.org) -- online HDF5 file explorer
 
 ## Other links
 
