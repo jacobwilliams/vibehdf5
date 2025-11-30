@@ -1,3 +1,4 @@
+"""VibeHDF5 main entry point."""
 
 import os
 import sys

@@ -5,13 +5,20 @@ from qtpy.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
 class ColumnFilterDialog(QDialog):
     """Dialog for configuring column filters."""
 
-    def __init__(self, column_names, parent=None):
+    def __init__(self, column_names: list[str], parent=None):
+        """Initialize the column filter dialog.
+
+        Args:
+            column_names: List of available column names to filter on.
+            parent: Optional parent widget.
+        """
         super().__init__(parent)
         self.setWindowTitle("Configure Column Filters")
         self.resize(600, 400)
 
         self.column_names = column_names
-        self.filters = []  # List of (column_name, operator, value) tuples
+        self.filters = []
+        """List of (column_name, operator, value) tuples"""
 
         layout = QVBoxLayout(self)
 

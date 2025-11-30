@@ -17,6 +17,11 @@ class SyntaxHighlighter(QSyntaxHighlighter):
     """Base syntax highlighter with extensible pattern-based highlighting."""
 
     def __init__(self, document, language: str = "plain"):
+        """Initialize the syntax highlighter.
+        Args:
+            document: QTextDocument to apply highlighting to.
+            language: Programming language for syntax rules (default: "plain").
+        """
         super().__init__(document)
         self.language = language
         self.highlighting_rules = []
@@ -113,8 +118,12 @@ class SyntaxHighlighter(QSyntaxHighlighter):
                 pattern.optimize()  # Optimize pattern for better performance
                 self.highlighting_rules.append((pattern, self.comment_format))
 
-    def highlightBlock(self, text):
-        """Apply syntax highlighting to a block of text."""
+    def highlightBlock(self, text: str):
+        """Apply syntax highlighting to a block of text.
+
+        Args:
+            text: The text block to apply syntax highlighting to.
+        """
         for pattern, text_format in self.highlighting_rules:
             match_iterator = pattern.globalMatch(text)
             while match_iterator.hasNext():

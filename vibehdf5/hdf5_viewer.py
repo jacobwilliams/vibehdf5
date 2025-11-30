@@ -54,7 +54,7 @@ from qtpy.QtWidgets import (
 
 from .hdf5_tree_model import HDF5TreeModel
 from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
-from .utilities import excluded_dirs, excluded_files, _indices_to_ranges, _ranges_to_indices, _sanitize_hdf5_name, _dataset_to_text
+from .utilities import excluded_dirs, excluded_files, indices_to_ranges, ranges_to_indices, sanitize_hdf5_name, dataset_to_text
 from .csv_table_model import CSVTableModel
 from .draggable_plot_list_widget import DraggablePlotListWidget
 from .scaled_image_label import ScaledImageLabel
@@ -1545,7 +1545,7 @@ class HDF5Viewer(QMainWindow):
             return
 
         # Sanitize the folder name
-        folder_name = _sanitize_hdf5_name(folder_name)
+        folder_name = sanitize_hdf5_name(folder_name)
         if not folder_name:
             QMessageBox.warning(self, "Invalid Name", "Folder name cannot be empty.")
             return
@@ -1892,7 +1892,7 @@ class HDF5Viewer(QMainWindow):
             col_data = df[col]
 
             # Clean column name for use as dataset name
-            base = _sanitize_hdf5_name(str(col))
+            base = sanitize_hdf5_name(str(col))
             ds_name = base if base else "unnamed_column"
             # Ensure uniqueness within the group
             if ds_name in used_names:
@@ -3622,7 +3622,7 @@ class HDF5Viewer(QMainWindow):
                     self._hide_attributes()
                     return
                 ds = obj
-                text, note = _dataset_to_text(ds, limit_bytes=1_000_000)
+                text, note = dataset_to_text(ds, limit_bytes=1_000_000)
                 if note:
                     note = note.strip('()')  # Remove parentheses from note
                     # add the note after the file name:
@@ -3890,7 +3890,7 @@ class HDF5Viewer(QMainWindow):
                     ds_key = col_ds_names[idx]
                 else:
                     # Try sanitized version of the column name
-                    cand = _sanitize_hdf5_name(str(col_name))
+                    cand = sanitize_hdf5_name(str(col_name))
                     if cand in grp:
                         ds_key = cand
                     elif col_name in grp:
@@ -4395,7 +4395,7 @@ class HDF5Viewer(QMainWindow):
                         if ds_names is not None:
                             key = ds_names[i]
                         else:
-                            cand = _sanitize_hdf5_name(name)
+                            cand = sanitize_hdf5_name(name)
                             key = cand if cand in grp else (name if name in grp else None)
                         if key is not None:
                             mapping[name] = key
@@ -4404,7 +4404,7 @@ class HDF5Viewer(QMainWindow):
                     ds_key = mapping.get(name)
                     if ds_key is None:
                         # Fallback to direct/sanitized key lookup
-                        cand = _sanitize_hdf5_name(name)
+                        cand = sanitize_hdf5_name(name)
                         if cand in grp:
                             ds_key = cand
                         elif name in grp:
@@ -4572,7 +4572,7 @@ class HDF5Viewer(QMainWindow):
             "column_names": headers,
             "x_col_idx": x_idx,
             "y_col_idxs": y_idxs,
-            "filtered_indices": _indices_to_ranges(self._csv_filtered_indices) if self._csv_filtered_indices is not None else None,
+            "filtered_indices": indices_to_ranges(self._csv_filtered_indices) if self._csv_filtered_indices is not None else None,
             "start_row": int(self._csv_filtered_indices[0]) if self._csv_filtered_indices is not None and len(self._csv_filtered_indices) > 0 else 0,
             "end_row": int(self._csv_filtered_indices[-1]) if self._csv_filtered_indices is not None and len(self._csv_filtered_indices) > 0 else 0,
             "csv_filters": self._csv_filters.copy() if self._csv_filters else [],
@@ -4968,7 +4968,7 @@ class HDF5Viewer(QMainWindow):
         # Store the complete filtered indices array to properly handle non-contiguous filtering
         if self._csv_filtered_indices is not None and len(self._csv_filtered_indices) > 0:
             # Store as compact range format for space efficiency
-            filtered_indices = _indices_to_ranges(self._csv_filtered_indices)
+            filtered_indices = indices_to_ranges(self._csv_filtered_indices)
             start_row = int(self._csv_filtered_indices[0])
             end_row = int(self._csv_filtered_indices[-1])
         else:
@@ -5270,7 +5270,7 @@ class HDF5Viewer(QMainWindow):
         if filtered_indices_raw is not None and len(filtered_indices_raw) > 0:
             # Check if it's in the new compact format (contains strings or is a mixed list)
             if any(isinstance(x, str) for x in filtered_indices_raw):
-                filtered_indices = _ranges_to_indices(filtered_indices_raw)
+                filtered_indices = ranges_to_indices(filtered_indices_raw)
             else:
                 filtered_indices = np.array(filtered_indices_raw, dtype=np.int64)
         else:
@@ -5695,7 +5695,7 @@ class HDF5Viewer(QMainWindow):
             self._csv_data_dict, csv_filters, csv_sort)
         # Update plot config with new filtered indices
         if len(filtered_indices) > 0:
-            plot_config["filtered_indices"] = _indices_to_ranges(filtered_indices)
+            plot_config["filtered_indices"] = indices_to_ranges(filtered_indices)
             plot_config["start_row"] = start_row
             plot_config["end_row"] = end_row
         else:

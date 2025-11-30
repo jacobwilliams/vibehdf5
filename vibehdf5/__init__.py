@@ -1,5 +1,9 @@
 """
-VibeHDF5 package initialization.
+VibeHDF5 main package.
+
+.. include:: ../README.md
+   :start-line: 1
+
 """
 
 __version__ = "2.1.1"

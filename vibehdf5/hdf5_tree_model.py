@@ -21,14 +21,16 @@ class HDF5TreeModel(QStandardItemModel):
     """
 
     COL_NAME = 0
+    """First column is the name of the dataset/group/attribute"""
     COL_INFO = 1
-
+    """Second column shows some info about the dataset/group/attribute"""
     ROLE_PATH = Qt.UserRole + 1
     ROLE_KIND = Qt.UserRole + 2  # 'file', 'group', 'dataset', 'attr', 'attrs-folder'
     ROLE_ATTR_KEY = Qt.UserRole + 3
     ROLE_CSV_EXPANDED = Qt.UserRole + 4  # True if CSV group's internal structure is shown
 
     def __init__(self, parent=None):
+        """Initialize tree model."""
         super().__init__(parent)
         self.setHorizontalHeaderLabels(["Name", "Info"])
         self._style = QApplication.instance().style() if QApplication.instance() else None
@@ -289,6 +291,7 @@ class HDF5TreeModel(QStandardItemModel):
 
     @property
     def filepath(self) -> str | None:
+        """Get the currently loaded HDF5 file path."""
         return self._filepath
 
     def set_csv_filtered_indices(self, csv_group_path: str, indices: np.ndarray | None) -> None:
@@ -541,7 +544,7 @@ class HDF5TreeModel(QStandardItemModel):
                 self._extract_group_to_folder(obj, subfolder_path)
 
     @staticmethod
-    def _sanitize_hdf5_name(name: str) -> str:
+    def sanitize_hdf5_name(name: str) -> str:
         try:
             s = (name or "").strip()
             s = s.replace("/", "_")
@@ -629,7 +632,7 @@ class HDF5TreeModel(QStandardItemModel):
                     key = col_ds_names[idx]
                 else:
                     # Try sanitized version of the column
-                    key = self._sanitize_hdf5_name(col)
+                    key = self.sanitize_hdf5_name(col)
                     if key not in group and col in group:
                         key = col
                 if key not in group:

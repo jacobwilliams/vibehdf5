@@ -35,17 +35,19 @@ jobs:
           cache: true
           manifest-path: env/pixi.toml
 
-      - name: Compile and Build documentation
+      - name: Compile
         run: |
           pixi run --manifest-path ./env/pixi.toml hatch build
           pixi run --manifest-path ./env/pixi.toml ./run_tests.sh
-          cd docs
-          pixi run --manifest-path ../env/pixi.toml make html
+
+      - name: Build documentation
+        run: |
+          pixi run --manifest-path ../env/pixi.toml ./build_pdoc.sh
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/_build/html
+          path: html
 
   deploy:
     environment:

@@ -1,3 +1,7 @@
+"""
+Utilities for working with HDF5 files in VibeHDF5.
+"""
+
 import os
 import h5py
 import fnmatch
@@ -22,7 +26,18 @@ def archive_to_hdf5(
     file_pattern: Union[str, list[str]] = "*.*",
     verbose: bool = False,
 ):
-    """Archive all files in a directory (and subdirectories) matching a file pattern into an hdf5 file."""
+    """Archive all files in a directory (and subdirectories) matching a file pattern into an hdf5 file.
+
+    Args:
+        directory: Path to the directory to archive.
+        hdf5_filename: Path to the output HDF5 file.
+        file_pattern: A glob pattern or list of patterns to match files (default: "*.*").
+        verbose: If True, print the names of files being archived.
+
+    Warning:
+        This is an old function, and may not properly add the data in the same
+        way as the main GUI. Use with caution.
+    """
 
     if not isinstance(file_pattern, list):
         file_pattern = [file_pattern]
@@ -62,7 +77,10 @@ def archive_to_hdf5(
 
 
 def print_file_structure_in_hdf5(hdf5_filename: str):
-    """print the file structure stored in an hdf5 file"""
+    """print the file structure stored in an hdf5 file
+    Args:
+        hdf5_filename: Path to the HDF5 file.
+    """
 
     fin = h5py.File(hdf5_filename, "r")
 
@@ -74,7 +92,7 @@ def print_file_structure_in_hdf5(hdf5_filename: str):
     fin.close()
 
 
-def _indices_to_ranges(indices: list[int] | np.ndarray) -> list[str | int]:
+def indices_to_ranges(indices: list[int] | np.ndarray) -> list[str | int]:
     """Convert a list of indices to a compact range representation.
 
     Consecutive indices are represented as 'start-end' strings, while
@@ -123,7 +141,7 @@ def _indices_to_ranges(indices: list[int] | np.ndarray) -> list[str | int]:
     return result
 
 
-def _ranges_to_indices(ranges: list[str | int]) -> np.ndarray:
+def ranges_to_indices(ranges: list[str | int]) -> np.ndarray:
     """Convert a compact range representation back to a list of indices.
 
     Args:
@@ -154,8 +172,8 @@ def _ranges_to_indices(ranges: list[str | int]) -> np.ndarray:
 
     return np.array(indices, dtype=np.int64)
 
-# Helpers (placed before main/class so they are defined at runtime)
-def _sanitize_hdf5_name(name: str) -> str:
+
+def sanitize_hdf5_name(name: str) -> str:
     """Sanitize a name for use as an HDF5 dataset/group member.
 
     - replaces '/' with '_' (since '/' is the HDF5 path separator)
@@ -170,7 +188,7 @@ def _sanitize_hdf5_name(name: str) -> str:
         return "unnamed"
 
 
-def _dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]:
+def dataset_to_text(ds, limit_bytes: int = 1_000_000) -> tuple[str, str | None]:
     """Read an h5py dataset and return a text representation and an optional note.
 
     - If content exceeds limit_bytes, the output is truncated with a note.

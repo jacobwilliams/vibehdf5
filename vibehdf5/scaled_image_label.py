@@ -2,6 +2,7 @@ from qtpy.QtWidgets import QLabel
 
 
 class ScaledImageLabel(QLabel):
+    """A QLabel that triggers a callback on resize events to rescale its contents."""
     def __init__(self, parent=None, rescale_callback=None):
         """Initialize the resizable label.
 

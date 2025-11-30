@@ -52,8 +52,7 @@ dev = [
     "ruff>=0.1.0",
 ]
 docs = [
-    "sphinx>=8.2.3,<9",
-    "sphinx-rtd-theme>=3.0.2,<4",
+    "pdoc>=16.0.0",
 ]
 build = [
     "pyinstaller>=6.0.0",

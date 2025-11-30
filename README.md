@@ -120,7 +120,7 @@ pixi add pyside6 vibehdf5
 Full documentation is available online at:
 - **GitHub Pages**: https://jacobwilliams.github.io/vibehdf5/
 
-To build the documentation locally (using Sphinx) use `make html` in the `docs/` directory.
+To build the documentation locally (using pdoc) use the `build_pdoc.sh` script.
 
 ### From Source
 
