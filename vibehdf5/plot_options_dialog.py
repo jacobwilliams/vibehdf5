@@ -1,4 +1,7 @@
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+import matplotlib as mpl
 
 from qtpy.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox, QComboBox, QTabWidget, QWidget, QScrollArea, QFrame, QDoubleSpinBox, QSpinBox, QPushButton, QDialogButtonBox, QColorDialog
 from qtpy.QtGui import QColor, QDoubleValidator
@@ -27,6 +30,10 @@ class PlotOptionsDialog(QDialog):
         "X",
         "Point",
     ]
+    PLOT_TYPES = [
+        ("line", "Line Plot"),
+        ("contourf", "Filled Contour Plot"),
+    ]
 
     def __init__(self, plot_config, column_names, parent=None):
         """Initialize the plot options dialog.
@@ -46,12 +53,27 @@ class PlotOptionsDialog(QDialog):
         layout = QVBoxLayout(self)
 
         # Create tab widget for different option categories
-        tabs = QTabWidget()
-        layout.addWidget(tabs)
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
 
         # Tab 1: General options
         general_tab = QWidget()
         general_layout = QVBoxLayout(general_tab)
+
+        # Plot type selection
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("Plot Type:"))
+        self.type_combo = QComboBox()
+        for type_val, type_name in self.PLOT_TYPES:
+            self.type_combo.addItem(type_name, type_val)
+        # Set current value from config
+        current_type = self.plot_config.get("plot_options", {}).get("type", "line")
+        idx = self.type_combo.findData(current_type)
+        if idx >= 0:
+            self.type_combo.setCurrentIndex(idx)
+        type_layout.addWidget(self.type_combo)
+        type_layout.addStretch()
+        general_layout.addLayout(type_layout)
 
         # Plot name
         name_layout = QHBoxLayout()
@@ -256,7 +278,7 @@ class PlotOptionsDialog(QDialog):
         general_layout.addLayout(datetime_layout)
 
         general_layout.addStretch()
-        tabs.addTab(general_tab, "General")
+        self.tabs.addTab(general_tab, "General")
 
         # Tab 2: Figure Size & Export
         export_tab = QWidget()
@@ -321,7 +343,7 @@ class PlotOptionsDialog(QDialog):
         export_layout.addLayout(export_format_layout)
 
         export_layout.addStretch()
-        tabs.addTab(export_tab, "Figure & Export")
+        self.tabs.addTab(export_tab, "Figure & Export")
 
         # Tab 3: Fonts
         fonts_tab = QWidget()
@@ -393,98 +415,192 @@ class PlotOptionsDialog(QDialog):
         fonts_layout.addLayout(font_family_layout)
 
         fonts_layout.addStretch()
-        tabs.addTab(fonts_tab, "Fonts")
+        self.tabs.addTab(fonts_tab, "Fonts")
 
-        # Tab 4: Series styles
-        series_tab = QWidget()
-        series_layout = QVBoxLayout(series_tab)
+        # Store tab references for dynamic switching
+        self._contour_tab = None
+        self._series_tab = None
+        self._reflines_tab = None
 
-        series_label = QLabel("Configure line style for each data series:")
-        series_label.setStyleSheet("font-weight: bold;")
-        series_layout.addWidget(series_label)
+        def add_contour_tab():
+            contour_tab = QWidget()
+            contour_layout = QVBoxLayout(contour_tab)
+            contour_layout.addWidget(QLabel("Colormap (cmap):"))
+            self.cmap_combo = QComboBox()
+            # see https://matplotlib.org/stable/users/explain/colors/colormaps.html
+            cmaps = [
+                "viridis", "plasma", "inferno", "magma", "cividis",
+                "Greys", "Purples", "Blues", "Greens", "Oranges", "Reds",
+                "YlOrBr", "YlOrRd", "OrRd", "PuRd", "RdPu", "BuPu", "GnBu", "PuBu", "YlGnBu", "PuBuGn", "YlGn",
+                'binary', 'gist_yarg', 'gist_gray', 'gray', 'bone',
+                'pink', 'spring', 'summer', 'autumn', 'winter', 'cool',
+                'Wistia', 'hot', 'afmhot', 'gist_heat', 'copper',
+                'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdGy', 'RdBu', 'RdYlBu',
+                'RdYlGn', 'Spectral', 'coolwarm', 'bwr', 'seismic',
+                'berlin', 'managua', 'vanimo',
+                'twilight', 'twilight_shifted', 'hsv',
+                'Pastel1', 'Pastel2', 'Paired', 'Accent', 'Dark2',
+                'Set1', 'Set2', 'Set3', 'tab10', 'tab20', 'tab20b',
+                'tab20c',
+                'flag', 'prism', 'ocean', 'gist_earth', 'terrain',
+                'gist_stern', 'gnuplot', 'gnuplot2', 'CMRmap',
+                'cubehelix', 'brg', 'gist_rainbow', 'rainbow', 'jet',
+                'turbo', 'nipy_spectral', 'gist_ncar'
+            ]
+            self.cmap_combo.addItems(cmaps)
+            current_cmap = self.plot_config.get("plot_options", {}).get("cmap", "Blues")
+            idx = self.cmap_combo.findText(current_cmap)
+            if idx >= 0:
+                self.cmap_combo.setCurrentIndex(idx)
+            contour_layout.addWidget(self.cmap_combo)
 
-        # Scroll area for series
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.StyledPanel)
+            # Add colorbar preview
+            self.cmap_colorbar_fig = Figure(figsize=(3, 0.4), dpi=100)
+            self.cmap_colorbar_canvas = FigureCanvas(self.cmap_colorbar_fig)
+            contour_layout.addWidget(self.cmap_colorbar_canvas)
 
-        series_container = QWidget()
-        self.series_layout = QVBoxLayout(series_container)
-        self.series_layout.setContentsMargins(5, 5, 5, 5)
+            # Add cmap label field
+            cmap_label_layout = QHBoxLayout()
+            cmap_label_layout.addWidget(QLabel("Colorbar Label:"))
+            self.cmap_label_edit = QLineEdit()
+            self.cmap_label_edit.setPlaceholderText("Label for colorbar (e.g. Z series name)")
+            current_label = self.plot_config.get("plot_options", {}).get("cmap_label", "")
+            self.cmap_label_edit.setText(current_label)
+            cmap_label_layout.addWidget(self.cmap_label_edit)
+            contour_layout.addLayout(cmap_label_layout)
 
-        # Get Y column indices and names
-        y_idxs = self.plot_config.get("y_col_idxs", [])
-        # Ensure y_idxs is a list (handle legacy configs where it might be an integer)
-        if isinstance(y_idxs, int):
-            y_idxs = [y_idxs]
-        series_options = self.plot_config.get("plot_options", {}).get("series", {})
 
-        self.series_widgets = []
-        for idx, y_idx in enumerate(y_idxs):
-            if y_idx < len(column_names):
-                y_name = column_names[y_idx]
-                series_widget = self._create_series_widget(
-                    y_name, idx, series_options.get(y_name, {})
-                )
-                self.series_layout.addWidget(series_widget)
-                self.series_widgets.append((y_name, series_widget))
+            def update_colorbar():
+                cmap_name = self.cmap_combo.currentText()
+                self.cmap_colorbar_fig.clear()
+                ax = self.cmap_colorbar_fig.add_subplot(111)
+                norm = mpl.colors.Normalize(vmin=0, vmax=1)
+                cb = mpl.colorbar.ColorbarBase(ax, cmap=mpl.colormaps[cmap_name], norm=norm, orientation='horizontal')
+                ax.set_xticks([])
+                ax.set_yticks([])
+                # Use label from field
+                label = self.cmap_label_edit.text()
+                cb.set_label(label, fontsize=9)
+                ax.set_title(cmap_name, fontsize=8)
+                self.cmap_colorbar_canvas.draw()
 
-        self.series_layout.addStretch()
-        scroll.setWidget(series_container)
-        series_layout.addWidget(scroll)
+            self.cmap_combo.currentIndexChanged.connect(update_colorbar)
+            self.cmap_label_edit.textChanged.connect(update_colorbar)
+            update_colorbar()  # Initial draw
 
-        tabs.addTab(series_tab, "Series Styles")
+            contour_layout.addStretch()
+            self._contour_tab = contour_tab
+            self.tabs.addTab(contour_tab, "Contour")
 
-        # Tab 3: Reference Lines
-        reflines_tab = QWidget()
-        reflines_layout = QVBoxLayout(reflines_tab)
-
-        reflines_label = QLabel("Add horizontal and vertical reference lines:")
-        reflines_label.setStyleSheet("font-weight: bold;")
-        reflines_layout.addWidget(reflines_label)
-
-        # Scroll area for reference lines
-        reflines_scroll = QScrollArea()
-        reflines_scroll.setWidgetResizable(True)
-        reflines_scroll.setFrameShape(QFrame.StyledPanel)
-
-        reflines_container = QWidget()
-        self.reflines_layout = QVBoxLayout(reflines_container)
-        self.reflines_layout.setContentsMargins(5, 5, 5, 5)
-
-        # Load existing reference lines
+        # Always define refline_widgets to avoid AttributeError
         self.refline_widgets = []
-        existing_reflines = self.plot_config.get("plot_options", {}).get("reference_lines", [])
-        for refline in existing_reflines:
-            self._add_refline_widget(
-                refline.get("type", "horizontal"),
-                refline.get("value", ""),
-                refline.get("color", "#FF0000"),
-                refline.get("linestyle", "--"),
-                refline.get("linewidth", 1.0),
-                refline.get("label", "")
-            )
 
-        self.reflines_layout.addStretch()
-        reflines_scroll.setWidget(reflines_container)
-        reflines_layout.addWidget(reflines_scroll)
+        def add_series_and_reflines_tabs():
+            # Series Styles Tab
+            series_tab = QWidget()
+            series_layout = QVBoxLayout(series_tab)
+            series_label = QLabel("Configure line style for each data series:")
+            series_label.setStyleSheet("font-weight: bold;")
+            series_layout.addWidget(series_label)
 
-        # Buttons to add reference lines
-        reflines_buttons = QHBoxLayout()
-        add_hline_btn = QPushButton("+ Add Horizontal Line")
-        add_hline_btn.setToolTip("Add a horizontal reference line at a specific Y value")
-        add_hline_btn.clicked.connect(lambda: self._add_refline_widget("horizontal"))
-        reflines_buttons.addWidget(add_hline_btn)
+            # Scroll area for series
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.StyledPanel)
+            series_container = QWidget()
+            self.series_layout = QVBoxLayout(series_container)
+            self.series_layout.setContentsMargins(5, 5, 5, 5)
 
-        add_vline_btn = QPushButton("+ Add Vertical Line")
-        add_vline_btn.setToolTip("Add a vertical reference line at a specific X value")
-        add_vline_btn.clicked.connect(lambda: self._add_refline_widget("vertical"))
-        reflines_buttons.addWidget(add_vline_btn)
+            # Get Y column indices and names
+            y_idxs = self.plot_config.get("y_col_idxs", [])
+            # Ensure y_idxs is a list (handle legacy configs where it might be an integer)
+            if isinstance(y_idxs, int):
+                y_idxs = [y_idxs]
+            series_options = self.plot_config.get("plot_options", {}).get("series", {})
+            self.series_widgets = []
+            for idx, y_idx in enumerate(y_idxs):
+                if y_idx < len(column_names):
+                    y_name = column_names[y_idx]
+                    series_widget = self._create_series_widget(
+                        y_name, idx, series_options.get(y_name, {})
+                    )
+                    self.series_layout.addWidget(series_widget)
+                    self.series_widgets.append((y_name, series_widget))
+            self.series_layout.addStretch()
+            scroll.setWidget(series_container)
+            series_layout.addWidget(scroll)
+            self._series_tab = series_tab
+            self.tabs.addTab(series_tab, "Series Styles")
 
-        reflines_buttons.addStretch()
-        reflines_layout.addLayout(reflines_buttons)
+            # Reference Lines Tab
+            reflines_tab = QWidget()
+            reflines_layout = QVBoxLayout(reflines_tab)
+            reflines_label = QLabel("Add horizontal and vertical reference lines:")
+            reflines_label.setStyleSheet("font-weight: bold;")
+            reflines_layout.addWidget(reflines_label)
+            # Scroll area for reference lines
+            reflines_scroll = QScrollArea()
+            reflines_scroll.setWidgetResizable(True)
+            reflines_scroll.setFrameShape(QFrame.StyledPanel)
+            reflines_container = QWidget()
+            self.reflines_layout = QVBoxLayout(reflines_container)
+            self.reflines_layout.setContentsMargins(5, 5, 5, 5)
+            # Load existing reference lines
+            self.refline_widgets = []
+            existing_reflines = self.plot_config.get("plot_options", {}).get("reference_lines", [])
+            for refline in existing_reflines:
+                self._add_refline_widget(
+                    refline.get("type", "horizontal"),
+                    refline.get("value", ""),
+                    refline.get("color", "#FF0000"),
+                    refline.get("linestyle", "--"),
+                    refline.get("linewidth", 1.0),
+                    refline.get("label", "")
+                )
+            self.reflines_layout.addStretch()
+            reflines_scroll.setWidget(reflines_container)
+            reflines_layout.addWidget(reflines_scroll)
+            # Buttons to add reference lines
+            reflines_buttons = QHBoxLayout()
+            add_hline_btn = QPushButton("+ Add Horizontal Line")
+            add_hline_btn.setToolTip("Add a horizontal reference line at a specific Y value")
+            add_hline_btn.clicked.connect(lambda: self._add_refline_widget("horizontal"))
+            reflines_buttons.addWidget(add_hline_btn)
+            add_vline_btn = QPushButton("+ Add Vertical Line")
+            add_vline_btn.setToolTip("Add a vertical reference line at a specific X value")
+            add_vline_btn.clicked.connect(lambda: self._add_refline_widget("vertical"))
+            reflines_buttons.addWidget(add_vline_btn)
+            reflines_buttons.addStretch()
+            reflines_layout.addLayout(reflines_buttons)
+            self._reflines_tab = reflines_tab
+            self.tabs.addTab(reflines_tab, "Reference Lines")
 
-        tabs.addTab(reflines_tab, "Reference Lines")
+        # Initial tab setup
+        plot_type = self.plot_config.get("plot_options", {}).get("type", "line")
+        if plot_type == "contourf":
+            add_contour_tab()
+        else:
+            add_series_and_reflines_tabs()
+
+        # Handle dynamic tab switching on plot type change
+        def on_type_changed(_):
+            plot_type = self.type_combo.currentData()
+            # Remove all dynamic tabs
+            for tab in [self._contour_tab, self._series_tab, self._reflines_tab]:
+                if tab is not None:
+                    idx = self.tabs.indexOf(tab)
+                    if idx != -1:
+                        self.tabs.removeTab(idx)
+            self._contour_tab = None
+            self._series_tab = None
+            self._reflines_tab = None
+            # Add appropriate tabs
+            if plot_type == "contourf":
+                add_contour_tab()
+            else:
+                add_series_and_reflines_tabs()
+
+        self.type_combo.currentIndexChanged.connect(on_type_changed)
 
         # Tab 6: Filters & Sort
         filters_sort_tab = QWidget()
@@ -552,7 +668,7 @@ class PlotOptionsDialog(QDialog):
         filters_sort_layout.addLayout(sort_buttons_layout)
 
         filters_sort_layout.addStretch()
-        tabs.addTab(filters_sort_tab, "Data")
+        self.tabs.addTab(filters_sort_tab, "Data")
 
         # Dialog buttons
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -950,6 +1066,8 @@ class PlotOptionsDialog(QDialog):
             self.plot_config["plot_options"] = {}
 
         plot_opts = self.plot_config["plot_options"]
+        # Save plot type
+        plot_opts["type"] = self.type_combo.currentData()
         plot_opts["title"] = self.title_edit.text()
         plot_opts["xlabel"] = self.xlabel_edit.text()
         plot_opts["ylabel"] = self.ylabel_edit.text()
@@ -1018,9 +1136,14 @@ class PlotOptionsDialog(QDialog):
                     pass
         plot_opts["reference_lines"] = ref_lines
 
+        # Save colormap and label if contourf is selected
+        if plot_opts["type"] == "contourf" and hasattr(self, "cmap_combo"):
+            plot_opts["cmap"] = self.cmap_combo.currentText()
+            plot_opts["cmap_label"] = self.cmap_label_edit.text()
+
         # Update series options
         series_opts = {}
-        for series_name, widget in self.series_widgets:
+        for series_name, widget in getattr(self, "series_widgets", []):
             series_opts[series_name] = {
                 "plot_type": widget._plot_type_combo.currentData(),
                 "label": widget._label_edit.text(),
