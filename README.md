@@ -464,7 +464,7 @@ ruff check vibehdf5/
 
 ### Building Package
 ```bash
-python -m build
+hatch build
 ```
 
 ### Building Standalone Executable [EXPERIMENTAL]
