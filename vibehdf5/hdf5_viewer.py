@@ -2259,13 +2259,6 @@ class HDF5Viewer(QMainWindow):
         <li>Interactive matplotlib plotting</li>
         </ul>
 
-        <p><b>Built with:</b></p>
-        <ul>
-        <li>PySide6 / PyQt6 (Qt for Python)</li>
-        <li>h5py (HDF5 for Python)</li>
-        <li>NumPy, Pandas, Matplotlib</li>
-        </ul>
-
         <p><b>Author:</b> Jacob Williams</p>
         <p><b>Repository:</b> <a href="https://github.com/jacobwilliams/vibehdf5">github.com/jacobwilliams/vibehdf5</a></p>
         <p><b>License:</b> MIT</p>
