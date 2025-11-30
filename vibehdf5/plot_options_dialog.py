@@ -447,6 +447,7 @@ class PlotOptionsDialog(QDialog):
 
         def add_contour_tab() -> None:
             """Add the Contour tab for contourf plot options (colormap, colorbar label, preview)."""
+
             contour_tab = QWidget()
             contour_layout = QVBoxLayout(contour_tab)
             contour_layout.addWidget(QLabel("Colormap (cmap):"))
@@ -551,6 +552,18 @@ class PlotOptionsDialog(QDialog):
             self.cmap_colorbar_canvas = FigureCanvas(self.cmap_colorbar_fig)
             contour_layout.addWidget(self.cmap_colorbar_canvas)
 
+            # Add levels setting
+            levels_layout = QHBoxLayout()
+            levels_layout.addWidget(QLabel("Levels:"))
+            self.levels_spin = QSpinBox()
+            self.levels_spin.setRange(1, 1000)
+            self.levels_spin.setValue(self.plot_config.get("plot_options", {}).get("levels", 20))
+            self.levels_spin.setToolTip("Number of contour levels (integer)")
+            self.levels_spin.setMinimumWidth(100)
+            levels_layout.addWidget(self.levels_spin)
+            levels_layout.addStretch()
+            contour_layout.addLayout(levels_layout)
+
             # Add cmap label field
             cmap_label_layout = QHBoxLayout()
             cmap_label_layout.addWidget(QLabel("Colorbar Label:"))
@@ -562,24 +575,39 @@ class PlotOptionsDialog(QDialog):
             contour_layout.addLayout(cmap_label_layout)
 
             def update_colorbar() -> None:
-                """Update the colorbar preview in the Contour tab based on selected colormap and label."""
+                """Update the colorbar preview in the Contour tab based on selected colormap, label, and levels."""
                 cmap_name = self.cmap_combo.currentText()
+                levels = self.levels_spin.value() if hasattr(self, "levels_spin") else 20
                 self.cmap_colorbar_fig.clear()
                 ax = self.cmap_colorbar_fig.add_subplot(111)
-                norm = mpl.colors.Normalize(vmin=0, vmax=1)
-                cb = mpl.colorbar.ColorbarBase(
-                    ax, cmap=mpl.colormaps[cmap_name], norm=norm, orientation="horizontal"
-                )
+                # Create a discrete colormap with the specified number of levels
+                cmap = mpl.colormaps[cmap_name]
+                if levels > 1:
+                    # Use ListedColormap for discrete colorbar
+                    import numpy as np
+                    colors = cmap(np.linspace(0, 1, levels))
+                    discrete_cmap = mpl.colors.ListedColormap(colors)
+                    bounds = np.linspace(0, 1, levels + 1)
+                    norm = mpl.colors.BoundaryNorm(bounds, discrete_cmap.N)
+                    cb = mpl.colorbar.ColorbarBase(
+                        ax, cmap=discrete_cmap, norm=norm, boundaries=bounds, orientation="horizontal"
+                    )
+                else:
+                    norm = mpl.colors.Normalize(vmin=0, vmax=1)
+                    cb = mpl.colorbar.ColorbarBase(
+                        ax, cmap=cmap, norm=norm, orientation="horizontal"
+                    )
                 ax.set_xticks([])
                 ax.set_yticks([])
                 # Use label from field
                 label = self.cmap_label_edit.text()
                 cb.set_label(label, fontsize=9)
-                ax.set_title(cmap_name, fontsize=8)
+                ax.set_title(f"{cmap_name} ({levels} levels)", fontsize=8)
                 self.cmap_colorbar_canvas.draw()
 
             self.cmap_combo.currentIndexChanged.connect(update_colorbar)
             self.cmap_label_edit.textChanged.connect(update_colorbar)
+            self.levels_spin.valueChanged.connect(update_colorbar)
             update_colorbar()  # Initial draw
 
             contour_layout.addStretch()
@@ -1263,10 +1291,11 @@ class PlotOptionsDialog(QDialog):
                     pass
         plot_opts["reference_lines"] = ref_lines
 
-        # Save colormap and label if contourf is selected
+        # Save colormap, label, and levels if contourf is selected
         if plot_opts["type"] == "contourf" and hasattr(self, "cmap_combo"):
             plot_opts["cmap"] = self.cmap_combo.currentText()
             plot_opts["cmap_label"] = self.cmap_label_edit.text()
+            plot_opts["levels"] = self.levels_spin.value()
 
         # Update series options
         series_opts = {}

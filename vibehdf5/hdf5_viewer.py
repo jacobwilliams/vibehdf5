@@ -4629,6 +4629,7 @@ class HDF5Viewer(QMainWindow):
         method: str = "linear",
         cmap: str = "Blues",
         cmap_label: str = "",
+        levels: int = 20,
     ) -> None:
         """
         Plot a filled contour plot (contourf) using three columns of data.
@@ -4642,6 +4643,7 @@ class HDF5Viewer(QMainWindow):
             method (str, optional): Interpolation method for griddata (e.g., 'linear', 'nearest', 'cubic'). Default is 'linear'.
             cmap (str, optional): Colormap to use for contourf. Default is 'Blues'.
             cmap_label (str, optional): Label for the colorbar. Default is ''.
+            levels (int, optional): Number of contour levels. Default is 20.
 
         Notes:
             - The function flattens and converts all input arrays to float.
@@ -4663,7 +4665,7 @@ class HDF5Viewer(QMainWindow):
         yi = np.linspace(np.nanmin(y), np.nanmax(y), grid_size)
         xi, yi = np.meshgrid(xi, yi)
         zi = griddata((x, y), z, (xi, yi), method=method)
-        cf = ax.contourf(xi, yi, zi, levels=20, cmap=cmap)
+        cf = ax.contourf(xi, yi, zi, levels=levels, cmap=cmap)
         cbar = self.plot_figure.colorbar(cf, ax=ax)
         self.cbar = cbar  # save it so we can adjust it later
         if cmap_label:
@@ -5559,8 +5561,10 @@ class HDF5Viewer(QMainWindow):
                 try:
                     cmap = plot_options.get("cmap", "Blues")
                     cmap_label = plot_options.get("cmap_label", "")
+                    levels = plot_options.get("levels", 20)
                     self.plot_contourf_from_data(
-                        col_data, x_name, y_names, ax, cmap=cmap, cmap_label=cmap_label
+                        col_data, x_name, y_names, ax,
+                        cmap=cmap, cmap_label=cmap_label, levels=levels
                     )
                 except Exception as exc:
                     QMessageBox.critical(self, "Plot Error", f"Failed to plot contourf: {exc}")
