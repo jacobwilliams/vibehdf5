@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vibehdf5"
-version = "2.1.0"
+version = "2.1.1"
 description = "A lightweight GUI to browse and interact with HDF5 file structures"
 authors = [
     {name = "Jacob Williams" }

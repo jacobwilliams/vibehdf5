@@ -146,8 +146,8 @@ if sys.platform == 'darwin':
         info_plist={
             'NSPrincipalClass': 'NSApplication',
             'NSHighResolutionCapable': 'True',
-            'CFBundleShortVersionString': '2.1.0',
-            'CFBundleVersion': '2.1.0',
+            'CFBundleShortVersionString': '2.1.1',
+            'CFBundleVersion': '2.1.1',
             'CFBundleName': 'vibehdf5',
             'CFBundleDisplayName': 'vibehdf5 - HDF5 Viewer',
             'CFBundleIdentifier': 'com.github.jacobwilliams.vibehdf5',
