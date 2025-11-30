@@ -42,7 +42,7 @@ jobs:
 
       - name: Build documentation
         run: |
-          pixi run --manifest-path ../env/pixi.toml ./build_pdoc.sh
+          pixi run --manifest-path ./env/pixi.toml ./build_pdoc.sh
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
