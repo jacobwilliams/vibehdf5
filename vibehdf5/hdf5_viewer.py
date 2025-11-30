@@ -19,7 +19,7 @@ from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToo
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.dates import AutoDateLocator, DateFormatter
 from matplotlib.figure import Figure
-from qtpy.QtCore import QSettings, QSize, Qt
+from qtpy.QtCore import QSettings, QSize, Qt, QModelIndex
 from qtpy.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QPixmap
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -3166,8 +3166,7 @@ class HDF5Viewer(QMainWindow):
             self._refresh_saved_plots_list()
             self._clear_plot_display()
 
-
-    def _on_tree_item_renamed(self, topLeft, bottomRight, roles):
+    def _on_tree_item_renamed(self, topLeft: QModelIndex, bottomRight: QModelIndex, roles: list[int]) -> None:
         """Handle when a tree item is renamed.
 
         Update internal references if the currently viewed CSV group was renamed.

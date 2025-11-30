@@ -1,5 +1,4 @@
-from qtpy.QtCore import QAbstractTableModel, QModelIndex
-from qtpy.QtCore import Qt
+from qtpy.QtCore import QAbstractTableModel, QModelIndex, Qt
 import numpy as np
 
 
