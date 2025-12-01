@@ -1,3 +1,7 @@
+"""
+Dialog for configuring column filters in the CSV table.
+"""
+
 from qtpy.QtWidgets import (
     QDialog,
     QVBoxLayout,

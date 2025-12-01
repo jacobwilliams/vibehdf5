@@ -1,3 +1,7 @@
+"""
+Table model for displaying CSV data in a QTableView.
+"""
+
 from qtpy.QtCore import QAbstractTableModel, QModelIndex, Qt
 import numpy as np
 

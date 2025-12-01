@@ -1,3 +1,7 @@
+"""
+Dialog for configuring multi-column sorting.
+"""
+
 from qtpy.QtWidgets import (
     QDialog,
     QVBoxLayout,

@@ -1,3 +1,7 @@
+"""
+QListWidget that supports drag-and-drop to export plots to filesystem.
+"""
+
 import os
 import tempfile
 import traceback

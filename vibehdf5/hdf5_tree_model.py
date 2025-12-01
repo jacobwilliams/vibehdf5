@@ -1,3 +1,7 @@
+"""
+A simple tree model to display HDF5 file structure.
+"""
+
 from __future__ import annotations
 
 import gzip

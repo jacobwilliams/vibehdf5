@@ -1,3 +1,7 @@
+""""
+Dialog for displaying column statistics.
+"""
+
 import pandas as pd
 import numpy as np
 

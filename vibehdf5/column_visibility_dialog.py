@@ -1,3 +1,7 @@
+"""
+Dialog for selecting which columns to display in the CSV table.
+"""
+
 from qtpy.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -11,6 +15,7 @@ from qtpy.QtWidgets import (
     QFrame,
     QLineEdit,
 )
+import fnmatch
 
 
 class ColumnVisibilityDialog(QDialog):
@@ -129,13 +134,20 @@ class ColumnVisibilityDialog(QDialog):
             checkbox.setChecked(False)
 
     def _filter_columns(self, text: str):
-        """Filter the column checkboxes based on the search text.
+        """Filter the column checkboxes based on the search text, supporting wildcards (*, ?).
 
         Args:
-            text: The search text entered by the user.
+            text: The search text entered by the user. Supports wildcards (e.g., 'temp*', '*id*').
         """
+        pattern = text.lower().strip()
         for checkbox in self.column_checkboxes:
-            checkbox.setVisible(text.lower() in checkbox.text().lower())
+            col_name = checkbox.text().lower()
+            if not pattern:
+                checkbox.setVisible(True)
+            elif '*' in pattern or '?' in pattern:
+                checkbox.setVisible(fnmatch.fnmatch(col_name, pattern))
+            else:
+                checkbox.setVisible(pattern in col_name)
 
     def get_visible_columns(self):
         """Return list of selected column names."""

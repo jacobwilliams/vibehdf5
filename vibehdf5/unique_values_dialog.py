@@ -1,3 +1,7 @@
+"""
+Dialog for displaying unique values in a column.
+"""
+
 from qtpy.QtWidgets import (
     QDialog,
     QVBoxLayout,
