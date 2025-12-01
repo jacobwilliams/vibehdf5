@@ -465,11 +465,12 @@ class HDF5TreeModel(QStandardItemModel):
                         # Get filtered indices for this CSV group (if any)
                         filtered_indices = self.get_csv_filtered_indices(path)
                         csv_path = self._reconstruct_csv_tempfile(group, path, filtered_indices)
-                        if not csv_path:
+                        if isinstance(csv_path, str) and csv_path:
+                            url = QUrl.fromLocalFile(csv_path)
+                            mime.setUrls([url])
+                            return mime
+                        else:
                             return None
-                        url = QUrl.fromLocalFile(csv_path)
-                        mime.setUrls([url])
-                        return mime
 
                     # Fallback: extract group as folder hierarchy
                     group_name = os.path.basename(path) or "group"
@@ -579,7 +580,7 @@ class HDF5TreeModel(QStandardItemModel):
         row_indices: np.ndarray | None = None,
         return_dataframe: bool = False,
         sort_specs: list[tuple[str, bool]] | None = None,
-    ) -> str | None:
+    ) -> str | pd.DataFrame | None:
         """Rebuild a CSV file from a CSV-derived group and return the temp file path or DataFrame.
 
         Uses 'column_names' attribute to determine column ordering if present.

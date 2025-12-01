@@ -2749,14 +2749,14 @@ class HDF5Viewer(QMainWindow):
             with h5py.File(self.model.filepath, "r") as h5:
                 if dataset_path not in h5:
                     QMessageBox.warning(self, "Not Found", f"Dataset '{dataset_path}' not found.")
-                    return
+                    return {}
 
                 ds = h5[dataset_path]
                 if not isinstance(ds, h5py.Dataset):
                     QMessageBox.warning(
                         self, "Not a Dataset", f"'{dataset_path}' is not a dataset."
                     )
-                    return
+                    return {}
 
                 # Gather dataset information
                 info = {}
@@ -2856,7 +2856,7 @@ class HDF5Viewer(QMainWindow):
                         info[f"  Dimension {i}"] = f"{dim_size:,}"
 
                 # For numeric data, show value range if dataset is small enough
-                if ds.size > 0 and ds.size <= 1000000 and ds.dtype.kind in ("i", "u", "f"):
+                if ds.size is not None and ds.size > 0 and ds.size <= 1000000 and ds.dtype.kind in ("i", "u", "f"):
                     try:
                         data = ds[:]
                         if data.size > 0:
@@ -2867,7 +2867,7 @@ class HDF5Viewer(QMainWindow):
                                 info["Std Dev"] = f"{np.std(data):.6g}"
                     except Exception:
                         pass
-        except:
+        except:  # noqa: E722
             return {}
         return info
 
@@ -3642,33 +3642,35 @@ class HDF5Viewer(QMainWindow):
                 if df is None:
                     QMessageBox.warning(self, "Export Failed", "Failed to reconstruct CSV data.")
                     return
-
-                # Export based on format
-                try:
-                    if file_format == "json":
-                        df.to_json(save_path, orient="records", indent=2)
-                        status_msg = f"Saved JSON to {save_path}"
-                    elif file_format == "html":
-                        df.to_html(save_path, index=False, border=1, justify="left")
-                        status_msg = f"Saved HTML to {save_path}"
-                    elif file_format == "xlsx":
-                        df.to_excel(save_path, index=False)
-                        status_msg = f"Saved Excel to {save_path}"
-                    elif file_format == "tex":
-                        df.to_latex(save_path, index=False)
-                        status_msg = f"Saved LaTeX to {save_path}"
-                    elif file_format == "md":
-                        df.to_markdown(save_path, index=False)
-                        status_msg = f"Saved Markdown to {save_path}"
-                    else:
-                        # Export as CSV
-                        df.to_csv(save_path, index=False)
-                        status_msg = f"Saved CSV to {save_path}"
-                except Exception as exc:
-                    QMessageBox.warning(
-                        self, "Export Failed", f"Failed to export as {file_format.upper()}: {exc}"
-                    )
-                    return
+                elif isinstance(df, pd.DataFrame):
+                    # Export based on format
+                    try:
+                        if file_format == "json":
+                            df.to_json(save_path, orient="records", indent=2)
+                            status_msg = f"Saved JSON to {save_path}"
+                        elif file_format == "html":
+                            df.to_html(save_path, index=False, border=1, justify="left")
+                            status_msg = f"Saved HTML to {save_path}"
+                        elif file_format == "xlsx":
+                            df.to_excel(save_path, index=False)
+                            status_msg = f"Saved Excel to {save_path}"
+                        elif file_format == "tex":
+                            df.to_latex(save_path, index=False)
+                            status_msg = f"Saved LaTeX to {save_path}"
+                        elif file_format == "md":
+                            df.to_markdown(save_path, index=False)
+                            status_msg = f"Saved Markdown to {save_path}"
+                        else:
+                            # Export as CSV
+                            df.to_csv(save_path, index=False)
+                            status_msg = f"Saved CSV to {save_path}"
+                    except Exception as exc:
+                        QMessageBox.warning(
+                            self, "Export Failed", f"Failed to export as {file_format.upper()}: {exc}"
+                        )
+                        return
+                else:
+                    status_msg = "Export failed: could not get DataFrame."
 
                 self.statusBar().showMessage(status_msg, 5000)
 
