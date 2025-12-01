@@ -4006,7 +4006,8 @@ class HDF5Viewer(QMainWindow):
             return
 
         try:
-            with h5py.File(fpath, "r") as h5:
+            # note: only opening in read+ mode to allow for attribute reading/writing if needed [see _load_plot_configs_from_hdf5]
+            with h5py.File(fpath, "r+") as h5:
                 grp = h5[grouppath]
                 if not isinstance(grp, h5py.Group):
                     self._set_preview_text("(Not a group)")
@@ -5397,6 +5398,25 @@ class HDF5Viewer(QMainWindow):
                 if isinstance(plots_json, bytes):
                     plots_json = plots_json.decode("utf-8")
                 plots = json.loads(plots_json)
+                # let's convert filtered_indices from lists of indices to ranges for efficiency [older files may have been saved with all the indices which is a lot of data]
+                any_converted = False
+                for plot_config in plots:
+                    if "filtered_indices" in plot_config and plot_config["filtered_indices"]:
+                        convert = True
+                        for i in plot_config["filtered_indices"]:
+                            if isinstance(i, str):
+                                convert = False
+                                break  # already in range format
+                        if convert:
+                            any_converted = True
+                            print(f'converting filtered_indices for plot "{plot_config.get("name", "")}" to range format')
+                            plot_config["filtered_indices"] = indices_to_ranges(plot_config["filtered_indices"])
+                if any_converted:
+                    # we can do this because we have write access to the file
+                    # have to save back the converted format
+                    plots_json = json.dumps(plots)
+                    grp.attrs["saved_plots"] = plots_json
+
                 # Validate format
                 if isinstance(plots, list):
                     self._saved_plots = plots
