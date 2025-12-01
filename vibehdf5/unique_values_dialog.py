@@ -16,12 +16,12 @@ from qtpy.QtWidgets import (
 class UniqueValuesDialog(QDialog):
     """Dialog for displaying unique values in a column."""
 
-    def __init__(self, column_name, unique_values, parent=None):
+    def __init__(self, column_name: str, unique_values: list, parent=None):
         """Initialize the unique values dialog.
 
         Args:
-            column_name: Name of the column being displayed
-            unique_values: List of unique values to display
+            column_name (str): Name of the column being displayed
+            unique_values (list): List of unique values to display
             parent: Parent widget
         """
         super().__init__(parent)

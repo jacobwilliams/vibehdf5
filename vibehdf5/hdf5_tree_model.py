@@ -69,8 +69,26 @@ class HDF5TreeModel(QStandardItemModel):
 
         return super().flags(index)
 
-    def setData(self, index, value, role=Qt.EditRole):
-        """Handle data changes, including renaming groups and datasets in the HDF5 file."""
+    def setData(
+        self,
+        index: QStandardItemModel.index,
+        value: str,
+        role: int = Qt.EditRole
+    ) -> bool:
+        """
+        Handle data changes, including renaming groups and datasets in the HDF5 file.
+
+        Args:
+            index (QModelIndex): The model index of the item to modify.
+            value (str): The new value to set (typically the new name).
+            role (int, optional): The role for which the data is being set. Only handles Qt.EditRole. Defaults to Qt.EditRole.
+
+        Returns:
+            bool: True if the data was successfully changed and the HDF5 file updated, False otherwise.
+
+        Warning:
+            Only allows renaming of groups and datasets (not root, attributes, or folders). Renames are performed in the HDF5 file and the model is updated accordingly. If the new name is invalid or already exists, the operation fails.
+        """
         if not index.isValid() or role != Qt.EditRole:
             return False
 
