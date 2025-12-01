@@ -69,12 +69,7 @@ class HDF5TreeModel(QStandardItemModel):
 
         return super().flags(index)
 
-    def setData(
-        self,
-        index: QStandardItemModel.index,
-        value: str,
-        role: int = Qt.EditRole
-    ) -> bool:
+    def setData(self, index: QStandardItemModel.index, value: str, role: int = Qt.EditRole) -> bool:
         """
         Handle data changes, including renaming groups and datasets in the HDF5 file.
 

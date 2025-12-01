@@ -54,7 +54,9 @@ from qtpy.QtWidgets import (
     QTreeView,
     QVBoxLayout,
     QWidget,
+    QTextEdit
 )
+
 
 from .hdf5_tree_model import HDF5TreeModel
 from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
@@ -2252,8 +2254,6 @@ class HDF5Viewer(QMainWindow):
             version = "unknown"
 
         # Create a custom dialog for About with a System Info button
-        from qtpy.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QTextEdit, QHBoxLayout
-
         about_dialog = QDialog(self)
         about_dialog.setWindowTitle("About VibeHDF5")
         layout = QVBoxLayout(about_dialog)
@@ -3506,19 +3506,60 @@ class HDF5Viewer(QMainWindow):
                 QMessageBox.No,
             )
             if resp == QMessageBox.Yes:
+                # Store previous item's path and parent path before deletion
+                prev_path = None
+                parent_path = None
+                if item is not None:
+                    parent = (
+                        item.parent()
+                        if item.parent() is not None
+                        else self.model.invisibleRootItem()
+                    )
+                    parent_path = parent.data(self.model.ROLE_PATH) if parent is not None else None
+                    row = item.row()
+                    if row > 0:
+                        prev_item = parent.child(row - 1, 0)
+                        if prev_item is not None:
+                            prev_path = prev_item.data(self.model.ROLE_PATH)
                 self._perform_delete(kind, path, attr_key)
+
+                # After deletion, try to select previous item by path, then parent, else clear selection
+                def select_by_path(path_to_select):
+                    if not path_to_select:
+                        return False
+                    root = self.model.invisibleRootItem()
+                    stack = [root]
+                    while stack:
+                        current = stack.pop()
+                        if current.data(self.model.ROLE_PATH) == path_to_select:
+                            idx = current.index()
+                            if idx.isValid():
+                                self.tree.setCurrentIndex(idx)
+                                return True
+                        for r in range(current.rowCount()):
+                            child = current.child(r, 0)
+                            if child:
+                                stack.append(child)
+                    return False
+
+                if prev_path and select_by_path(prev_path):
+                    pass
+                elif parent_path and select_by_path(parent_path):
+                    pass
+                else:
+                    self.tree.clearSelection()
         elif chosen in save_as_formats:
-            self._save_csv_group_as(path, format=save_as_formats[chosen])
+            self._save_csv_group_as(path, file_format=save_as_formats[chosen])
         else:
             # No valid action selected (e.g., menu closed), do nothing
             pass
 
-    def _save_csv_group_as(self, csv_group_path: str, format: str = "csv") -> None:
+    def _save_csv_group_as(self, csv_group_path: str, file_format: str = "csv") -> None:
         """Save a CSV group to a file using a save dialog.
 
         Args:
             csv_group_path: HDF5 path to the CSV group
-            format: Export format - "csv", "xlsx", "json", "html", "tex", or "md"
+            file_format: Export format - "csv", "xlsx", "json", "html", "tex", or "md"
         """
         if not self.model or not self.model.filepath:
             QMessageBox.warning(self, "No file", "No HDF5 file is loaded.")
@@ -3547,24 +3588,26 @@ class HDF5Viewer(QMainWindow):
 
                 if isinstance(source_file, str) and source_file.lower().endswith(".csv"):
                     # Replace .csv extension with the target format
-                    default_name = source_file[:-4] + f".{format}"
+                    default_name = source_file[:-4] + f".{file_format}"
                 else:
-                    default_name = (os.path.basename(csv_group_path) or "export") + f".{format}"
+                    default_name = (
+                        os.path.basename(csv_group_path) or "export"
+                    ) + f".{file_format}"
 
                 # Configure dialog based on format
-                if format == "json":
+                if file_format == "json":
                     dialog_title = "Save JSON File"
                     file_filter = "JSON Files (*.json);;All Files (*)"
-                elif format == "html":
+                elif file_format == "html":
                     dialog_title = "Save HTML File"
                     file_filter = "HTML Files (*.html);;All Files (*)"
-                elif format == "xlsx":
+                elif file_format == "xlsx":
                     dialog_title = "Save Excel File"
                     file_filter = "Excel Files (*.xlsx);;All Files (*)"
-                elif format == "tex":
+                elif file_format == "tex":
                     dialog_title = "Save LaTeX File"
                     file_filter = "LaTeX Files (*.tex);;All Files (*)"
-                elif format == "md":
+                elif file_format == "md":
                     dialog_title = "Save Markdown File"
                     file_filter = "Markdown Files (*.md);;All Files (*)"
                 else:
@@ -3602,19 +3645,19 @@ class HDF5Viewer(QMainWindow):
 
                 # Export based on format
                 try:
-                    if format == "json":
+                    if file_format == "json":
                         df.to_json(save_path, orient="records", indent=2)
                         status_msg = f"Saved JSON to {save_path}"
-                    elif format == "html":
+                    elif file_format == "html":
                         df.to_html(save_path, index=False, border=1, justify="left")
                         status_msg = f"Saved HTML to {save_path}"
-                    elif format == "xlsx":
+                    elif file_format == "xlsx":
                         df.to_excel(save_path, index=False)
                         status_msg = f"Saved Excel to {save_path}"
-                    elif format == "tex":
+                    elif file_format == "tex":
                         df.to_latex(save_path, index=False)
                         status_msg = f"Saved LaTeX to {save_path}"
-                    elif format == "md":
+                    elif file_format == "md":
                         df.to_markdown(save_path, index=False)
                         status_msg = f"Saved Markdown to {save_path}"
                     else:
@@ -3623,14 +3666,14 @@ class HDF5Viewer(QMainWindow):
                         status_msg = f"Saved CSV to {save_path}"
                 except Exception as exc:
                     QMessageBox.warning(
-                        self, "Export Failed", f"Failed to export as {format.upper()}: {exc}"
+                        self, "Export Failed", f"Failed to export as {file_format.upper()}: {exc}"
                     )
                     return
 
                 self.statusBar().showMessage(status_msg, 5000)
 
         except Exception as exc:
-            QMessageBox.critical(self, "Error", f"Failed to save {format.upper()}: {exc}")
+            QMessageBox.critical(self, "Error", f"Failed to save {file_format.upper()}: {exc}")
 
     def _perform_delete(self, kind: str, path: str, attr_key: str | None) -> None:
         """Delete an HDF5 item (dataset, group, or attribute).

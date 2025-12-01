@@ -4,6 +4,7 @@ A QLabel that rescales its contents on resize events.
 
 from qtpy.QtWidgets import QLabel
 
+
 class ScaledImageLabel(QLabel):
     """A QLabel that triggers a callback on resize events to rescale its contents."""
 

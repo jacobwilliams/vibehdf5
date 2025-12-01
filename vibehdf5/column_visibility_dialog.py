@@ -144,7 +144,7 @@ class ColumnVisibilityDialog(QDialog):
             col_name = checkbox.text().lower()
             if not pattern:
                 checkbox.setVisible(True)
-            elif '*' in pattern or '?' in pattern:
+            elif "*" in pattern or "?" in pattern:
                 checkbox.setVisible(fnmatch.fnmatch(col_name, pattern))
             else:
                 checkbox.setVisible(pattern in col_name)

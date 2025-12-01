@@ -1,4 +1,4 @@
-""""
+""" "
 Dialog for displaying column statistics.
 """
 
