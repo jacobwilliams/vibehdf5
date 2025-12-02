@@ -4752,21 +4752,26 @@ class HDF5Viewer(QMainWindow):
         """
         Plot a filled contour plot (contourf) using three columns of data.
 
+        Auto-detects whether data is on a regular grid or scattered, and uses the appropriate method:
+        - For gridded data: uses contourf directly (no interpolation)
+        - For scattered data: uses tricontourf (triangulation-based, no interpolation)
+        - Falls back to griddata interpolation if needed
+
         Args:
             col_data (dict[str, np.ndarray]): Dictionary mapping column names to numpy arrays.
             x_name (str): Name of the column to use for the X axis.
             y_names (list[str]): List of two column names; first for Y axis, second for Z values.
             ax (matplotlib.axes.Axes): The matplotlib Axes object to plot on.
-            grid_size (int, optional): Size of the grid for interpolation. Default is 100.
-            method (str, optional): Interpolation method for griddata (e.g., 'linear', 'nearest', 'cubic'). Default is 'linear'.
+            grid_size (int, optional): Size of the grid for interpolation (only used if griddata fallback is needed). Default is 100.
+            method (str, optional): Interpolation method for griddata (e.g., 'linear', 'nearest', 'cubic'). Only used for fallback. Default is 'linear'.
             cmap (str, optional): Colormap to use for contourf. Default is 'Blues'.
             cmap_label (str, optional): Label for the colorbar. Default is ''.
             levels (int, optional): Number of contour levels. Default is 20.
 
         Notes:
-            - The function flattens and converts all input arrays to float.
-            - Uses scipy.interpolate.griddata to interpolate Z values on a grid.
-            - Plots the filled contour using ax.contourf and adds a colorbar.
+            - Auto-detects if data is on a regular grid by checking for uniform spacing
+            - Uses tricontourf for scattered/irregular data (no regridding needed)
+            - Falls back to griddata interpolation only if tricontourf fails
         """
         x = col_data[x_name]
         y = col_data[y_names[0]]
@@ -4775,24 +4780,92 @@ class HDF5Viewer(QMainWindow):
         x = np.asarray(x).ravel().astype(float)
         y = np.asarray(y).ravel().astype(float)
         z = np.asarray(z).ravel().astype(float)
-        # Try to create a grid for contourf
-        from scipy.interpolate import griddata
 
-        # Create grid
-        xi = np.linspace(np.nanmin(x), np.nanmax(x), grid_size)
-        yi = np.linspace(np.nanmin(y), np.nanmax(y), grid_size)
-        xi, yi = np.meshgrid(xi, yi)
-        zi = griddata((x, y), z, (xi, yi), method=method)
-        cf = ax.contourf(xi, yi, zi, levels=levels, cmap=cmap)
-        cbar = self.plot_figure.colorbar(cf, ax=ax)
-        self.cbar = cbar  # save it so we can adjust it later
-        if cmap_label:
-            cbar.set_label(cmap_label)
-        else:
-            # Label colorbar with z-series name (second entry in y_names)
-            z_label = y_names[1] if len(y_names) > 1 else ""
-            if z_label:
-                cbar.set_label(z_label)
+        # Remove NaN values
+        valid_mask = ~(np.isnan(x) | np.isnan(y) | np.isnan(z))
+        x = x[valid_mask]
+        y = y[valid_mask]
+        z = z[valid_mask]
+
+        if len(x) == 0:
+            ax.text(0.5, 0.5, 'No valid data to plot', ha='center', va='center', transform=ax.transAxes)
+            return
+
+        def add_colorbar(cf):
+            """Helper to add colorbar with consistent labeling."""
+            cbar = self.plot_figure.colorbar(cf, ax=ax)
+            self.cbar = cbar  # save it so we can adjust it later
+            if cmap_label:
+                cbar.set_label(cmap_label)
+            else:
+                # Label colorbar with z-series name (second entry in y_names)
+                z_label = y_names[1] if len(y_names) > 1 else ""
+                if z_label:
+                    cbar.set_label(z_label)
+
+        def is_regular_grid(x_vals, y_vals, tolerance=1e-6) -> tuple[bool, np.ndarray, np.ndarray, int, int]:
+            """Check if data points form a regular grid."""
+            unique_x = np.unique(x_vals)
+            unique_y = np.unique(y_vals)
+
+            # Check if we have enough unique values
+            if len(unique_x) < 2 or len(unique_y) < 2:
+                return False, np.array([]), np.array([]), 0, 0
+
+            # Check if x and y spacings are uniform
+            x_diffs = np.diff(unique_x)
+            y_diffs = np.diff(unique_y)
+
+            x_uniform = np.allclose(x_diffs, x_diffs[0], rtol=tolerance)
+            y_uniform = np.allclose(y_diffs, y_diffs[0], rtol=tolerance)
+
+            # Check if total points match grid dimensions
+            expected_points = len(unique_x) * len(unique_y)
+            actual_points = len(x_vals)
+
+            if x_uniform and y_uniform and expected_points == actual_points:
+                return True, unique_x, unique_y, len(unique_y), len(unique_x)
+            else:
+                return False, np.array([]), np.array([]), 0, 0
+
+        is_gridded, unique_x, unique_y, nrows, ncols = is_regular_grid(x, y)
+
+        if is_gridded:
+            # Data is on a regular grid - reshape and use contourf directly
+            try:
+                # Create meshgrid from unique values
+                X, Y = np.meshgrid(unique_x, unique_y)
+
+                # Reshape z to match grid shape
+                # Need to figure out the correct ordering
+                Z = np.full((nrows, ncols), np.nan)
+                for (xi, yi, zi) in zip(x, y, z, strict=True):
+                    row_idx = np.argmin(np.abs(unique_y - yi))
+                    col_idx = np.argmin(np.abs(unique_x - xi))
+                    Z[row_idx, col_idx] = zi
+
+                cf = ax.contourf(X, Y, Z, levels=levels, cmap=cmap)
+                add_colorbar(cf)
+                return
+            except Exception:
+                # If gridded approach fails, fall through to tricontourf
+                pass
+
+        # Try tricontourf for scattered/irregular data (no regridding)
+        try:
+            cf = ax.tricontourf(x, y, z, levels=levels, cmap=cmap)
+            add_colorbar(cf)
+        except Exception:
+            # Fallback to griddata interpolation if tricontourf fails
+            from scipy.interpolate import griddata
+
+            # Create grid
+            xi = np.linspace(np.nanmin(x), np.nanmax(x), grid_size)
+            yi = np.linspace(np.nanmin(y), np.nanmax(y), grid_size)
+            xi, yi = np.meshgrid(xi, yi)
+            zi = griddata((x, y), z, (xi, yi), method=method)
+            cf = ax.contourf(xi, yi, zi, levels=levels, cmap=cmap)
+            add_colorbar(cf)
 
     def plot_selected_columns(self, contourf: bool = False) -> None:
         """
