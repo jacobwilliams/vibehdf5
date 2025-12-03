@@ -3869,9 +3869,16 @@ class HDF5Viewer(QMainWindow):
         # Apply syntax highlighting if not plain text
         if language != "plain":
             try:
-                self._current_highlighter = SyntaxHighlighter(
-                    self.preview_edit.document(), language=language
-                )
+                # Use special highlighter for NAIF PCK files
+                if language == "naif_pck":
+                    from vibehdf5.syntax_highlighter import NAIFPCKHighlighter
+                    self._current_highlighter = NAIFPCKHighlighter(
+                        self.preview_edit.document()
+                    )
+                else:
+                    self._current_highlighter = SyntaxHighlighter(
+                        self.preview_edit.document(), language=language
+                    )
             except Exception:  # noqa: BLE001
                 # If highlighting fails, just show plain text
                 pass

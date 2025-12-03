@@ -131,6 +131,150 @@ class SyntaxHighlighter(QSyntaxHighlighter):
                 self.setFormat(match.capturedStart(), match.capturedLength(), text_format)
 
 
+class NAIFPCKHighlighter(QSyntaxHighlighter):
+    """Special highlighter for NAIF PCK files that handles \\begindata and \\begintext blocks."""
+
+    def __init__(self, document):
+        """Initialize the NAIF PCK highlighter.
+
+        Args:
+            document: QTextDocument to apply highlighting to.
+        """
+        super().__init__(document)
+        self._setup_formats()
+        self._setup_patterns()
+        self._in_data_block = False
+
+    def _setup_formats(self):
+        """Define text formats for different syntax elements."""
+        # Comment format (for \begintext blocks)
+        self.comment_format = QTextCharFormat()
+        self.comment_format.setForeground(QColor("#808080"))  # Gray
+        self.comment_format.setFontItalic(True)
+
+        # Keyword format (for \begindata, \begintext markers)
+        self.keyword_format = QTextCharFormat()
+        self.keyword_format.setForeground(QColor("#5B5BE8"))  # Blue
+        self.keyword_format.setFontWeight(QFont.Bold)
+
+        # Variable name format (BODY399_RADII, etc.)
+        self.variable_format = QTextCharFormat()
+        self.variable_format.setForeground(QColor("#8B008B"))  # Dark magenta
+        self.variable_format.setFontWeight(QFont.Bold)
+
+        # Number format
+        self.number_format = QTextCharFormat()
+        self.number_format.setForeground(QColor("#FF6600"))  # Orange
+
+        # String format
+        self.string_format = QTextCharFormat()
+        self.string_format.setForeground(QColor("#008000"))  # Green
+
+        # Operator format
+        self.operator_format = QTextCharFormat()
+        self.operator_format.setForeground(QColor("#97824D"))
+        self.operator_format.setFontWeight(QFont.Bold)
+
+    def _setup_patterns(self):
+        """Setup regex patterns for NAIF PCK syntax."""
+        # Block markers - must appear on a line by themselves (with optional whitespace)
+        self.begindata_pattern = QRegularExpression(r"^\s*\\begindata\s*$")
+        self.begintext_pattern = QRegularExpression(r"^\s*\\begintext\s*$")
+
+        # Patterns for data blocks
+        self.variable_pattern = QRegularExpression(r"\bBODY[0-9]+_[A-Z_0-9]+")
+        # Variables starting with @ (like @2000-JAN-1/12:00 or @1972-JAN-1)
+        # Match @ followed by any non-whitespace characters
+        self.at_variable_pattern = QRegularExpression(r"@\S+")
+        # Number pattern: match standalone numbers only (not after @ or within variable names)
+        # Use word boundary and ensure it's not preceded by @ or variable characters
+        self.number_pattern = QRegularExpression(r"\b[0-9]+\.?[0-9]*([eEdD][+-]?[0-9]+)?\b")
+        self.string_pattern = QRegularExpression(r"'[^']*'")
+        self.operator_pattern = QRegularExpression(r"[=+\-()]")
+
+        # Optimize patterns
+        self.begindata_pattern.optimize()
+        self.begintext_pattern.optimize()
+        self.variable_pattern.optimize()
+        self.at_variable_pattern.optimize()
+        self.number_pattern.optimize()
+        self.string_pattern.optimize()
+        self.operator_pattern.optimize()
+
+    def highlightBlock(self, text: str):
+        """Apply syntax highlighting to a block of text.
+
+        Args:
+            text: The text block to apply syntax highlighting to.
+        """
+        # Check for block markers
+        if self.begindata_pattern.match(text).hasMatch():
+            # Highlight the \begindata keyword
+            match = self.begindata_pattern.match(text)
+            self.setFormat(match.capturedStart(), match.capturedLength(), self.keyword_format)
+            # Mark that we're now in a data block
+            self.setCurrentBlockState(1)
+            return
+
+        if self.begintext_pattern.match(text).hasMatch():
+            # Highlight the \begintext keyword
+            match = self.begintext_pattern.match(text)
+            self.setFormat(match.capturedStart(), match.capturedLength(), self.keyword_format)
+            # Mark that we're now in a text (comment) block
+            self.setCurrentBlockState(0)
+            return
+
+        # Determine current state
+        previous_state = self.previousBlockState()
+        if previous_state == -1:
+            # Initial state: treat as text/comment block until we see \begindata
+            current_state = 0
+        else:
+            current_state = previous_state
+
+        self.setCurrentBlockState(current_state)
+
+        # Apply highlighting based on current block state
+        if current_state == 0:
+            # In text/comment block - highlight entire line as comment
+            self.setFormat(0, len(text), self.comment_format)
+        else:
+            # In data block - apply syntax highlighting
+            # @-prefixed variables (like @2000-JAN-1/12:00) - MUST come first to prevent numbers from matching
+            match_iterator = self.at_variable_pattern.globalMatch(text)
+            while match_iterator.hasNext():
+                match = match_iterator.next()
+                self.setFormat(match.capturedStart(), match.capturedLength(), self.string_format)
+
+            # Variables (like BODY399_RADII)
+            match_iterator = self.variable_pattern.globalMatch(text)
+            while match_iterator.hasNext():
+                match = match_iterator.next()
+                self.setFormat(match.capturedStart(), match.capturedLength(), self.variable_format)
+
+            # Strings (apply before numbers to prevent conflicts)
+            match_iterator = self.string_pattern.globalMatch(text)
+            while match_iterator.hasNext():
+                match = match_iterator.next()
+                self.setFormat(match.capturedStart(), match.capturedLength(), self.string_format)
+
+            # Numbers - only highlight if not already formatted
+            match_iterator = self.number_pattern.globalMatch(text)
+            while match_iterator.hasNext():
+                match = match_iterator.next()
+                start = match.capturedStart()
+                length = match.capturedLength()
+                # Only apply number format if this position hasn't been formatted yet
+                if self.format(start) == QTextCharFormat():
+                    self.setFormat(start, length, self.number_format)
+
+            # Operators
+            match_iterator = self.operator_pattern.globalMatch(text)
+            while match_iterator.hasNext():
+                match = match_iterator.next()
+                self.setFormat(match.capturedStart(), match.capturedLength(), self.operator_format)
+
+
 # Language-specific patterns
 # To add a new language, add an entry to this dictionary
 LANGUAGE_PATTERNS = {
@@ -735,6 +879,32 @@ LANGUAGE_PATTERNS = {
         "comment_patterns": [r"(?i)^rem\s+.*|(?i)\brem\s+.*"],
         "operators": ["==", "&&", "||", "|", "&", "(", ")", "%"],
     },
+    "naif_pck": {
+        "keywords": [
+            r"\\begintext",
+            r"\\begindata",
+            r"\\beginliteral",
+            r"\\endliteral",
+        ],
+        "builtins": [
+            "BODY",
+            "FRAME",
+            "RADII",
+            "NUT_PREC_ANGLES",
+            "NUT_PREC_RA",
+            "NUT_PREC_DEC",
+            "NUT_PREC_PM",
+            "POLE_RA",
+            "POLE_DEC",
+            "PM",
+            "LONG_AXIS",
+        ],
+        "function_pattern": r"\bBODY[0-9]+_[A-Z_]+",  # NAIF variable names like BODY399_RADII
+        "number_pattern": r"[+-]?[0-9]+\.?[0-9]*([eEdD][+-]?[0-9]+)?",  # Scientific notation with D or E
+        "string_patterns": [r"'[^']*'"],  # Single quotes for strings in NAIF files
+        "comment_patterns": [],  # Comments are handled by \begintext blocks, not line comments
+        "operators": ["=", "+", "-", "(", ")", "@"],
+    },
 }
 
 
@@ -783,6 +953,9 @@ EXTENSION_TO_LANGUAGE = {
     ".ksh": "bash",
     ".bat": "batch",
     ".cmd": "batch",
+    ".tls": "naif_pck",
+    ".pc": "naif_pck",
+    ".tpc": "naif_pck",
 }
 
 
