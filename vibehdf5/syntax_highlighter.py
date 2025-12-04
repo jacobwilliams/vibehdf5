@@ -953,6 +953,7 @@ EXTENSION_TO_LANGUAGE = {
     ".ksh": "bash",
     ".bat": "batch",
     ".cmd": "batch",
+    ".tf": "naif_pck",
     ".tls": "naif_pck",
     ".pc": "naif_pck",
     ".tpc": "naif_pck",
