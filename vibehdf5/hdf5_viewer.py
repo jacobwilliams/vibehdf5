@@ -4359,6 +4359,16 @@ class HDF5Viewer(QMainWindow):
                         self._lazy_load_columns(self._csv_column_names, 0, total_rows, h5)
 
                         progress.setValue(100)
+
+                        # Update the table model to reflect all loaded data
+                        if self._csv_table_model:
+                            # Update row indices to include all filtered rows
+                            if self._csv_filtered_indices is not None:
+                                self._csv_table_model.set_row_indices(
+                                    self._csv_filtered_indices, total_rows
+                                )
+                            else:
+                                self._csv_table_model.set_row_indices(None, total_rows)
         except Exception as exc:
             self.statusBar().showMessage(f"Error loading data: {exc}", 5000)
         finally:
@@ -4644,35 +4654,46 @@ class HDF5Viewer(QMainWindow):
         if not selection_model:
             return
 
-        selected_indexes = selection_model.selectedIndexes()
-        if not selected_indexes:
+        # Ensure all data is loaded before copying
+        self._ensure_all_data_loaded()
+
+        # Determine which columns and rows are selected
+        # For column selection, we need to check which columns are selected (not just visible indexes)
+        selected_columns = set()
+        selected_rows = set()
+
+        # Check if entire columns are selected
+        for col_idx in range(model.columnCount()):
+            if selection_model.isColumnSelected(col_idx, QModelIndex()):
+                selected_columns.add(col_idx)
+
+        # If no full columns are selected, get individual cell selections
+        if not selected_columns:
+            selected_indexes = selection_model.selectedIndexes()
+            if not selected_indexes:
+                return
+
+            for idx in selected_indexes:
+                selected_rows.add(idx.row())
+                selected_columns.add(idx.column())
+        else:
+            # Full columns selected - include all rows
+            selected_rows = set(range(model.rowCount()))
+
+        if not selected_columns or not selected_rows:
             return
 
-        # Group indexes by row for efficient processing
-        rows_dict = {}
-        for idx in selected_indexes:
-            row = idx.row()
-            col = idx.column()
-            if row not in rows_dict:
-                rows_dict[row] = []
-            rows_dict[row].append((col, idx))
-
-        # Sort rows
-        sorted_rows = sorted(rows_dict.keys())
+        # Sort for consistent output
+        sorted_columns = sorted(selected_columns)
+        sorted_rows = sorted(selected_rows)
 
         # Build clipboard text
         lines = []
 
         # Add headers if requested
         if include_headers:
-            header_cols = set()
-            for row_cols in rows_dict.values():
-                for col, _ in row_cols:
-                    header_cols.add(col)
-            sorted_header_cols = sorted(header_cols)
-
             header_line = []
-            for col in sorted_header_cols:
+            for col in sorted_columns:
                 header_text = model.headerData(col, Qt.Horizontal, Qt.DisplayRole)
                 if header_text:
                     header_line.append(str(header_text))
@@ -4682,18 +4703,14 @@ class HDF5Viewer(QMainWindow):
 
         # Add data rows
         for row in sorted_rows:
-            cols_data = rows_dict[row]
-            # Sort by column
-            cols_data.sort(key=lambda x: x[0])
-
             row_values = []
-            for col, idx in cols_data:
+            for col in sorted_columns:
+                idx = model.index(row, col)
                 data = model.data(idx, Qt.DisplayRole)
                 if data is not None:
                     row_values.append(str(data))
                 else:
                     row_values.append("")
-
             lines.append("\t".join(row_values))
 
         # Copy to clipboard
@@ -4703,7 +4720,7 @@ class HDF5Viewer(QMainWindow):
 
         # Show status message
         num_rows = len(sorted_rows)
-        num_cols = len(set(col for row_cols in rows_dict.values() for col, _ in row_cols))
+        num_cols = len(sorted_columns)
         self.statusBar().showMessage(
             f"Copied {num_rows} row(s) × {num_cols} column(s) to clipboard", 3000
         )
