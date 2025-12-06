@@ -9,5 +9,42 @@
         "editor.insertSpaces": true,
         "editor.tabSize": 4,
         "editor.trimAutoWhitespace": true
+    },
+    "tasks": {
+        "version": "2.0.0",
+        "tasks": [
+            {
+                "label": "Pixi: Install Environment",
+                "type": "shell",
+                "command": "cd env && pixi install",
+                "options": {
+                    "shell": {
+                        "executable": "/bin/zsh",
+                        "args": ["-i", "-c"]
+                    }
+                },
+                "problemMatcher": [],
+                "presentation": {
+                    "reveal": "always",
+                    "panel": "new"
+                }
+            },
+            {
+                "label": "Run HDF5 Viewer",
+                "type": "shell",
+                "command": "cd env && pixi run python ../run_vibehdf5.py",
+                "options": {
+                    "shell": {
+                        "executable": "/bin/zsh",
+                        "args": ["-i", "-c"]
+                    }
+                },
+                "problemMatcher": [],
+                "presentation": {
+                    "reveal": "always",
+                    "panel": "new"
+                }
+            }
+        ]
     }
 }
