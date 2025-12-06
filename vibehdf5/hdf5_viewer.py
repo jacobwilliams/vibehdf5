@@ -24,7 +24,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.dates import AutoDateLocator, DateFormatter
 from matplotlib.figure import Figure
 from qtpy.QtCore import QSettings, QSize, Qt, QModelIndex
-from qtpy.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QPixmap
+from qtpy.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QKeySequence, QPixmap
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -327,7 +327,7 @@ class HDF5Viewer(QMainWindow):
         self.preview_table.setSortingEnabled(False)
         self.preview_table.setAlternatingRowColors(True)
         self.preview_table.setContextMenuPolicy(Qt.CustomContextMenu)
-        # self.preview_table.customContextMenuRequested.connect(self._on_table_context_menu)
+        self.preview_table.customContextMenuRequested.connect(self._on_table_context_menu)
         content_layout.addWidget(self.preview_table)
 
         # Lazy loading state variables
@@ -4179,8 +4179,8 @@ class HDF5Viewer(QMainWindow):
             )
             self.preview_table.setModel(model)
             self._csv_table_model = model
-            # Ensure column selection via header is enabled for plotting
-            self.preview_table.setSelectionBehavior(QAbstractItemView.SelectColumns)
+            # Enable cell selection for copying, and column selection via header for plotting
+            self.preview_table.setSelectionBehavior(QAbstractItemView.SelectItems)
             self.preview_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
             self.preview_table.horizontalHeader().setSectionsClickable(True)
             self.preview_table.horizontalHeader().setHighlightSections(True)
@@ -4598,6 +4598,130 @@ class HDF5Viewer(QMainWindow):
 
         # Also update plot management buttons
         self._update_plot_buttons_state()
+
+    def _on_table_context_menu(self, point):
+        """Show context menu for CSV table data."""
+        if not self.preview_table.isVisible():
+            return
+
+        menu = QMenu(self)
+        style = self.style()
+
+        # Copy actions
+        act_copy = menu.addAction("Copy")
+        act_copy.setShortcut("Ctrl+C")
+        act_copy.setIcon(style.standardIcon(QStyle.SP_FileDialogDetailedView))
+
+        act_copy_with_headers = menu.addAction("Copy with Headers")
+        act_copy_with_headers.setIcon(style.standardIcon(QStyle.SP_FileDialogDetailedView))
+
+        # Show menu
+        global_pos = self.preview_table.viewport().mapToGlobal(point)
+        chosen = menu.exec(global_pos)
+
+        if chosen == act_copy:
+            self._copy_table_selection(include_headers=False)
+        elif chosen == act_copy_with_headers:
+            self._copy_table_selection(include_headers=True)
+
+    def _copy_table_selection(self, include_headers: bool = False):
+        """Copy selected table cells to clipboard.
+
+        Supports copying individual cells, blocks of cells, or entire columns.
+        Only copies filtered/visible data (respects current filter settings).
+
+        Args:
+            include_headers: If True, include column headers in the copied data
+        """
+        if not self.preview_table.isVisible():
+            return
+
+        model = self.preview_table.model()
+        if not model:
+            return
+
+        selection_model = self.preview_table.selectionModel()
+        if not selection_model:
+            return
+
+        selected_indexes = selection_model.selectedIndexes()
+        if not selected_indexes:
+            return
+
+        # Group indexes by row for efficient processing
+        rows_dict = {}
+        for idx in selected_indexes:
+            row = idx.row()
+            col = idx.column()
+            if row not in rows_dict:
+                rows_dict[row] = []
+            rows_dict[row].append((col, idx))
+
+        # Sort rows
+        sorted_rows = sorted(rows_dict.keys())
+
+        # Build clipboard text
+        lines = []
+
+        # Add headers if requested
+        if include_headers:
+            header_cols = set()
+            for row_cols in rows_dict.values():
+                for col, _ in row_cols:
+                    header_cols.add(col)
+            sorted_header_cols = sorted(header_cols)
+
+            header_line = []
+            for col in sorted_header_cols:
+                header_text = model.headerData(col, Qt.Horizontal, Qt.DisplayRole)
+                if header_text:
+                    header_line.append(str(header_text))
+                else:
+                    header_line.append("")
+            lines.append("\t".join(header_line))
+
+        # Add data rows
+        for row in sorted_rows:
+            cols_data = rows_dict[row]
+            # Sort by column
+            cols_data.sort(key=lambda x: x[0])
+
+            row_values = []
+            for col, idx in cols_data:
+                data = model.data(idx, Qt.DisplayRole)
+                if data is not None:
+                    row_values.append(str(data))
+                else:
+                    row_values.append("")
+
+            lines.append("\t".join(row_values))
+
+        # Copy to clipboard
+        clipboard_text = "\n".join(lines)
+        clipboard = QApplication.clipboard()
+        clipboard.setText(clipboard_text)
+
+        # Show status message
+        num_rows = len(sorted_rows)
+        num_cols = len(set(col for row_cols in rows_dict.values() for col, _ in row_cols))
+        self.statusBar().showMessage(
+            f"Copied {num_rows} row(s) × {num_cols} column(s) to clipboard", 3000
+        )
+
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts for the main window.
+
+        Implements Ctrl+C for copying table selections when the table has focus.
+        """
+        # Check if Ctrl+C is pressed and table has focus
+        if event.matches(QKeySequence.Copy):
+            if self.preview_table.hasFocus() and self.preview_table.isVisible():
+                self._copy_table_selection(include_headers=False)
+                event.accept()
+                return
+
+        # Call parent implementation for other keys
+        super().keyPressEvent(event)
 
     def _read_csv_columns(self, group_path: str, column_names: list[str]) -> dict[str, np.ndarray]:
         """
