@@ -54,9 +54,11 @@ from qtpy.QtWidgets import (
     QTreeView,
     QVBoxLayout,
     QWidget,
-    QTextEdit
+    QTextEdit,
+    QToolTip,
+    QComboBox,
+    QScrollArea
 )
-
 
 from .hdf5_tree_model import HDF5TreeModel
 from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
@@ -5982,39 +5984,6 @@ class HDF5Viewer(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Plot Error", f"Failed to plot data:\n{exc}")
 
-    def _configure_filters_dialog(self) -> None:
-        """Open dialog to configure column filters."""
-        if not self._csv_column_names:
-            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
-            return
-
-        dialog = ColumnFilterDialog(self._csv_column_names, self)
-        dialog.set_filters(self._csv_filters)
-
-        if dialog.exec() == QDialog.Accepted:
-            self._csv_filters = dialog.get_filters()
-            self._save_filters_to_hdf5()
-            self._apply_filters()
-
-    def _show_statistics_dialog(self) -> None:
-        """Open dialog to show statistics for CSV columns."""
-        if not self._csv_column_names or (not self._csv_data_dict and not self._csv_dataset_info):
-            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
-            return
-
-        # Ensure all data is loaded before calculating statistics
-        self._ensure_all_data_loaded()
-
-        # Use filtered indices if available
-        filtered_indices = (
-            self._csv_filtered_indices if hasattr(self, "_csv_filtered_indices") else None
-        )
-
-        dialog = ColumnStatisticsDialog(
-            self._csv_column_names, self._csv_data_dict, filtered_indices, self
-        )
-        dialog.exec()
-
     def _clear_filters(self) -> None:
         """Clear all active filters and show full dataset."""
         self._csv_filters = []
@@ -6500,49 +6469,9 @@ class HDF5Viewer(QMainWindow):
         Args:
             dataset_path (str | None): Optional path to a specific dataset or group within the HDF5 file. If provided, the DAG will be constructed starting from this path; otherwise, the DAG will represent the entire file structure.
         """
-
-        from qtpy.QtWidgets import (
-            QDialog,
-            QVBoxLayout,
-            QHBoxLayout,
-            QPushButton,
-            QFileDialog,
-            QToolTip,
-            QMessageBox,
-            QComboBox,
-            QLabel,
-            QScrollArea,
-        )
+        import networkx as nx
         import pyqtgraph as pg
         from pyqtgraph.exporters import ImageExporter
-        import networkx as nx
-        import numpy as np
-        import os
-
-        # Custom GraphItem with tooltip support
-        class TooltipGraphItem(pg.GraphItem):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self._positions = None
-
-            def set_positions(self, positions):
-                self._positions = positions
-
-            def hoverEvent(self, event):
-                if event.isExit():
-                    QToolTip.hideText()
-                    return
-                if self._positions is None:
-                    return
-                pos = event.pos()
-                x, y = pos.x(), pos.y()
-                dists = np.linalg.norm(self._positions - np.array([x, y]), axis=1)
-                min_idx = np.argmin(dists)
-                if dists[min_idx] < 0.05:
-                    tip = node_tooltip(min_idx)
-                    QToolTip.showText(event.screenPos().toPoint(), tip)
-                else:
-                    QToolTip.hideText()
 
         fpath = self.model.filepath
         if not fpath:
