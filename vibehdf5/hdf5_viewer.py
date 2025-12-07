@@ -5034,8 +5034,14 @@ class HDF5Viewer(QMainWindow):
         """
         if self._current_csv_group_path is None or not self.preview_table.isVisible():
             return
-        self._ensure_all_data_loaded()
+
+        # Cache the selection BEFORE loading data (which may reset the model and clear selection)
         sel_cols = self._get_selected_column_indices()
+        if len(sel_cols) < 1:
+            return
+
+        self._ensure_all_data_loaded()
+
         if len(sel_cols) < 1:
             return
         if contourf and len(sel_cols) != 3:

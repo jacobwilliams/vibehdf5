@@ -2,33 +2,32 @@
 Dialog for configuring plot options (title, labels, line styles, etc.).
 """
 
-import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib as mpl
-
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+from qtpy.QtGui import QColor, QDoubleValidator
 from qtpy.QtWidgets import (
+    QCheckBox,
+    QColorDialog,
+    QComboBox,
     QDialog,
-    QVBoxLayout,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QCheckBox,
-    QComboBox,
-    QTabWidget,
-    QWidget,
-    QScrollArea,
-    QFrame,
-    QDoubleSpinBox,
-    QSpinBox,
     QPushButton,
-    QDialogButtonBox,
-    QColorDialog,
+    QScrollArea,
+    QSpinBox,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
-from qtpy.QtGui import QColor, QDoubleValidator
 
-from .column_sort_dialog import ColumnSortDialog
 from .column_filter_dialog import ColumnFilterDialog
+from .column_sort_dialog import ColumnSortDialog
 
 
 class PlotOptionsDialog(QDialog):
@@ -1032,11 +1031,11 @@ class PlotOptionsDialog(QDialog):
     def _add_refline_widget(
         self,
         line_type: str,
-        value: float = None,
-        color: str = None,
-        linestyle: str = None,
-        linewidth: float = None,
-        label: str = None,
+        value: float | None = None,
+        color: str | None = None,
+        linestyle: str = 'solid',
+        linewidth: float = 1.5,
+        label: str | None = None,
     ) -> QFrame:
         """
         Add a reference line configuration widget.
@@ -1045,8 +1044,8 @@ class PlotOptionsDialog(QDialog):
             line_type (str): "horizontal" or "vertical".
             value (float, optional): Position value (y for horizontal, x for vertical).
             color (str, optional): Line color (hex string or None for default).
-            linestyle (str, optional): Line style string (default: "solid").
-            linewidth (float, optional): Line width (default: 1.5).
+            linestyle (str): Line style string (default: "solid").
+            linewidth (float): Line width (default: 1.5).
             label (str, optional): Optional label for the line.
 
         Returns:
@@ -1119,7 +1118,7 @@ class PlotOptionsDialog(QDialog):
         linestyle_combo.addItem("Dotted", "dotted")
         # Set current style
         styles = ["solid", "dashed", "dashdot", "dotted"]
-        current_style = linestyle if linestyle in styles else "solid"
+        current_style = linestyle
         linestyle_combo.setCurrentIndex(styles.index(current_style))
         linestyle_combo.setMinimumWidth(100)
         style_layout.addWidget(linestyle_combo)
@@ -1128,7 +1127,7 @@ class PlotOptionsDialog(QDialog):
         width_spin = QDoubleSpinBox()
         width_spin.setRange(0.5, 5.0)
         width_spin.setSingleStep(0.5)
-        width_spin.setValue(linewidth if linewidth is not None else 1.5)
+        width_spin.setValue(linewidth)
         width_spin.setMinimumWidth(80)
         style_layout.addWidget(width_spin)
 
