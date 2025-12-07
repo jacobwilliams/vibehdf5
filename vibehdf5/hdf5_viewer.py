@@ -720,7 +720,7 @@ class HDF5Viewer(QMainWindow):
         if hasattr(self, "plot_figure") and self.plot_figure.axes:
             ax = self.plot_figure.axes[0]
             for line in ax.get_lines():
-                label = line.get_label()
+                label = str(line.get_label())
                 if label and not label.startswith("_"):  # Ignore internal matplotlib labels
                     series_visibility[label] = line.get_visible()
         return series_visibility
@@ -6711,29 +6711,34 @@ class HDF5Viewer(QMainWindow):
             main_layout.addLayout(btn_layout)
 
             def save_dag_image():
-                file_path, _ = QFileDialog.getSaveFileName(
-                    dag_dialog,
-                    "Save DAG Image",
-                    os.path.splitext(self.model.filepath)[0] + "_dag.png",
-                    "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;SVG Vector (*.svg)",
-                )
-                if file_path:
-                    # Determine export format from file extension
-                    file_ext = os.path.splitext(file_path)[1].lower()
-
-                    if file_ext == '.svg':
-                        # For SVG, use pyqtgraph's SVGExporter
-                        from pyqtgraph.exporters import SVGExporter
-                        exporter = SVGExporter(plot_widget.scene())
-                        exporter.export(file_path)
-                    else:
-                        # For PNG and JPEG, use ImageExporter
-                        exporter = ImageExporter(plot_widget.scene())
-                        exporter.export(file_path)
-
-                    QMessageBox.information(
-                        dag_dialog, "Saved", f"DAG image saved to:\n{file_path}"
+                if self.model.filepath and isinstance(self.model.filepath, str):
+                    result = QFileDialog.getSaveFileName(
+                        dag_dialog,
+                        "Save DAG Image",
+                        os.path.splitext(self.model.filepath)[0] + "_dag.png",
+                        "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;SVG Vector (*.svg)",
                     )
+                    if isinstance(result, tuple):
+                        file_path = result[0]
+                    else:
+                        file_path = result
+                    if file_path:
+                        # Determine export format from file extension
+                        file_ext = os.path.splitext(file_path)[1].lower()
+
+                        if file_ext == '.svg':
+                            # For SVG, use pyqtgraph's SVGExporter
+                            from pyqtgraph.exporters import SVGExporter
+                            exporter = SVGExporter(plot_widget.scene())
+                            exporter.export(file_path)
+                        else:
+                            # For PNG and JPEG, use ImageExporter
+                            exporter = ImageExporter(plot_widget.scene())
+                            exporter.export(file_path)
+
+                        QMessageBox.information(
+                            dag_dialog, "Saved", f"DAG image saved to:\n{file_path}"
+                        )
 
             save_btn.clicked.connect(save_dag_image)
             close_btn.clicked.connect(dag_dialog.close)
@@ -6854,12 +6859,22 @@ class HDF5Viewer(QMainWindow):
                 layout.addLayout(btn_layout)
 
                 def save_dag_image():
-                    file_path, _ = QFileDialog.getSaveFileName(
+                    # Ensure self.model.filepath is a string for splitext
+                    base_filepath = self.model.filepath if isinstance(self.model.filepath, str) else ""
+                    default_name = ""
+                    if base_filepath:
+                        default_name = os.path.splitext(base_filepath)[0] + "_dag.png"
+                    file_dialog_result = QFileDialog.getSaveFileName(
                         dialog,
                         "Save DAG Image",
-                        os.path.splitext(self.model.filepath)[0] + "_dag.png",
+                        default_name,
                         "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;SVG Image (*.svg);;PDF File (*.pdf)",
                     )
+                    # file_dialog_result can be a tuple or a string depending on Qt version
+                    if isinstance(file_dialog_result, tuple):
+                        file_path = file_dialog_result[0]
+                    else:
+                        file_path = file_dialog_result
                     if file_path:
                         dot.format = os.path.splitext(file_path)[1].lower().strip(".")
                         try:
