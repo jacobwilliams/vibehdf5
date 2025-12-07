@@ -6715,11 +6715,22 @@ class HDF5Viewer(QMainWindow):
                     dag_dialog,
                     "Save DAG Image",
                     os.path.splitext(self.model.filepath)[0] + "_dag.png",
-                    "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg)",
+                    "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;SVG Vector (*.svg)",
                 )
                 if file_path:
-                    exporter = ImageExporter(plot_widget.scene())
-                    exporter.export(file_path)
+                    # Determine export format from file extension
+                    file_ext = os.path.splitext(file_path)[1].lower()
+
+                    if file_ext == '.svg':
+                        # For SVG, use pyqtgraph's SVGExporter
+                        from pyqtgraph.exporters import SVGExporter
+                        exporter = SVGExporter(plot_widget.scene())
+                        exporter.export(file_path)
+                    else:
+                        # For PNG and JPEG, use ImageExporter
+                        exporter = ImageExporter(plot_widget.scene())
+                        exporter.export(file_path)
+
                     QMessageBox.information(
                         dag_dialog, "Saved", f"DAG image saved to:\n{file_path}"
                     )
@@ -6733,18 +6744,20 @@ class HDF5Viewer(QMainWindow):
 
     def _show_dag_visualization(self) -> None:
         """Visualize the HDF5 file structure as a DAG using python-graphviz."""
-        import tempfile, os
-        import h5py
+        import os
+        import tempfile
+
         import graphviz
+        import h5py
         from qtpy.QtGui import QPixmap
         from qtpy.QtWidgets import (
-            QLabel,
             QDialog,
-            QVBoxLayout,
+            QHBoxLayout,
+            QLabel,
+            QMessageBox,
             QPushButton,
             QScrollArea,
-            QHBoxLayout,
-            QMessageBox,
+            QVBoxLayout,
         )
 
         try:
