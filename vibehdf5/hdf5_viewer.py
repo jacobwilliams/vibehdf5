@@ -23,8 +23,9 @@ from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToo
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.dates import AutoDateLocator, DateFormatter
 from matplotlib.figure import Figure
-from qtpy.QtCore import QSettings, QSize, Qt, QModelIndex
-from qtpy.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QKeySequence, QPixmap
+from matplotlib.axes import Axes
+from qtpy.QtCore import QModelIndex, QPoint, QRect, QSettings, QSize, Qt
+from qtpy.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QKeySequence, QPixmap, QPainter, QPen
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -654,7 +655,7 @@ class HDF5Viewer(QMainWindow):
 
         return np.arange(min_len, dtype=float), False
 
-    def _make_legend_interactive(self, ax: plt.Axes, legend) -> None:
+    def _make_legend_interactive(self, ax: Axes, legend) -> None:
         """Make the legend interactive so clicking on labels toggles line visibility.
 
         Args:
@@ -726,7 +727,7 @@ class HDF5Viewer(QMainWindow):
         return series_visibility
 
     def _apply_plot_visibility_state(
-        self, ax: plt.Axes, y_names: list[str], series_visibility: dict[str, bool]
+        self, ax: Axes, y_names: list[str], series_visibility: dict[str, bool]
     ) -> None:
         """Apply visibility state to plot lines and update legend appearance.
 
@@ -737,16 +738,18 @@ class HDF5Viewer(QMainWindow):
         """
         # Apply visibility to plot lines
         for line in ax.get_lines():
-            label = line.get_label()
+            label = str(line.get_label())
             if label in series_visibility:
                 line.set_visible(series_visibility[label])
 
         # Update legend appearance to reflect hidden series
         if series_visibility and ax.get_legend():
             legend = ax.get_legend()
-            for legend_line, orig_line in zip(legend.get_lines(), ax.get_lines()):
-                if not orig_line.get_visible():
-                    legend_line.set_alpha(0.2)
+            if legend:
+                for legend_line, orig_line in zip(legend.get_lines(),
+                                                  ax.get_lines(), strict = True):
+                    if not orig_line.get_visible():
+                        legend_line.set_alpha(0.2)
 
     def _process_x_axis_data(
         self, x_idx: int | None, col_data: dict, y_names: list[str], x_name: str, plot_options: dict
@@ -903,7 +906,7 @@ class HDF5Viewer(QMainWindow):
 
     def _plot_series_with_options(
         self,
-        ax: plt.Axes,
+        ax: Axes,
         x_num: np.ndarray,
         y_num: np.ndarray,
         valid: np.ndarray,
@@ -1051,7 +1054,7 @@ class HDF5Viewer(QMainWindow):
 
     def _apply_plot_labels_and_formatting(
         self,
-        ax: plt.Axes,
+        ax: Axes,
         fig,
         x_name: str,
         y_names: list,
@@ -1158,19 +1161,20 @@ class HDF5Viewer(QMainWindow):
             # if the figure has a colorbar attached:
             if self.cbar:
                 cax = self.cbar.ax
-                font_family = plot_options.get("font_family", "serif")
-                font_size = plot_options.get("axis_label_fontsize", 10)
-                tick_font_size = plot_options.get("tick_fontsize", 10)
-                font_color = "white" if use_dark else "black"
-                # Set colorbar label font
-                cax.yaxis.label.set_fontfamily(font_family)
-                cax.yaxis.label.set_fontsize(font_size)
-                cax.yaxis.label.set_color(font_color)
-                # Set colorbar tick font
-                for tick in cax.get_yticklabels():
-                    tick.set_fontfamily(font_family)
-                    tick.set_fontsize(tick_font_size)
-                    tick.set_color(font_color)
+                if cax:
+                    font_family = plot_options.get("font_family", "serif")
+                    font_size = plot_options.get("axis_label_fontsize", 10)
+                    tick_font_size = plot_options.get("tick_fontsize", 10)
+                    font_color = "white" if use_dark else "black"
+                    # Set colorbar label font
+                    cax.yaxis.label.set_fontfamily(font_family)
+                    cax.yaxis.label.set_fontsize(font_size)
+                    cax.yaxis.label.set_color(font_color)
+                    # Set colorbar tick font
+                    for tick in cax.get_yticklabels():
+                        tick.set_fontfamily(font_family)
+                        tick.set_fontsize(tick_font_size)
+                        tick.set_color(font_color)
 
     def _create_actions(self) -> None:
         """Create all QAction objects for menu and toolbar items."""
@@ -1180,8 +1184,6 @@ class HDF5Viewer(QMainWindow):
         # Create a custom icon with "H5" text on file icon for HDF5-specific actions
         def create_h5_file_icon():
             """Create an icon with 'H5' drawn using lines on a standard file icon."""
-            from qtpy.QtCore import QPoint, QRect
-            from qtpy.QtGui import QPainter, QPen
 
             base_icon = style.standardIcon(QStyle.SP_FileIcon)
             pixmap = base_icon.pixmap(48, 48)
@@ -3368,7 +3370,7 @@ class HDF5Viewer(QMainWindow):
         return action
 
     # Context menu handling
-    def on_tree_context_menu(self, point) -> None:
+    def on_tree_context_menu(self, point: QPoint) -> None:
         """Handle context menu requests on tree items.
 
         Args:
@@ -5192,7 +5194,7 @@ class HDF5Viewer(QMainWindow):
             should_hide = col_name not in self._csv_visible_columns
             self.preview_table.setColumnHidden(col_idx, should_hide)
 
-    def _on_column_header_context_menu(self, pos) -> None:
+    def _on_column_header_context_menu(self, pos: QPoint) -> None:
         """Handle right-click context menu on column header.
 
         Args:
