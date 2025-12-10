@@ -23,8 +23,9 @@ from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToo
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.dates import AutoDateLocator, DateFormatter
 from matplotlib.figure import Figure
-from qtpy.QtCore import QSettings, QSize, Qt, QModelIndex
-from qtpy.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QPixmap
+from matplotlib.axes import Axes
+from qtpy.QtCore import QModelIndex, QPoint, QRect, QSettings, QSize, Qt
+from qtpy.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QKeySequence, QPixmap, QPainter, QPen
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -54,9 +55,11 @@ from qtpy.QtWidgets import (
     QTreeView,
     QVBoxLayout,
     QWidget,
-    QTextEdit
+    QTextEdit,
+    QToolTip,
+    QComboBox,
+    QScrollArea
 )
-
 
 from .hdf5_tree_model import HDF5TreeModel
 from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
@@ -327,7 +330,7 @@ class HDF5Viewer(QMainWindow):
         self.preview_table.setSortingEnabled(False)
         self.preview_table.setAlternatingRowColors(True)
         self.preview_table.setContextMenuPolicy(Qt.CustomContextMenu)
-        # self.preview_table.customContextMenuRequested.connect(self._on_table_context_menu)
+        self.preview_table.customContextMenuRequested.connect(self._on_table_context_menu)
         content_layout.addWidget(self.preview_table)
 
         # Lazy loading state variables
@@ -652,7 +655,7 @@ class HDF5Viewer(QMainWindow):
 
         return np.arange(min_len, dtype=float), False
 
-    def _make_legend_interactive(self, ax: plt.Axes, legend) -> None:
+    def _make_legend_interactive(self, ax: Axes, legend) -> None:
         """Make the legend interactive so clicking on labels toggles line visibility.
 
         Args:
@@ -718,13 +721,13 @@ class HDF5Viewer(QMainWindow):
         if hasattr(self, "plot_figure") and self.plot_figure.axes:
             ax = self.plot_figure.axes[0]
             for line in ax.get_lines():
-                label = line.get_label()
+                label = str(line.get_label())
                 if label and not label.startswith("_"):  # Ignore internal matplotlib labels
                     series_visibility[label] = line.get_visible()
         return series_visibility
 
     def _apply_plot_visibility_state(
-        self, ax: plt.Axes, y_names: list[str], series_visibility: dict[str, bool]
+        self, ax: Axes, y_names: list[str], series_visibility: dict[str, bool]
     ) -> None:
         """Apply visibility state to plot lines and update legend appearance.
 
@@ -735,16 +738,18 @@ class HDF5Viewer(QMainWindow):
         """
         # Apply visibility to plot lines
         for line in ax.get_lines():
-            label = line.get_label()
+            label = str(line.get_label())
             if label in series_visibility:
                 line.set_visible(series_visibility[label])
 
         # Update legend appearance to reflect hidden series
         if series_visibility and ax.get_legend():
             legend = ax.get_legend()
-            for legend_line, orig_line in zip(legend.get_lines(), ax.get_lines()):
-                if not orig_line.get_visible():
-                    legend_line.set_alpha(0.2)
+            if legend:
+                for legend_line, orig_line in zip(legend.get_lines(),
+                                                  ax.get_lines(), strict = True):
+                    if not orig_line.get_visible():
+                        legend_line.set_alpha(0.2)
 
     def _process_x_axis_data(
         self, x_idx: int | None, col_data: dict, y_names: list[str], x_name: str, plot_options: dict
@@ -901,7 +906,7 @@ class HDF5Viewer(QMainWindow):
 
     def _plot_series_with_options(
         self,
-        ax: plt.Axes,
+        ax: Axes,
         x_num: np.ndarray,
         y_num: np.ndarray,
         valid: np.ndarray,
@@ -1049,7 +1054,7 @@ class HDF5Viewer(QMainWindow):
 
     def _apply_plot_labels_and_formatting(
         self,
-        ax: plt.Axes,
+        ax: Axes,
         fig,
         x_name: str,
         y_names: list,
@@ -1156,19 +1161,20 @@ class HDF5Viewer(QMainWindow):
             # if the figure has a colorbar attached:
             if self.cbar:
                 cax = self.cbar.ax
-                font_family = plot_options.get("font_family", "serif")
-                font_size = plot_options.get("axis_label_fontsize", 10)
-                tick_font_size = plot_options.get("tick_fontsize", 10)
-                font_color = "white" if use_dark else "black"
-                # Set colorbar label font
-                cax.yaxis.label.set_fontfamily(font_family)
-                cax.yaxis.label.set_fontsize(font_size)
-                cax.yaxis.label.set_color(font_color)
-                # Set colorbar tick font
-                for tick in cax.get_yticklabels():
-                    tick.set_fontfamily(font_family)
-                    tick.set_fontsize(tick_font_size)
-                    tick.set_color(font_color)
+                if cax:
+                    font_family = plot_options.get("font_family", "serif")
+                    font_size = plot_options.get("axis_label_fontsize", 10)
+                    tick_font_size = plot_options.get("tick_fontsize", 10)
+                    font_color = "white" if use_dark else "black"
+                    # Set colorbar label font
+                    cax.yaxis.label.set_fontfamily(font_family)
+                    cax.yaxis.label.set_fontsize(font_size)
+                    cax.yaxis.label.set_color(font_color)
+                    # Set colorbar tick font
+                    for tick in cax.get_yticklabels():
+                        tick.set_fontfamily(font_family)
+                        tick.set_fontsize(tick_font_size)
+                        tick.set_color(font_color)
 
     def _create_actions(self) -> None:
         """Create all QAction objects for menu and toolbar items."""
@@ -1178,8 +1184,6 @@ class HDF5Viewer(QMainWindow):
         # Create a custom icon with "H5" text on file icon for HDF5-specific actions
         def create_h5_file_icon():
             """Create an icon with 'H5' drawn using lines on a standard file icon."""
-            from qtpy.QtCore import QPoint, QRect
-            from qtpy.QtGui import QPainter, QPen
 
             base_icon = style.standardIcon(QStyle.SP_FileIcon)
             pixmap = base_icon.pixmap(48, 48)
@@ -3366,7 +3370,7 @@ class HDF5Viewer(QMainWindow):
         return action
 
     # Context menu handling
-    def on_tree_context_menu(self, point) -> None:
+    def on_tree_context_menu(self, point: QPoint) -> None:
         """Handle context menu requests on tree items.
 
         Args:
@@ -4179,8 +4183,8 @@ class HDF5Viewer(QMainWindow):
             )
             self.preview_table.setModel(model)
             self._csv_table_model = model
-            # Ensure column selection via header is enabled for plotting
-            self.preview_table.setSelectionBehavior(QAbstractItemView.SelectColumns)
+            # Enable cell selection for copying, and column selection via header for plotting
+            self.preview_table.setSelectionBehavior(QAbstractItemView.SelectItems)
             self.preview_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
             self.preview_table.horizontalHeader().setSectionsClickable(True)
             self.preview_table.horizontalHeader().setHighlightSections(True)
@@ -4359,6 +4363,16 @@ class HDF5Viewer(QMainWindow):
                         self._lazy_load_columns(self._csv_column_names, 0, total_rows, h5)
 
                         progress.setValue(100)
+
+                        # Update the table model to reflect all loaded data
+                        if self._csv_table_model:
+                            # Update row indices to include all filtered rows
+                            if self._csv_filtered_indices is not None:
+                                self._csv_table_model.set_row_indices(
+                                    self._csv_filtered_indices, total_rows
+                                )
+                            else:
+                                self._csv_table_model.set_row_indices(None, total_rows)
         except Exception as exc:
             self.statusBar().showMessage(f"Error loading data: {exc}", 5000)
         finally:
@@ -4598,6 +4612,137 @@ class HDF5Viewer(QMainWindow):
 
         # Also update plot management buttons
         self._update_plot_buttons_state()
+
+    def _on_table_context_menu(self, point):
+        """Show context menu for CSV table data."""
+        if not self.preview_table.isVisible():
+            return
+
+        menu = QMenu(self)
+        style = self.style()
+
+        # Copy actions
+        act_copy = menu.addAction("Copy")
+        act_copy.setShortcut("Ctrl+C")
+        act_copy.setIcon(style.standardIcon(QStyle.SP_FileDialogDetailedView))
+
+        act_copy_with_headers = menu.addAction("Copy with Headers")
+        act_copy_with_headers.setIcon(style.standardIcon(QStyle.SP_FileDialogDetailedView))
+
+        # Show menu
+        global_pos = self.preview_table.viewport().mapToGlobal(point)
+        chosen = menu.exec(global_pos)
+
+        if chosen == act_copy:
+            self._copy_table_selection(include_headers=False)
+        elif chosen == act_copy_with_headers:
+            self._copy_table_selection(include_headers=True)
+
+    def _copy_table_selection(self, include_headers: bool = False):
+        """Copy selected table cells to clipboard.
+
+        Supports copying individual cells, blocks of cells, or entire columns.
+        Only copies filtered/visible data (respects current filter settings).
+
+        Args:
+            include_headers: If True, include column headers in the copied data
+        """
+        if not self.preview_table.isVisible():
+            return
+
+        model = self.preview_table.model()
+        if not model:
+            return
+
+        selection_model = self.preview_table.selectionModel()
+        if not selection_model:
+            return
+
+        # Ensure all data is loaded before copying
+        self._ensure_all_data_loaded()
+
+        # Determine which columns and rows are selected
+        # For column selection, we need to check which columns are selected (not just visible indexes)
+        selected_columns = set()
+        selected_rows = set()
+
+        # Check if entire columns are selected
+        for col_idx in range(model.columnCount()):
+            if selection_model.isColumnSelected(col_idx, QModelIndex()):
+                selected_columns.add(col_idx)
+
+        # If no full columns are selected, get individual cell selections
+        if not selected_columns:
+            selected_indexes = selection_model.selectedIndexes()
+            if not selected_indexes:
+                return
+
+            for idx in selected_indexes:
+                selected_rows.add(idx.row())
+                selected_columns.add(idx.column())
+        else:
+            # Full columns selected - include all rows
+            selected_rows = set(range(model.rowCount()))
+
+        if not selected_columns or not selected_rows:
+            return
+
+        # Sort for consistent output
+        sorted_columns = sorted(selected_columns)
+        sorted_rows = sorted(selected_rows)
+
+        # Build clipboard text
+        lines = []
+
+        # Add headers if requested
+        if include_headers:
+            header_line = []
+            for col in sorted_columns:
+                header_text = model.headerData(col, Qt.Horizontal, Qt.DisplayRole)
+                if header_text:
+                    header_line.append(str(header_text))
+                else:
+                    header_line.append("")
+            lines.append("\t".join(header_line))
+
+        # Add data rows
+        for row in sorted_rows:
+            row_values = []
+            for col in sorted_columns:
+                idx = model.index(row, col)
+                data = model.data(idx, Qt.DisplayRole)
+                if data is not None:
+                    row_values.append(str(data))
+                else:
+                    row_values.append("")
+            lines.append("\t".join(row_values))
+
+        # Copy to clipboard
+        clipboard_text = "\n".join(lines)
+        clipboard = QApplication.clipboard()
+        clipboard.setText(clipboard_text)
+
+        # Show status message
+        num_rows = len(sorted_rows)
+        num_cols = len(sorted_columns)
+        self.statusBar().showMessage(
+            f"Copied {num_rows} row(s) × {num_cols} column(s) to clipboard", 3000
+        )
+
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts for the main window.
+
+        Implements Ctrl+C for copying table selections when the table has focus.
+        """
+        # Check if Ctrl+C is pressed and table has focus
+        if event.matches(QKeySequence.Copy):
+            if self.preview_table.hasFocus() and self.preview_table.isVisible():
+                self._copy_table_selection(include_headers=False)
+                event.accept()
+                return
+
+        # Call parent implementation for other keys
+        super().keyPressEvent(event)
 
     def _read_csv_columns(self, group_path: str, column_names: list[str]) -> dict[str, np.ndarray]:
         """
@@ -4891,8 +5036,14 @@ class HDF5Viewer(QMainWindow):
         """
         if self._current_csv_group_path is None or not self.preview_table.isVisible():
             return
-        self._ensure_all_data_loaded()
+
+        # Cache the selection BEFORE loading data (which may reset the model and clear selection)
         sel_cols = self._get_selected_column_indices()
+        if len(sel_cols) < 1:
+            return
+
+        self._ensure_all_data_loaded()
+
         if len(sel_cols) < 1:
             return
         if contourf and len(sel_cols) != 3:
@@ -5043,7 +5194,7 @@ class HDF5Viewer(QMainWindow):
             should_hide = col_name not in self._csv_visible_columns
             self.preview_table.setColumnHidden(col_idx, should_hide)
 
-    def _on_column_header_context_menu(self, pos) -> None:
+    def _on_column_header_context_menu(self, pos: QPoint) -> None:
         """Handle right-click context menu on column header.
 
         Args:
@@ -5841,39 +5992,6 @@ class HDF5Viewer(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Plot Error", f"Failed to plot data:\n{exc}")
 
-    def _configure_filters_dialog(self) -> None:
-        """Open dialog to configure column filters."""
-        if not self._csv_column_names:
-            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
-            return
-
-        dialog = ColumnFilterDialog(self._csv_column_names, self)
-        dialog.set_filters(self._csv_filters)
-
-        if dialog.exec() == QDialog.Accepted:
-            self._csv_filters = dialog.get_filters()
-            self._save_filters_to_hdf5()
-            self._apply_filters()
-
-    def _show_statistics_dialog(self) -> None:
-        """Open dialog to show statistics for CSV columns."""
-        if not self._csv_column_names or (not self._csv_data_dict and not self._csv_dataset_info):
-            QMessageBox.information(self, "No CSV Data", "Load a CSV group first.")
-            return
-
-        # Ensure all data is loaded before calculating statistics
-        self._ensure_all_data_loaded()
-
-        # Use filtered indices if available
-        filtered_indices = (
-            self._csv_filtered_indices if hasattr(self, "_csv_filtered_indices") else None
-        )
-
-        dialog = ColumnStatisticsDialog(
-            self._csv_column_names, self._csv_data_dict, filtered_indices, self
-        )
-        dialog.exec()
-
     def _clear_filters(self) -> None:
         """Clear all active filters and show full dataset."""
         self._csv_filters = []
@@ -6359,49 +6477,9 @@ class HDF5Viewer(QMainWindow):
         Args:
             dataset_path (str | None): Optional path to a specific dataset or group within the HDF5 file. If provided, the DAG will be constructed starting from this path; otherwise, the DAG will represent the entire file structure.
         """
-
-        from qtpy.QtWidgets import (
-            QDialog,
-            QVBoxLayout,
-            QHBoxLayout,
-            QPushButton,
-            QFileDialog,
-            QToolTip,
-            QMessageBox,
-            QComboBox,
-            QLabel,
-            QScrollArea,
-        )
+        import networkx as nx
         import pyqtgraph as pg
         from pyqtgraph.exporters import ImageExporter
-        import networkx as nx
-        import numpy as np
-        import os
-
-        # Custom GraphItem with tooltip support
-        class TooltipGraphItem(pg.GraphItem):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self._positions = None
-
-            def set_positions(self, positions):
-                self._positions = positions
-
-            def hoverEvent(self, event):
-                if event.isExit():
-                    QToolTip.hideText()
-                    return
-                if self._positions is None:
-                    return
-                pos = event.pos()
-                x, y = pos.x(), pos.y()
-                dists = np.linalg.norm(self._positions - np.array([x, y]), axis=1)
-                min_idx = np.argmin(dists)
-                if dists[min_idx] < 0.05:
-                    tip = node_tooltip(min_idx)
-                    QToolTip.showText(event.screenPos().toPoint(), tip)
-                else:
-                    QToolTip.hideText()
 
         fpath = self.model.filepath
         if not fpath:
@@ -6635,18 +6713,34 @@ class HDF5Viewer(QMainWindow):
             main_layout.addLayout(btn_layout)
 
             def save_dag_image():
-                file_path, _ = QFileDialog.getSaveFileName(
-                    dag_dialog,
-                    "Save DAG Image",
-                    os.path.splitext(self.model.filepath)[0] + "_dag.png",
-                    "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg)",
-                )
-                if file_path:
-                    exporter = ImageExporter(plot_widget.scene())
-                    exporter.export(file_path)
-                    QMessageBox.information(
-                        dag_dialog, "Saved", f"DAG image saved to:\n{file_path}"
+                if self.model.filepath and isinstance(self.model.filepath, str):
+                    result = QFileDialog.getSaveFileName(
+                        dag_dialog,
+                        "Save DAG Image",
+                        os.path.splitext(self.model.filepath)[0] + "_dag.png",
+                        "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;SVG Vector (*.svg)",
                     )
+                    if isinstance(result, tuple):
+                        file_path = result[0]
+                    else:
+                        file_path = result
+                    if file_path:
+                        # Determine export format from file extension
+                        file_ext = os.path.splitext(file_path)[1].lower()
+
+                        if file_ext == '.svg':
+                            # For SVG, use pyqtgraph's SVGExporter
+                            from pyqtgraph.exporters import SVGExporter
+                            exporter = SVGExporter(plot_widget.scene())
+                            exporter.export(file_path)
+                        else:
+                            # For PNG and JPEG, use ImageExporter
+                            exporter = ImageExporter(plot_widget.scene())
+                            exporter.export(file_path)
+
+                        QMessageBox.information(
+                            dag_dialog, "Saved", f"DAG image saved to:\n{file_path}"
+                        )
 
             save_btn.clicked.connect(save_dag_image)
             close_btn.clicked.connect(dag_dialog.close)
@@ -6657,18 +6751,20 @@ class HDF5Viewer(QMainWindow):
 
     def _show_dag_visualization(self) -> None:
         """Visualize the HDF5 file structure as a DAG using python-graphviz."""
-        import tempfile, os
-        import h5py
+        import os
+        import tempfile
+
         import graphviz
+        import h5py
         from qtpy.QtGui import QPixmap
         from qtpy.QtWidgets import (
-            QLabel,
             QDialog,
-            QVBoxLayout,
+            QHBoxLayout,
+            QLabel,
+            QMessageBox,
             QPushButton,
             QScrollArea,
-            QHBoxLayout,
-            QMessageBox,
+            QVBoxLayout,
         )
 
         try:
@@ -6765,12 +6861,22 @@ class HDF5Viewer(QMainWindow):
                 layout.addLayout(btn_layout)
 
                 def save_dag_image():
-                    file_path, _ = QFileDialog.getSaveFileName(
+                    # Ensure self.model.filepath is a string for splitext
+                    base_filepath = self.model.filepath if isinstance(self.model.filepath, str) else ""
+                    default_name = ""
+                    if base_filepath:
+                        default_name = os.path.splitext(base_filepath)[0] + "_dag.png"
+                    file_dialog_result = QFileDialog.getSaveFileName(
                         dialog,
                         "Save DAG Image",
-                        os.path.splitext(self.model.filepath)[0] + "_dag.png",
+                        default_name,
                         "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;SVG Image (*.svg);;PDF File (*.pdf)",
                     )
+                    # file_dialog_result can be a tuple or a string depending on Qt version
+                    if isinstance(file_dialog_result, tuple):
+                        file_path = file_dialog_result[0]
+                    else:
+                        file_path = file_dialog_result
                     if file_path:
                         dot.format = os.path.splitext(file_path)[1].lower().strip(".")
                         try:
