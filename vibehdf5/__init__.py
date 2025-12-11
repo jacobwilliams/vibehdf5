@@ -6,7 +6,7 @@ VibeHDF5 main package.
 
 """
 
-__version__ = "2.1.2"
+__version__ = "2.2.0"
 
 from . import utilities
 from . import csv_table_model
