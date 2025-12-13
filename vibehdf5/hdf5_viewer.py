@@ -437,7 +437,20 @@ class HDF5Viewer(QMainWindow):
         self._search_pattern: str = ""
 
     def _is_csv_group(self, path: str) -> bool:
-        """Return True if the group at the given path is a CSV-derived group."""
+        """Check if a group at the given path is a CSV-derived group.
+
+        CSV-derived groups are HDF5 groups created from imported CSV files.
+        They are identified by the presence of a 'column_names' attribute,
+        which stores the original CSV column headers.
+
+        Args:
+            path: HDF5 path to the group to check
+
+        Returns:
+            True if the group exists and is a CSV-derived group with column_names
+            attribute, False otherwise (including when model/filepath is not set,
+            path doesn't exist, or any exception occurs during checking)
+        """
         # This checks for the presence of 'column_names' attribute in the group
         if not self.model or not self.model.filepath or not path:
             return False
@@ -450,8 +463,32 @@ class HDF5Viewer(QMainWindow):
             pass
         return False
 
-    def _get_filtered_sorted_indices(self, data_dict, filters, sort_specs):
-        """Return filtered and sorted row indices for given data, filters, and sort specs."""
+    def _get_filtered_sorted_indices(
+        self,
+        data_dict: dict[str, np.ndarray],
+        filters: list[tuple[str, str, str]],
+        sort_specs: list[tuple[str, bool]],
+    ) -> tuple[np.ndarray, int, int]:
+        """Compute filtered and sorted row indices for CSV table data.
+
+        Applies filtering conditions and multi-column sorting to determine which
+        rows should be displayed and in what order. This is used for CSV table
+        preview with active filters and sort configurations.
+
+        Args:
+            data_dict: Dictionary mapping column names to numpy arrays of data
+            filters: List of filter tuples, each containing (column_name, operator, value_str).
+                Operators include: '=', '==', '!=', '<', '<=', '>', '>=', 'contains',
+                'starts with', 'ends with'
+            sort_specs: List of sort specification tuples, each containing
+                (column_name, ascending_bool) for multi-column sorting
+
+        Returns:
+            Tuple of (filtered_indices, start_row, end_row) where:
+            - filtered_indices: numpy array of row indices that pass filters and are sorted
+            - start_row: index of first row in filtered_indices (0 if empty)
+            - end_row: index of last row in filtered_indices (0 if empty)
+        """
         if not data_dict:
             return np.array([], dtype=int), 0, 0
         max_rows = max(len(data_dict[col]) for col in data_dict)
@@ -591,7 +628,7 @@ class HDF5Viewer(QMainWindow):
                 json_str = grp.attrs[attr_name]
                 if isinstance(json_str, bytes):
                     json_str = json_str.decode("utf-8")
-                value = json.loads(json_str)
+                value = json.loads(str(json_str))
                 if validator:
                     return validator(value)
                 return value
@@ -599,7 +636,7 @@ class HDF5Viewer(QMainWindow):
             print(f"Warning: Could not load {attr_name} from HDF5: {exc}")
         return None
 
-    def _apply_plot_style(self, fig_or_ax, ax, use_dark: bool) -> None:
+    def _apply_plot_style(self, fig_or_ax: Figure, ax: Axes, use_dark: bool) -> None:
         """Apply dark or light background styling to a plot figure and axes.
 
         Args:
