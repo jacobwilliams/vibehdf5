@@ -97,6 +97,7 @@ class HDF5Viewer(QMainWindow):
         self.resize(900, 600)
         self._original_pixmap = None
         self._current_highlighter = None  # Track current syntax highlighter
+        self.cbar = None
 
         # Initialize QSettings for storing recent files
         self.settings = QSettings("VibeHDF5", "VibeHDF5")
@@ -746,8 +747,7 @@ class HDF5Viewer(QMainWindow):
         if series_visibility and ax.get_legend():
             legend = ax.get_legend()
             if legend:
-                for legend_line, orig_line in zip(legend.get_lines(),
-                                                  ax.get_lines(), strict = True):
+                for legend_line, orig_line in zip(legend.get_lines(), ax.get_lines()):
                     if not orig_line.get_visible():
                         legend_line.set_alpha(0.2)
 
@@ -3877,6 +3877,12 @@ class HDF5Viewer(QMainWindow):
                 if language == "naif_pck":
                     from vibehdf5.syntax_highlighter import NAIFPCKHighlighter
                     self._current_highlighter = NAIFPCKHighlighter(
+                        self.preview_edit.document()
+                    )
+                # Use special highlighter for Fortran namelist files
+                elif language == "fortran_namelist":
+                    from vibehdf5.syntax_highlighter import FortranNamelistHighlighter
+                    self._current_highlighter = FortranNamelistHighlighter(
                         self.preview_edit.document()
                     )
                 else:

@@ -131,6 +131,192 @@ class SyntaxHighlighter(QSyntaxHighlighter):
                 self.setFormat(match.capturedStart(), match.capturedLength(), text_format)
 
 
+class FortranNamelistHighlighter(QSyntaxHighlighter):
+    """Special highlighter for Fortran namelist files that handles &NAMELIST / blocks."""
+
+    def __init__(self, document):
+        """Initialize the Fortran namelist highlighter.
+
+        Args:
+            document: QTextDocument to apply highlighting to.
+        """
+        super().__init__(document)
+        self._setup_formats()
+        self._setup_patterns()
+
+    def _setup_formats(self):
+        """Define text formats for different syntax elements."""
+        # Comment format
+        self.comment_format = QTextCharFormat()
+        self.comment_format.setForeground(QColor("#808080"))  # Gray
+        self.comment_format.setFontItalic(True)
+
+        # Namelist block name format (&NAMELIST_NAME)
+        self.namelist_format = QTextCharFormat()
+        self.namelist_format.setForeground(QColor("#5B5BE8"))  # Blue
+        self.namelist_format.setFontWeight(QFont.Bold)
+
+        # Variable name format
+        self.variable_format = QTextCharFormat()
+        self.variable_format.setForeground(QColor("#C2BB3E"))  # Dark magenta
+        self.variable_format.setFontWeight(QFont.Bold)
+
+        # Number format
+        self.number_format = QTextCharFormat()
+        self.number_format.setForeground(QColor("#FF6600"))  # Orange
+
+        # String format
+        self.string_format = QTextCharFormat()
+        self.string_format.setForeground(QColor("#008000"))  # Green
+
+        # Logical (boolean) format
+        self.logical_format = QTextCharFormat()
+        self.logical_format.setForeground(QColor("#9D40E0"))  # Purple
+        self.logical_format.setFontWeight(QFont.Bold)
+
+        # Array index format
+        self.array_index_format = QTextCharFormat()
+        self.array_index_format.setForeground(QColor("#00A0A0"))  # Cyan
+
+        # Operator format
+        self.operator_format = QTextCharFormat()
+        self.operator_format.setForeground(QColor("#97824D"))
+        self.operator_format.setFontWeight(QFont.Bold)
+
+    def _setup_patterns(self):
+        """Setup regex patterns for Fortran namelist syntax."""
+        # Namelist block markers: &NAMELIST_NAME and /
+        self.namelist_start_pattern = QRegularExpression(r"&[A-Za-z_][A-Za-z0-9_]*")
+        self.namelist_end_pattern = QRegularExpression(r"/\s*$")
+
+        # Variable assignment pattern: variable_name = (includes % for derived types and () for arrays)
+        self.variable_pattern = QRegularExpression(r"\b[A-Za-z_][A-Za-z0-9_%(),]*(?=\s*=)")
+
+        # Array index pattern: numbers/expressions within parentheses (applied after variables)
+        self.array_index_pattern = QRegularExpression(r"\([^)]*\)")
+
+        # Logical values: .true., .false., .t., .f.
+        self.logical_pattern = QRegularExpression(r"\.[TtFf](?:[Rr][Uu][Ee]|[Aa][Ll][Ss][Ee])?\.", QRegularExpression.CaseInsensitiveOption)
+
+        # Number pattern: integers, floats, scientific notation (with D or E)
+        self.number_pattern = QRegularExpression(r"\b[+-]?[0-9]+\.?[0-9]*([eEdD][+-]?[0-9]+)?\b")
+
+        # String patterns: single or double quoted
+        self.string_single_pattern = QRegularExpression(r"'[^']*'")
+        self.string_double_pattern = QRegularExpression(r'"[^"]*"')
+
+        # Comment patterns: ! or C/c in first column
+        self.comment_pattern = QRegularExpression(r"![^\n]*")
+        self.comment_column1_pattern = QRegularExpression(r"^[Cc][^\n]*")
+
+        # Operators
+        self.operator_pattern = QRegularExpression(r"[=,()]")
+
+        # Optimize all patterns
+        self.namelist_start_pattern.optimize()
+        self.namelist_end_pattern.optimize()
+        self.variable_pattern.optimize()
+        self.array_index_pattern.optimize()
+        self.logical_pattern.optimize()
+        self.number_pattern.optimize()
+        self.string_single_pattern.optimize()
+        self.string_double_pattern.optimize()
+        self.comment_pattern.optimize()
+        self.comment_column1_pattern.optimize()
+        self.operator_pattern.optimize()
+
+    def highlightBlock(self, text: str):
+        """Apply syntax highlighting to a block of text.
+
+        Args:
+            text: The text block to apply syntax highlighting to.
+        """
+        # Comments have highest priority (applied first, others won't override)
+        # C or c in first column
+        if self.comment_column1_pattern.match(text).hasMatch():
+            self.setFormat(0, len(text), self.comment_format)
+            return
+
+        # Inline comments with !
+        match_iterator = self.comment_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            self.setFormat(match.capturedStart(), match.capturedLength(), self.comment_format)
+
+        # Namelist block markers (&NAMELIST_NAME)
+        match_iterator = self.namelist_start_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            self.setFormat(match.capturedStart(), match.capturedLength(), self.namelist_format)
+
+        # Namelist end marker (/)
+        match_iterator = self.namelist_end_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            self.setFormat(match.capturedStart(), match.capturedLength(), self.namelist_format)
+
+        # Strings (must come before numbers to prevent conflicts)
+        match_iterator = self.string_single_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            self.setFormat(match.capturedStart(), match.capturedLength(), self.string_format)
+
+        match_iterator = self.string_double_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            self.setFormat(match.capturedStart(), match.capturedLength(), self.string_format)
+
+        # Logical values (.true., .false., etc.)
+        match_iterator = self.logical_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            self.setFormat(match.capturedStart(), match.capturedLength(), self.logical_format)
+
+        # Variable names (only those followed by =)
+        match_iterator = self.variable_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            start = match.capturedStart()
+            length = match.capturedLength()
+            # Only apply if not already formatted (e.g., not inside a string)
+            if self.format(start) == QTextCharFormat():
+                self.setFormat(start, length, self.variable_format)
+
+        # Array indices within variables (override variable color for indices)
+        match_iterator = self.array_index_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            start = match.capturedStart()
+            length = match.capturedLength()
+            # Only highlight if this is within a variable (check if start-1 is variable formatted)
+            if start > 0 and self.format(start - 1).foreground().color() == self.variable_format.foreground().color():
+                # Highlight the contents inside parentheses, not the parentheses themselves
+                inner_text = text[start:start + length]
+                # Find actual content (skip opening paren)
+                if length > 2:  # Has content between ()
+                    self.setFormat(start + 1, length - 2, self.array_index_format)
+
+        # Numbers
+        match_iterator = self.number_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            start = match.capturedStart()
+            length = match.capturedLength()
+            # Only apply if not already formatted
+            if self.format(start) == QTextCharFormat():
+                self.setFormat(start, length, self.number_format)
+
+        # Operators
+        match_iterator = self.operator_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            start = match.capturedStart()
+            length = match.capturedLength()
+            # Only apply if not already formatted
+            if self.format(start) == QTextCharFormat():
+                self.setFormat(start, length, self.operator_format)
+
+
 class NAIFPCKHighlighter(QSyntaxHighlighter):
     """Special highlighter for NAIF PCK files that handles \\begindata and \\begintext blocks."""
 
@@ -936,11 +1122,13 @@ EXTENSION_TO_LANGUAGE = {
     ".hh": "cpp",
     ".f": "fortran",
     ".f90": "fortran",
-    ".ideck": "fortran",
     ".f95": "fortran",
     ".f03": "fortran",
     ".f08": "fortran",
     ".for": "fortran",
+    ".ideck": "fortran_namelist",
+    ".nml": "fortran_namelist",
+    ".namelist": "fortran_namelist",
     ".yaml": "yaml",
     ".yml": "yaml",
     ".toml": "toml",
