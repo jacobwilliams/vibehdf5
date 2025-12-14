@@ -3,13 +3,13 @@ Dialog for displaying unique values in a column.
 """
 
 from qtpy.QtWidgets import (
+    QAbstractItemView,
     QDialog,
-    QVBoxLayout,
+    QDialogButtonBox,
     QLabel,
     QTableWidget,
     QTableWidgetItem,
-    QAbstractItemView,
-    QDialogButtonBox,
+    QVBoxLayout,
 )
 
 

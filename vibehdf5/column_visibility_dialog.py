@@ -2,20 +2,21 @@
 Dialog for selecting which columns to display in the CSV table.
 """
 
+import fnmatch
+
 from qtpy.QtWidgets import (
+    QCheckBox,
     QDialog,
-    QVBoxLayout,
+    QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
-    QCheckBox,
-    QPushButton,
-    QDialogButtonBox,
-    QScrollArea,
-    QWidget,
-    QFrame,
     QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
-import fnmatch
 
 
 class ColumnVisibilityDialog(QDialog):

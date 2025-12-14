@@ -2,8 +2,8 @@
 Table model for displaying CSV data in a QTableView.
 """
 
-from qtpy.QtCore import QAbstractTableModel, QModelIndex, Qt
 import numpy as np
+from qtpy.QtCore import QAbstractTableModel, QModelIndex, Qt
 
 
 class CSVTableModel(QAbstractTableModel):
@@ -28,7 +28,7 @@ class CSVTableModel(QAbstractTableModel):
         self._data_dict = data_dict
         self._col_names = col_names
         # Cached list of column data references (aligned with _col_names)
-        self._col_data_refs = []
+        self._col_data_refs: list = []
         self._rebuild_column_refs()
         if row_indices is not None:
             self._row_indices = np.array(row_indices)

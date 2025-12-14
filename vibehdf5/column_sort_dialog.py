@@ -3,16 +3,16 @@ Dialog for configuring multi-column sorting.
 """
 
 from qtpy.QtWidgets import (
+    QComboBox,
     QDialog,
-    QVBoxLayout,
+    QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
-    QComboBox,
     QPushButton,
     QScrollArea,
+    QVBoxLayout,
     QWidget,
-    QFrame,
-    QDialogButtonBox,
 )
 
 

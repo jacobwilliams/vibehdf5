@@ -2,7 +2,6 @@
 
 import os
 import sys
-from pathlib import Path
 
 from qtpy.QtWidgets import QApplication
 
@@ -31,7 +30,8 @@ def main(argv: list[str] | None = None) -> int:
             win.load_hdf5(candidate)
 
     win.show()
-    return app.exec()
+    val: int = app.exec()
+    return val
 
 
 if __name__ == "__main__":

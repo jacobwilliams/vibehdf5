@@ -6,9 +6,9 @@ import os
 import tempfile
 import traceback
 
-from qtpy.QtWidgets import QListWidget, QAbstractItemView, QMessageBox
+from qtpy.QtCore import QMimeData, Qt, QUrl
 from qtpy.QtGui import QDrag
-from qtpy.QtCore import QMimeData, QUrl, Qt
+from qtpy.QtWidgets import QAbstractItemView, QListWidget, QMessageBox
 
 
 class DraggablePlotListWidget(QListWidget):

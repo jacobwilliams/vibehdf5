@@ -2,17 +2,16 @@
 Dialog for displaying column statistics.
 """
 
-import pandas as pd
 import numpy as np
-
+import pandas as pd
 from qtpy.QtWidgets import (
+    QAbstractItemView,
     QDialog,
-    QVBoxLayout,
+    QDialogButtonBox,
     QLabel,
     QTableWidget,
     QTableWidgetItem,
-    QAbstractItemView,
-    QDialogButtonBox,
+    QVBoxLayout,
 )
 
 

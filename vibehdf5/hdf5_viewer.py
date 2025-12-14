@@ -9,26 +9,38 @@ import gzip
 import json
 import os
 import posixpath
+import shutil
 import tempfile
 import time
 import traceback
 from pathlib import Path
-import shutil
+
 import h5py
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
 from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.dates import AutoDateLocator, DateFormatter
 from matplotlib.figure import Figure
-from matplotlib.axes import Axes
 from qtpy.QtCore import QModelIndex, QPoint, QRect, QSettings, QSize, Qt
-from qtpy.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QKeySequence, QPixmap, QPainter, QPen
+from qtpy.QtGui import (
+    QAction,
+    QColor,
+    QFont,
+    QFontDatabase,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -44,43 +56,42 @@ from qtpy.QtWidgets import (
     QPlainTextEdit,
     QProgressDialog,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QStatusBar,
     QStyle,
+    QTableView,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
-    QTableView,
+    QTextEdit,
     QToolBar,
+    QToolTip,
     QTreeView,
     QVBoxLayout,
     QWidget,
-    QTextEdit,
-    QToolTip,
-    QComboBox,
-    QScrollArea
 )
 
+from .column_filter_dialog import ColumnFilterDialog
+from .column_sort_dialog import ColumnSortDialog
+from .column_statistics_dialog import ColumnStatisticsDialog
+from .column_visibility_dialog import ColumnVisibilityDialog
+from .csv_table_model import CSVTableModel
+from .draggable_plot_list_widget import DraggablePlotListWidget
+from .drop_tree_view import DropTreeView
 from .hdf5_tree_model import HDF5TreeModel
+from .plot_options_dialog import PlotOptionsDialog
+from .scaled_image_label import ScaledImageLabel
 from .syntax_highlighter import SyntaxHighlighter, get_language_from_path
+from .unique_values_dialog import UniqueValuesDialog
 from .utilities import (
+    dataset_to_text,
     excluded_dirs,
     excluded_files,
     indices_to_ranges,
     ranges_to_indices,
     sanitize_hdf5_name,
-    dataset_to_text,
 )
-from .csv_table_model import CSVTableModel
-from .draggable_plot_list_widget import DraggablePlotListWidget
-from .scaled_image_label import ScaledImageLabel
-from .drop_tree_view import DropTreeView
-from .column_statistics_dialog import ColumnStatisticsDialog
-from .column_sort_dialog import ColumnSortDialog
-from .column_filter_dialog import ColumnFilterDialog
-from .column_visibility_dialog import ColumnVisibilityDialog
-from .unique_values_dialog import UniqueValuesDialog
-from .plot_options_dialog import PlotOptionsDialog
 
 
 class HDF5Viewer(QMainWindow):
@@ -5671,7 +5682,7 @@ class HDF5Viewer(QMainWindow):
                 plots_json = grp.attrs["saved_plots"]
                 if isinstance(plots_json, bytes):
                     plots_json = plots_json.decode("utf-8")
-                plots = json.loads(plots_json)
+                plots = json.loads(str(plots_json))
                 # let's convert filtered_indices from lists of indices to ranges for efficiency [older files may have been saved with all the indices which is a lot of data]
                 any_converted = False
                 for plot_config in plots:

@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import os
 import re
+
 from qtpy.QtCore import QRegularExpression
-from qtpy.QtGui import QColor, QTextCharFormat, QFont, QSyntaxHighlighter
+from qtpy.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
 
 
 class SyntaxHighlighter(QSyntaxHighlighter):
@@ -291,7 +292,6 @@ class FortranNamelistHighlighter(QSyntaxHighlighter):
             # Only highlight if this is within a variable (check if start-1 is variable formatted)
             if start > 0 and self.format(start - 1).foreground().color() == self.variable_format.foreground().color():
                 # Highlight the contents inside parentheses, not the parentheses themselves
-                inner_text = text[start:start + length]
                 # Find actual content (skip opening paren)
                 if length > 2:  # Has content between ()
                     self.setFormat(start + 1, length - 2, self.array_index_format)

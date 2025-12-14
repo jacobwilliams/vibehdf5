@@ -3,7 +3,8 @@ TreeView that accepts external file/folder drops and forwards to the viewer.
 """
 
 import os
-from qtpy.QtWidgets import QTreeView, QMessageBox
+
+from qtpy.QtWidgets import QMessageBox, QTreeView
 
 
 class DropTreeView(QTreeView):

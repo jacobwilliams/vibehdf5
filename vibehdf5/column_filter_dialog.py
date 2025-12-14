@@ -3,17 +3,17 @@ Dialog for configuring column filters in the CSV table.
 """
 
 from qtpy.QtWidgets import (
+    QComboBox,
     QDialog,
-    QVBoxLayout,
+    QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
-    QComboBox,
     QLineEdit,
     QPushButton,
-    QDialogButtonBox,
     QScrollArea,
+    QVBoxLayout,
     QWidget,
-    QFrame,
 )
 
 
@@ -30,11 +30,7 @@ class ColumnFilterDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Configure Column Filters")
         self.resize(600, 400)
-
         self.column_names = column_names
-        self.filters = []
-        """List of (column_name, operator, value) tuples"""
-
         layout = QVBoxLayout(self)
 
         # Instructions
@@ -127,7 +123,7 @@ class ColumnFilterDialog(QDialog):
         self.filter_layout.removeWidget(row_widget)
         row_widget.deleteLater()
 
-    def get_filters(self):
+    def get_filters(self) -> list[tuple[str, str, str]]:
         """Return list of active filters as (column_name, operator, value) tuples."""
         filters = []
         for i in range(self.filter_layout.count() - 1):  # -1 to skip stretch
@@ -140,7 +136,7 @@ class ColumnFilterDialog(QDialog):
                     filters.append((col_name, operator, value))
         return filters
 
-    def set_filters(self, filters):
+    def set_filters(self, filters: list[tuple[str, str, str]]):
         """Set initial filters from a list of (column_name, operator, value) tuples.
 
         Args:

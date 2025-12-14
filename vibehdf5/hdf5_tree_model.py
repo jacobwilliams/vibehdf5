@@ -8,12 +8,13 @@ import gzip
 import os
 import shutil
 import tempfile
+
 import h5py
 import numpy as np
 import pandas as pd
-from qtpy.QtCore import QMimeData, Qt, QUrl, QFileInfo
-from qtpy.QtGui import QIcon, QPainter, QPixmap, QColor, QStandardItem, QStandardItemModel
-from qtpy.QtWidgets import QApplication, QStyle, QFileIconProvider
+from qtpy.QtCore import QFileInfo, QMimeData, Qt, QUrl
+from qtpy.QtGui import QColor, QIcon, QPainter, QPixmap, QStandardItem, QStandardItemModel
+from qtpy.QtWidgets import QApplication, QFileIconProvider, QStyle
 
 
 class HDF5TreeModel(QStandardItemModel):

@@ -2,13 +2,14 @@
 Utilities for working with HDF5 files in VibeHDF5.
 """
 
-import os
-import h5py
-import fnmatch
-import numpy as np
-from typing import Union
-import gzip
 import binascii
+import fnmatch
+import gzip
+import os
+from typing import Union
+
+import h5py
+import numpy as np
 
 excluded_dirs = [".git", ".svn"]  # never include these subdirectories
 excluded_files = [
@@ -115,7 +116,7 @@ def indices_to_ranges(indices: list[int] | np.ndarray) -> list[str | int]:
     if isinstance(indices, np.ndarray):
         indices = indices.tolist()
 
-    result = []
+    result: list[str | int] = []
     start = indices[0]
     end = indices[0]
 
@@ -158,7 +159,7 @@ def ranges_to_indices(ranges: list[str | int]) -> np.ndarray:
     if not ranges:
         return np.array([], dtype=np.int64)
 
-    indices = []
+    indices: list = []
     for item in ranges:
         if isinstance(item, str) and "-" in item:
             # Parse range string
