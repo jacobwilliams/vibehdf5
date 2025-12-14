@@ -588,7 +588,7 @@ class HDF5Viewer(QMainWindow):
         return progress
 
     def _save_csv_attr_to_hdf5(
-        self, attr_name: str, value, success_msg: str, clear_msg: str = None
+        self, attr_name: str, value, success_msg: str, clear_msg: str | None = None
     ):
         """Generic helper to save a CSV group attribute to HDF5.
 
@@ -1004,7 +1004,7 @@ class HDF5Viewer(QMainWindow):
 
             if apply_smooth and smooth_mode == "both":
                 plot_kwargs["alpha"] = 0.3
-                plot_kwargs["linewidth"] = plot_kwargs.get("linewidth", 1.5) * 0.7
+                plot_kwargs["linewidth"] = float(plot_kwargs.get("linewidth", 1.5)) * 0.7
 
             # Use bar or plot depending on plot_type
             if plot_type == "bar":
@@ -4197,7 +4197,7 @@ class HDF5Viewer(QMainWindow):
             self._csv_data_dict = {}  # Will be populated on-demand
             self._csv_column_names = col_names
             self._csv_total_rows = max_rows
-            self._csv_sort_specs = []  # Initialize sort specs
+            self._csv_sort_specs: list = []  # Initialize sort specs
             self._csv_visible_columns = col_names.copy()
             self._csv_filtered_indices = None
 
@@ -5861,7 +5861,7 @@ class HDF5Viewer(QMainWindow):
         return result
 
     def _apply_saved_plot(
-        self, item: QListWidgetItem | None = None, plot_config: dict = None
+        self, item: QListWidgetItem | None = None, plot_config: dict | None = None
     ) -> None:
         """
         Apply a saved plot configuration, or an ad-hoc plot config if provided.
@@ -6982,8 +6982,18 @@ class HDF5Viewer(QMainWindow):
 
         self.statusBar().showMessage(f"Duplicated plot: {plot_name}", 3000)
 
-    def _on_saved_plots_context_menu(self, point):
-        """Show context menu for saved plots list."""
+    def _on_saved_plots_context_menu(self, point: QPoint) -> None:
+        """Show context menu for saved plots list with options to manage plot configurations.
+
+        Displays a context menu with the following options:
+        - Duplicate Plot: Create a copy of the selected plot configuration
+        - Copy JSON to Clipboard: Copy the plot configuration as JSON text
+        - Delete Plot: Remove the selected plot configuration
+        - Export All Plots: Export all saved plots to files (available when plots exist)
+
+        Args:
+            point: QPoint position where the context menu was requested (in widget coordinates)
+        """
         item = self.saved_plots_list.itemAt(point)
 
         menu = QMenu(self)

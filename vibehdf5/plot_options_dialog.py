@@ -623,7 +623,7 @@ class PlotOptionsDialog(QDialog):
             self.tabs.addTab(contour_tab, "Contour")
 
         # Always define refline_widgets to avoid AttributeError
-        self.refline_widgets = []
+        self.refline_widgets: list = []
 
         def add_series_and_reflines_tabs() -> None:
             """Add the Series Styles and Reference Lines tabs for line/bar plots."""

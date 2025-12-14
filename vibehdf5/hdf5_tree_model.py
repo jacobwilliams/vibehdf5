@@ -710,7 +710,7 @@ class HDF5TreeModel(QStandardItemModel):
             # Return DataFrame if requested
             if return_dataframe:
                 # Build DataFrame from column data, preserving numpy array types
-                data_dict = {}
+                data_dict: dict[str, list | np.ndarray] = {}
                 for idx, col_name in enumerate(col_names):
                     col_arr = column_data[idx]
                     # Apply row filtering

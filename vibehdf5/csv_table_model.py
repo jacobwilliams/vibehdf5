@@ -30,6 +30,7 @@ class CSVTableModel(QAbstractTableModel):
         # Cached list of column data references (aligned with _col_names)
         self._col_data_refs: list = []
         self._rebuild_column_refs()
+        self._row_indices: np.ndarray | None = None
         if row_indices is not None:
             self._row_indices = np.array(row_indices)
             self._row_count = len(self._row_indices)

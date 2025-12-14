@@ -25,7 +25,7 @@ class SyntaxHighlighter(QSyntaxHighlighter):
         """
         super().__init__(document)
         self.language = language
-        self.highlighting_rules = []
+        self.highlighting_rules: list[tuple[QRegularExpression, QTextCharFormat]] = []
         self._setup_formats()
         self._setup_rules()
 
