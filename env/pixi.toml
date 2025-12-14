@@ -1,4 +1,4 @@
-[project]
+[workspace]
 authors = ["Jacob Williams <jacobwilliams@users.noreply.github.com>"]
 channels = ["conda-forge"]
 name = "env"
