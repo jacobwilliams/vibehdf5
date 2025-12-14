@@ -12,13 +12,22 @@ from qtpy.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
+from .table_copy_mixin import TableCopyMixin
 
-class ColumnStatisticsDialog(QDialog):
+
+class ColumnStatisticsDialog(TableCopyMixin, QDialog):
     """Dialog for displaying column statistics."""
 
-    def __init__(self, column_names, data_dict, filtered_indices, parent=None):
+    def __init__(
+        self,
+        column_names: list[str],
+        data_dict: dict[str, np.ndarray],
+        filtered_indices: np.ndarray | None,
+        parent: QWidget | None = None,
+    ) -> None:
         """Initialize the column statistics dialog.
 
         Args:
@@ -50,15 +59,17 @@ class ColumnStatisticsDialog(QDialog):
         info_label.setStyleSheet("font-weight: bold;")
         layout.addWidget(info_label)
 
-        # Statistics table
-        self.stats_table = QTableWidget(self)
-        self.stats_table.setAlternatingRowColors(True)
-        self.stats_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.stats_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        layout.addWidget(self.stats_table)
+        # Statistics table (named 'table' for TableCopyMixin compatibility)
+        self.table = QTableWidget(self)
+        self.table.setAlternatingRowColors(True)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        layout.addWidget(self.table)
 
         # Calculate and display statistics
         self._calculate_statistics()
+
+        # Enable copy functionality
+        self.setup_table_copy()
 
         # Close button
         button_box = QDialogButtonBox(QDialogButtonBox.Close)
@@ -71,10 +82,10 @@ class ColumnStatisticsDialog(QDialog):
         stat_labels = ["Count", "Min", "Max", "Mean", "Median", "Std Dev", "Sum", "Unique Values"]
 
         # Set up table dimensions
-        self.stats_table.setRowCount(len(stat_labels))
-        self.stats_table.setColumnCount(len(self.column_names))
-        self.stats_table.setHorizontalHeaderLabels(self.column_names)
-        self.stats_table.setVerticalHeaderLabels(stat_labels)
+        self.table.setRowCount(len(stat_labels))
+        self.table.setColumnCount(len(self.column_names))
+        self.table.setHorizontalHeaderLabels(self.column_names)
+        self.table.setVerticalHeaderLabels(stat_labels)
 
         # Calculate statistics for each column
         for col_idx, col_name in enumerate(self.column_names):
@@ -144,14 +155,14 @@ class ColumnStatisticsDialog(QDialog):
                 for row_idx, stat_label in enumerate(stat_labels):
                     value = stats.get(stat_label, "N/A")
                     item = QTableWidgetItem(str(value))
-                    self.stats_table.setItem(row_idx, col_idx, item)
+                    self.table.setItem(row_idx, col_idx, item)
 
             except Exception as e:
                 # On error, fill with N/A
                 for row_idx in range(len(stat_labels)):
                     item = QTableWidgetItem("Error")
                     item.setToolTip(str(e))
-                    self.stats_table.setItem(row_idx, col_idx, item)
+                    self.table.setItem(row_idx, col_idx, item)
 
         # Resize columns to content
-        self.stats_table.resizeColumnsToContents()
+        self.table.resizeColumnsToContents()

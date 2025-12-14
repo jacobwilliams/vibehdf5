@@ -12,8 +12,10 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
 )
 
+from .table_copy_mixin import TableCopyMixin
 
-class UniqueValuesDialog(QDialog):
+
+class UniqueValuesDialog(TableCopyMixin, QDialog):
     """Dialog for displaying unique values in a column."""
 
     def __init__(self, column_name: str, unique_values: list, parent=None):
@@ -44,7 +46,6 @@ class UniqueValuesDialog(QDialog):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setAlternatingRowColors(True)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
 
         # Populate table with unique values
         self.table.setRowCount(len(unique_values))
@@ -53,6 +54,9 @@ class UniqueValuesDialog(QDialog):
             self.table.setItem(i, 0, item)
 
         layout.addWidget(self.table)
+
+        # Enable copy functionality
+        self.setup_table_copy()
 
         # Close button
         button_box = QDialogButtonBox(QDialogButtonBox.Close)
