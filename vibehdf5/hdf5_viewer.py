@@ -3933,6 +3933,12 @@ class HDF5Viewer(QMainWindow):
                     self._current_highlighter = FortranNamelistHighlighter(
                         self.preview_edit.document()
                     )
+                # Use special highlighter for batch files
+                elif language == "batch":
+                    from vibehdf5.syntax_highlighter import BatchHighlighter
+                    self._current_highlighter = BatchHighlighter(
+                        self.preview_edit.document()
+                    )
                 else:
                     self._current_highlighter = SyntaxHighlighter(
                         self.preview_edit.document(), language=language

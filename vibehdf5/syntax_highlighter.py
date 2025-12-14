@@ -317,6 +317,204 @@ class FortranNamelistHighlighter(QSyntaxHighlighter):
                 self.setFormat(start, length, self.operator_format)
 
 
+class BatchHighlighter(QSyntaxHighlighter):
+    """Special highlighter for Windows batch files that handles variables separately."""
+
+    def __init__(self, document):
+        """Initialize the batch file highlighter.
+
+        Args:
+            document: QTextDocument to apply highlighting to.
+        """
+        super().__init__(document)
+        self._setup_formats()
+        self._setup_patterns()
+
+    def _setup_formats(self):
+        """Define text formats for different syntax elements."""
+        # Keyword format
+        self.keyword_format = QTextCharFormat()
+        self.keyword_format.setForeground(QColor("#5B5BE8"))  # Blue
+        self.keyword_format.setFontWeight(QFont.Bold)
+
+        # Builtin format
+        self.builtin_format = QTextCharFormat()
+        self.builtin_format.setForeground(QColor("#9D40E0"))  # Purple
+
+        # Variable format (for %VARNAME% and %1)
+        self.variable_format = QTextCharFormat()
+        self.variable_format.setForeground(QColor("#C2BB3E"))  # Yellow-brown
+        self.variable_format.setFontWeight(QFont.Bold)
+
+        # String format
+        self.string_format = QTextCharFormat()
+        self.string_format.setForeground(QColor("#008000"))  # Green
+
+        # Comment format
+        self.comment_format = QTextCharFormat()
+        self.comment_format.setForeground(QColor("#808080"))  # Gray
+        self.comment_format.setFontItalic(True)
+
+        # Number format
+        self.number_format = QTextCharFormat()
+        self.number_format.setForeground(QColor("#FF6600"))  # Orange
+
+        # Label format
+        self.label_format = QTextCharFormat()
+        self.label_format.setForeground(QColor("#8B008B"))  # Dark magenta
+        self.label_format.setFontWeight(QFont.Bold)
+
+        # Operator format
+        self.operator_format = QTextCharFormat()
+        self.operator_format.setForeground(QColor("#97824D"))
+        self.operator_format.setFontWeight(QFont.Bold)
+
+    def _setup_patterns(self):
+        """Setup regex patterns for batch file syntax."""
+        # Keywords
+        keywords = [
+            "if", "else", "for", "do", "in", "goto", "call", "exit",
+            "setlocal", "endlocal", "enabledelayedexpansion", "disabledelayedexpansion",
+            "not", "exist", "defined", "errorlevel", "equ", "neq", "lss", "leq", "gtr", "geq"
+        ]
+        self.keyword_patterns = []
+        for keyword in keywords:
+            pattern = QRegularExpression(rf"\b{keyword}\b", QRegularExpression.CaseInsensitiveOption)
+            pattern.optimize()
+            self.keyword_patterns.append(pattern)
+
+        # Builtins
+        builtins = [
+            "echo", "set", "cd", "chdir", "md", "mkdir", "rd", "rmdir",
+            "del", "erase", "copy", "move", "ren", "rename", "type", "cls",
+            "pause", "start", "title", "color", "dir", "path", "prompt",
+            "pushd", "popd", "shift", "timeout"
+        ]
+        self.builtin_patterns = []
+        for builtin in builtins:
+            pattern = QRegularExpression(rf"\b{builtin}\b", QRegularExpression.CaseInsensitiveOption)
+            pattern.optimize()
+            self.builtin_patterns.append(pattern)
+
+        # Variables: %VARNAME% and batch parameters %1, %~1, etc.
+        self.variable_pattern = QRegularExpression(r"%[A-Za-z_][A-Za-z0-9_]*%")
+        self.param_pattern = QRegularExpression(r"%~?[0-9*]")
+        self.variable_pattern.optimize()
+        self.param_pattern.optimize()
+
+        # Labels
+        self.label_pattern = QRegularExpression(r":[A-Za-z_][A-Za-z0-9_]*")
+        self.label_pattern.optimize()
+
+        # Numbers
+        self.number_pattern = QRegularExpression(r"\b[0-9]+\b")
+        self.number_pattern.optimize()
+
+        # Strings
+        self.string_pattern = QRegularExpression(r'"[^"]*"')
+        self.string_pattern.optimize()
+
+        # Comments
+        self.comment_pattern = QRegularExpression(r"(?i)^rem\s+.*|(?i)\brem\s+.*")
+        self.comment_pattern.optimize()
+
+        # Operators
+        operators = ["==", "&&", "||", "|", "&", "(", ")"]
+        self.operator_patterns = []
+        for op in operators:
+            escaped = re.escape(op)
+            pattern = QRegularExpression(escaped)
+            pattern.optimize()
+            self.operator_patterns.append(pattern)
+
+    def highlightBlock(self, text: str):
+        """Apply syntax highlighting to a block of text.
+
+        Args:
+            text: The text block to apply syntax highlighting to.
+        """
+        # Comments first (highest priority)
+        match_iterator = self.comment_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            self.setFormat(match.capturedStart(), match.capturedLength(), self.comment_format)
+
+        # Variables (apply early so they don't conflict with other patterns)
+        match_iterator = self.variable_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            start = match.capturedStart()
+            length = match.capturedLength()
+            if self.format(start) == QTextCharFormat():
+                self.setFormat(start, length, self.variable_format)
+
+        # Batch parameters
+        match_iterator = self.param_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            start = match.capturedStart()
+            length = match.capturedLength()
+            if self.format(start) == QTextCharFormat():
+                self.setFormat(start, length, self.variable_format)
+
+        # Keywords
+        for pattern in self.keyword_patterns:
+            match_iterator = pattern.globalMatch(text)
+            while match_iterator.hasNext():
+                match = match_iterator.next()
+                start = match.capturedStart()
+                length = match.capturedLength()
+                if self.format(start) == QTextCharFormat():
+                    self.setFormat(start, length, self.keyword_format)
+
+        # Builtins
+        for pattern in self.builtin_patterns:
+            match_iterator = pattern.globalMatch(text)
+            while match_iterator.hasNext():
+                match = match_iterator.next()
+                start = match.capturedStart()
+                length = match.capturedLength()
+                if self.format(start) == QTextCharFormat():
+                    self.setFormat(start, length, self.builtin_format)
+
+        # Labels
+        match_iterator = self.label_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            start = match.capturedStart()
+            length = match.capturedLength()
+            if self.format(start) == QTextCharFormat():
+                self.setFormat(start, length, self.label_format)
+
+        # Strings
+        match_iterator = self.string_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            start = match.capturedStart()
+            length = match.capturedLength()
+            if self.format(start) == QTextCharFormat():
+                self.setFormat(start, length, self.string_format)
+
+        # Numbers
+        match_iterator = self.number_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            start = match.capturedStart()
+            length = match.capturedLength()
+            if self.format(start) == QTextCharFormat():
+                self.setFormat(start, length, self.number_format)
+
+        # Operators
+        for pattern in self.operator_patterns:
+            match_iterator = pattern.globalMatch(text)
+            while match_iterator.hasNext():
+                match = match_iterator.next()
+                start = match.capturedStart()
+                length = match.capturedLength()
+                if self.format(start) == QTextCharFormat():
+                    self.setFormat(start, length, self.operator_format)
+
+
 class NAIFPCKHighlighter(QSyntaxHighlighter):
     """Special highlighter for NAIF PCK files that handles \\begindata and \\begintext blocks."""
 
@@ -1005,66 +1203,8 @@ LANGUAGE_PATTERNS = {
             ">=",
         ],
     },
-    "batch": {
-        "keywords": [
-            "if",
-            "else",
-            "for",
-            "do",
-            "in",
-            "goto",
-            "call",
-            "exit",
-            "setlocal",
-            "endlocal",
-            "enabledelayedexpansion",
-            "disabledelayedexpansion",
-            "not",
-            "exist",
-            "defined",
-            "errorlevel",
-            "equ",
-            "neq",
-            "lss",
-            "leq",
-            "gtr",
-            "geq",
-        ],
-        "builtins": [
-            "echo",
-            "set",
-            "cd",
-            "chdir",
-            "md",
-            "mkdir",
-            "rd",
-            "rmdir",
-            "del",
-            "erase",
-            "copy",
-            "move",
-            "ren",
-            "rename",
-            "type",
-            "cls",
-            "pause",
-            "start",
-            "title",
-            "color",
-            "dir",
-            "path",
-            "prompt",
-            "pushd",
-            "popd",
-            "shift",
-            "timeout",
-        ],
-        "function_pattern": r":[A-Za-z_][A-Za-z0-9_]*",  # Labels
-        "number_pattern": r"\b[0-9]+\b",
-        "string_patterns": [r'"[^"]*"'],
-        "comment_patterns": [r"(?i)^rem\s+.*|(?i)\brem\s+.*"],
-        "operators": ["==", "&&", "||", "|", "&", "(", ")", "%"],
-    },
+    # Note: batch files use custom BatchHighlighter class for better variable highlighting
+    "batch": {},
     "naif_pck": {
         "keywords": [
             r"\\begintext",
