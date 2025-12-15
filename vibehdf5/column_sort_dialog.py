@@ -30,8 +30,10 @@ class ColumnSortDialog(QDialog):
         self.setWindowTitle("Configure Column Sorting")
         self.resize(500, 400)
 
-        self.column_names = column_names
-        self.sort_specs = []  # List of (column_name, ascending) tuples
+        self.column_names: list[str] = column_names
+        """List of available column names for sorting"""
+        self.sort_specs: list[tuple[str, bool]] = []
+        """List of (column_name, ascending) tuples"""
 
         layout = QVBoxLayout(self)
 
@@ -49,7 +51,8 @@ class ColumnSortDialog(QDialog):
         scroll.setFrameShape(QFrame.StyledPanel)
 
         sort_container = QWidget()
-        self.sort_layout = QVBoxLayout(sort_container)
+        self.sort_layout: QVBoxLayout = QVBoxLayout(sort_container)
+        """Layout containing all sort rows."""
         self.sort_layout.setContentsMargins(5, 5, 5, 5)
         self.sort_layout.addStretch()
 

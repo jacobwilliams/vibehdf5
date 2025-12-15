@@ -30,7 +30,8 @@ class ColumnFilterDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Configure Column Filters")
         self.resize(600, 400)
-        self.column_names = column_names
+        self.column_names: list[str] = column_names
+        """List of available column names to filter on."""
         layout = QVBoxLayout(self)
 
         # Instructions
@@ -43,7 +44,8 @@ class ColumnFilterDialog(QDialog):
         scroll.setFrameShape(QFrame.StyledPanel)
 
         filter_container = QWidget()
-        self.filter_layout = QVBoxLayout(filter_container)
+        self.filter_layout: QVBoxLayout = QVBoxLayout(filter_container)
+        """Layout containing all filter rows."""
         self.filter_layout.setContentsMargins(5, 5, 5, 5)
         self.filter_layout.addStretch()
 
@@ -62,7 +64,7 @@ class ColumnFilterDialog(QDialog):
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
-    def _add_filter_row(self, col_name=None, operator="==", value=""):
+    def _add_filter_row(self, col_name: str | None = None, operator: str = "==", value: str = "") -> None:
         """Add a new filter row to the dialog.
 
         Args:

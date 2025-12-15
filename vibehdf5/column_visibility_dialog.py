@@ -36,10 +36,12 @@ class ColumnVisibilityDialog(QDialog):
         self.setWindowTitle("Select Columns to Display")
         self.resize(400, 500)
 
-        self.column_names = column_names
-        self.visible_columns = (
+        self.column_names: list[str] = column_names
+        """List of all column names"""
+        self.visible_columns: list[str] = (
             visible_columns if visible_columns is not None else column_names.copy()
         )
+        """List of currently visible column names"""
 
         layout = QVBoxLayout(self)
 
@@ -48,8 +50,10 @@ class ColumnVisibilityDialog(QDialog):
         layout.addWidget(info_label)
 
         # Show all / Select specific radio buttons
-        radio_layout = QHBoxLayout()
-        self.radio_show_all = QCheckBox("Show All Columns")
+        radio_layout: QHBoxLayout = QHBoxLayout()
+        """Layout for show all and select specific radio buttons"""
+        self.radio_show_all: QCheckBox = QCheckBox("Show All Columns")
+        """Checkbox for showing all columns"""
         self.radio_show_all.setChecked(len(self.visible_columns) == len(self.column_names))
         self.radio_show_all.toggled.connect(self._on_show_all_toggled)
         radio_layout.addWidget(self.radio_show_all)
@@ -62,10 +66,12 @@ class ColumnVisibilityDialog(QDialog):
         scroll.setFrameShape(QFrame.StyledPanel)
 
         list_container = QWidget()
-        self.list_layout = QVBoxLayout(list_container)
+        self.list_layout: QVBoxLayout = QVBoxLayout(list_container)
+        """Layout for the list of column checkboxes"""
         self.list_layout.setContentsMargins(5, 5, 5, 5)
 
-        self.column_checkboxes = []
+        self.column_checkboxes: list[QCheckBox] = []
+        """List of column checkboxes"""
         for col_name in self.column_names:
             checkbox = QCheckBox(col_name)
             checkbox.setChecked(col_name in self.visible_columns)
@@ -82,7 +88,8 @@ class ColumnVisibilityDialog(QDialog):
         search_label = QLabel("Search:")
         search_layout.addWidget(search_label)
 
-        self.search_field = QLineEdit()
+        self.search_field: QLineEdit = QLineEdit()
+        """Search field for filtering columns"""
         self.search_field.setPlaceholderText("Type to filter columns...")
         self.search_field.setClearButtonEnabled(True)
         self.search_field.textChanged.connect(self._filter_columns)

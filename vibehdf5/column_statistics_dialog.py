@@ -40,9 +40,12 @@ class ColumnStatisticsDialog(TableCopyMixin, QDialog):
         self.setWindowTitle("Column Statistics")
         self.resize(700, 500)
 
-        self.column_names = column_names
-        self.data_dict = data_dict
-        self.filtered_indices = filtered_indices
+        self.column_names: list[str] = column_names
+        """List of column names to display statistics for"""
+        self.data_dict: dict[str, np.ndarray] = data_dict
+        """Dictionary mapping column names to data arrays"""
+        self.filtered_indices: np.ndarray | None = filtered_indices
+        """Array of filtered row indices, or None for all rows"""
 
         layout = QVBoxLayout(self)
 
@@ -60,7 +63,8 @@ class ColumnStatisticsDialog(TableCopyMixin, QDialog):
         layout.addWidget(info_label)
 
         # Statistics table (named 'table' for TableCopyMixin compatibility)
-        self.table = QTableWidget(self)
+        self.table: QTableWidget = QTableWidget(self)
+        """Table widget for displaying column statistics"""
         self.table.setAlternatingRowColors(True)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.table)

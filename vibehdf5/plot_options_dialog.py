@@ -35,9 +35,13 @@ class PlotOptionsDialog(QDialog):
 
     # Available line styles and colors
     LINE_STYLES = ["-", "--", "-.", ":", "None"]
+    """""Names for line styles, corresponding to matplotlib's Line2D.linestyle options"""
     LINE_STYLE_NAMES = ["Solid", "Dashed", "Dash-dot", "Dotted", "None"]
+    """User-friendly names for line styles"""
     COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]  # matplotlib's default color cycle
+    """Available line colors, corresponding to matplotlib's Line2D.color options"""
     MARKERS = ["", "o", "s", "^", "v", "D", "*", "+", "x", "."]
+    """Names for markers, corresponding to matplotlib's Line2D.marker options"""
     MARKER_NAMES = [
         "None",
         "Circle",
@@ -50,10 +54,12 @@ class PlotOptionsDialog(QDialog):
         "X",
         "Point",
     ]
+    """User-friendly names for markers"""
     PLOT_TYPES = [
         ("line", "Line Plot"),
         ("contourf", "Filled Contour Plot"),
     ]
+    """Available plot types, corresponding to matplotlib's plot functions"""
 
     def __init__(self, plot_config: dict, column_names: list[str], parent=None):
         """Initialize the plot options dialog.
@@ -67,13 +73,16 @@ class PlotOptionsDialog(QDialog):
         self.setWindowTitle("Plot Options")
         self.resize(600, 500)
 
-        self.plot_config = plot_config.copy()  # Work on a copy
-        self.column_names = column_names
+        self.plot_config: dict = plot_config.copy()  # Work on a copy
+        """Plot configuration to modify"""
+        self.column_names: list[str] = column_names
+        """Available column names for axis labels and series"""
 
         layout = QVBoxLayout(self)
 
         # Create tab widget for different option categories
         self.tabs = QTabWidget()
+        """Tab widget for different option categories"""
         layout.addWidget(self.tabs)
 
         # Tab 1: General options
@@ -84,6 +93,7 @@ class PlotOptionsDialog(QDialog):
         type_layout = QHBoxLayout()
         type_layout.addWidget(QLabel("Plot Type:"))
         self.type_combo = QComboBox()
+        """Plot type selection combo box"""
         for type_val, type_name in self.PLOT_TYPES:
             self.type_combo.addItem(type_name, type_val)
         # Set current value from config
@@ -99,29 +109,36 @@ class PlotOptionsDialog(QDialog):
         name_layout = QHBoxLayout()
         name_layout.addWidget(QLabel("Plot Name:"))
         self.name_edit = QLineEdit(self.plot_config.get("name", "Plot"))
+        """Plot name input field"""
         name_layout.addWidget(self.name_edit)
         general_layout.addLayout(name_layout)
 
         # Title
         title_layout = QHBoxLayout()
+        """Plot title input field"""
         title_layout.addWidget(QLabel("Plot Title:"))
         self.title_edit = QLineEdit(self.plot_config.get("plot_options", {}).get("title", ""))
+        """Title input field"""
         self.title_edit.setPlaceholderText("Auto-generated from CSV group name")
         title_layout.addWidget(self.title_edit)
         general_layout.addLayout(title_layout)
 
         # X-axis label
         xlabel_layout = QHBoxLayout()
+        """X-axis label input field"""
         xlabel_layout.addWidget(QLabel("X-axis Label:"))
         self.xlabel_edit = QLineEdit(self.plot_config.get("plot_options", {}).get("xlabel", ""))
+        """X-axis label input field"""
         self.xlabel_edit.setPlaceholderText("Auto-generated from column name")
         xlabel_layout.addWidget(self.xlabel_edit)
         general_layout.addLayout(xlabel_layout)
 
         # Y-axis label
         ylabel_layout = QHBoxLayout()
+        """Y-axis label input field"""
         ylabel_layout.addWidget(QLabel("Y-axis Label:"))
         self.ylabel_edit = QLineEdit(self.plot_config.get("plot_options", {}).get("ylabel", ""))
+        """Y-axis label input field"""
         self.ylabel_edit.setPlaceholderText("Auto-generated from column names")
         ylabel_layout.addWidget(self.ylabel_edit)
         general_layout.addLayout(ylabel_layout)
@@ -132,10 +149,12 @@ class PlotOptionsDialog(QDialog):
         grid_layout.setContentsMargins(0, 10, 0, 10)
 
         self.grid_checkbox = QCheckBox("Show Grid")
+        """Grid visibility checkbox"""
         self.grid_checkbox.setChecked(self.plot_config.get("plot_options", {}).get("grid", True))
         grid_layout.addWidget(self.grid_checkbox)
 
         self.legend_checkbox = QCheckBox("Show Legend")
+        """Legend visibility checkbox"""
         self.legend_checkbox.setChecked(
             self.plot_config.get("plot_options", {}).get("legend", True)
         )
@@ -143,6 +162,7 @@ class PlotOptionsDialog(QDialog):
 
         grid_layout.addWidget(QLabel("Legend Position:"))
         self.legend_loc_combo = QComboBox()
+        """Legend position selection combo box"""
         # Matplotlib legend location options
         legend_locations = [
             ("best", "Best"),
@@ -167,6 +187,7 @@ class PlotOptionsDialog(QDialog):
         grid_layout.addWidget(self.legend_loc_combo)
 
         self.dark_background_checkbox = QCheckBox("Dark Background")
+        """Dark background checkbox"""
         self.dark_background_checkbox.setChecked(
             self.plot_config.get("plot_options", {}).get("dark_background", False)
         )
@@ -184,6 +205,7 @@ class PlotOptionsDialog(QDialog):
         xlim_layout.addWidget(QLabel("X-axis:"))
         xlim_layout.addWidget(QLabel("Min:"))
         self.xlim_min_edit = QLineEdit()
+        """X-axis minimum limit input field"""
         self.xlim_min_edit.setPlaceholderText("auto")
         self.xlim_min_edit.setMaximumWidth(100)
         xlim_min_val = self.plot_config.get("plot_options", {}).get("xlim_min", "")
@@ -193,6 +215,7 @@ class PlotOptionsDialog(QDialog):
 
         xlim_layout.addWidget(QLabel("Max:"))
         self.xlim_max_edit = QLineEdit()
+        """X-axis maximum limit input field"""
         self.xlim_max_edit.setPlaceholderText("auto")
         self.xlim_max_edit.setMaximumWidth(100)
         xlim_max_val = self.plot_config.get("plot_options", {}).get("xlim_max", "")
@@ -208,6 +231,7 @@ class PlotOptionsDialog(QDialog):
         ylim_layout.addWidget(QLabel("Y-axis:"))
         ylim_layout.addWidget(QLabel("Min:"))
         self.ylim_min_edit = QLineEdit()
+        """Y-axis minimum limit input field"""
         self.ylim_min_edit.setPlaceholderText("auto")
         self.ylim_min_edit.setMaximumWidth(100)
         ylim_min_val = self.plot_config.get("plot_options", {}).get("ylim_min", "")
@@ -217,6 +241,7 @@ class PlotOptionsDialog(QDialog):
 
         ylim_layout.addWidget(QLabel("Max:"))
         self.ylim_max_edit = QLineEdit()
+        """Y-axis maximum limit input field"""
         self.ylim_max_edit.setPlaceholderText("auto")
         self.ylim_max_edit.setMaximumWidth(100)
         ylim_max_val = self.plot_config.get("plot_options", {}).get("ylim_max", "")
@@ -235,10 +260,12 @@ class PlotOptionsDialog(QDialog):
         log_scale_layout.setContentsMargins(0, 5, 0, 10)
 
         self.xlog_checkbox = QCheckBox("X-axis Log Scale")
+        """X-axis logarithmic scale checkbox"""
         self.xlog_checkbox.setChecked(self.plot_config.get("plot_options", {}).get("xlog", False))
         log_scale_layout.addWidget(self.xlog_checkbox)
 
         self.ylog_checkbox = QCheckBox("Y-axis Log Scale")
+        """Y-axis logarithmic scale checkbox"""
         self.ylog_checkbox.setChecked(self.plot_config.get("plot_options", {}).get("ylog", False))
         log_scale_layout.addWidget(self.ylog_checkbox)
 
@@ -254,6 +281,7 @@ class PlotOptionsDialog(QDialog):
         datetime_layout.setContentsMargins(0, 5, 0, 10)
 
         self.xaxis_datetime_checkbox = QCheckBox("X-axis is Date/Time")
+        """X-axis is date/time checkbox"""
         self.xaxis_datetime_checkbox.setChecked(
             self.plot_config.get("plot_options", {}).get("xaxis_datetime", False)
         )
@@ -263,6 +291,7 @@ class PlotOptionsDialog(QDialog):
         format_layout = QHBoxLayout()
         format_layout.addWidget(QLabel("Date Format:"))
         self.datetime_format_edit = QLineEdit()
+        """Date format input field"""
         self.datetime_format_edit.setPlaceholderText("%Y-%m-%d %H:%M:%S")
         datetime_format = self.plot_config.get("plot_options", {}).get("datetime_format", "")
         if datetime_format:
@@ -279,6 +308,7 @@ class PlotOptionsDialog(QDialog):
         display_format_layout = QHBoxLayout()
         display_format_layout.addWidget(QLabel("Display Format:"))
         self.datetime_display_format_edit = QLineEdit()
+        """Date display format input field"""
         self.datetime_display_format_edit.setPlaceholderText("%Y-%m-%d")
         datetime_display_format = self.plot_config.get("plot_options", {}).get(
             "datetime_display_format", ""
@@ -311,6 +341,7 @@ class PlotOptionsDialog(QDialog):
 
         figsize_layout.addWidget(QLabel("Width:"))
         self.figwidth_spin = QDoubleSpinBox()
+        """Figure width input field"""
         self.figwidth_spin.setRange(1.0, 50.0)
         self.figwidth_spin.setSingleStep(0.5)
         self.figwidth_spin.setValue(self.plot_config.get("plot_options", {}).get("figwidth", 8.0))
@@ -321,6 +352,7 @@ class PlotOptionsDialog(QDialog):
 
         figsize_layout.addWidget(QLabel("Height:"))
         self.figheight_spin = QDoubleSpinBox()
+        """Figure height input field"""
         self.figheight_spin.setRange(1.0, 50.0)
         self.figheight_spin.setSingleStep(0.5)
         self.figheight_spin.setValue(self.plot_config.get("plot_options", {}).get("figheight", 6.0))
@@ -331,6 +363,7 @@ class PlotOptionsDialog(QDialog):
 
         figsize_layout.addWidget(QLabel("DPI:"))
         self.dpi_spin = QSpinBox()
+        """Figure DPI input field"""
         self.dpi_spin.setRange(50, 600)
         self.dpi_spin.setSingleStep(50)
         self.dpi_spin.setValue(self.plot_config.get("plot_options", {}).get("dpi", 100))
@@ -349,6 +382,7 @@ class PlotOptionsDialog(QDialog):
         export_format_layout.setContentsMargins(0, 5, 0, 10)
         export_format_layout.addWidget(QLabel("File Format:"))
         self.export_format_combo = QComboBox()
+        """Export format selection combo box"""
         self.export_format_combo.addItems(["png", "pdf", "svg", "jpg", "eps"])
         current_format = self.plot_config.get("plot_options", {}).get("export_format", "png")
         format_idx = self.export_format_combo.findText(current_format)
@@ -376,6 +410,7 @@ class PlotOptionsDialog(QDialog):
 
         font_size_layout.addWidget(QLabel("Title:"))
         self.title_fontsize_spin = QSpinBox()
+        """Title font size input field"""
         self.title_fontsize_spin.setRange(6, 72)
         self.title_fontsize_spin.setValue(
             self.plot_config.get("plot_options", {}).get("title_fontsize", 12)
@@ -387,6 +422,7 @@ class PlotOptionsDialog(QDialog):
 
         font_size_layout.addWidget(QLabel("Axis Labels:"))
         self.axis_label_fontsize_spin = QSpinBox()
+        """Axis label font size input field"""
         self.axis_label_fontsize_spin.setRange(6, 72)
         self.axis_label_fontsize_spin.setValue(
             self.plot_config.get("plot_options", {}).get("axis_label_fontsize", 10)
@@ -398,6 +434,7 @@ class PlotOptionsDialog(QDialog):
 
         font_size_layout.addWidget(QLabel("Tick Labels:"))
         self.tick_fontsize_spin = QSpinBox()
+        """Tick label font size input field"""
         self.tick_fontsize_spin.setRange(6, 72)
         self.tick_fontsize_spin.setValue(
             self.plot_config.get("plot_options", {}).get("tick_fontsize", 9)
@@ -409,6 +446,7 @@ class PlotOptionsDialog(QDialog):
 
         font_size_layout.addWidget(QLabel("Legend:"))
         self.legend_fontsize_spin = QSpinBox()
+        """Legend font size input field"""
         self.legend_fontsize_spin.setRange(6, 72)
         self.legend_fontsize_spin.setValue(
             self.plot_config.get("plot_options", {}).get("legend_fontsize", 9)
@@ -429,6 +467,7 @@ class PlotOptionsDialog(QDialog):
         font_family_layout.setContentsMargins(0, 5, 0, 10)
         font_family_layout.addWidget(QLabel("Family:"))
         self.font_family_combo = QComboBox()
+        """Font family selection combo box"""
         self.font_family_combo.addItems(["serif", "sans-serif", "monospace", "cursive", "fantasy"])
         current_family = self.plot_config.get("plot_options", {}).get("font_family", "serif")
         family_idx = self.font_family_combo.findText(current_family)
@@ -624,6 +663,7 @@ class PlotOptionsDialog(QDialog):
 
         # Always define refline_widgets to avoid AttributeError
         self.refline_widgets: list = []
+        """Widgets for reference lines, updated dynamically when adding/removing lines"""
 
         def add_series_and_reflines_tabs() -> None:
             """Add the Series Styles and Reference Lines tabs for line/bar plots."""
@@ -748,10 +788,13 @@ class PlotOptionsDialog(QDialog):
 
         # Store filters and sort in dialog - use list() to create proper copies
         self.csv_filters = list(self.plot_config.get("csv_filters", []))
+        """List of CSV filter conditions"""
         self.csv_sort = list(self.plot_config.get("csv_sort", []))
+        """List of CSV sort conditions"""
 
         # Filter status display
         self.filter_status_label = QLabel(self._get_filter_status_text())
+        """Label showing the current filter status"""
         self.filter_status_label.setWordWrap(True)
         filters_sort_layout.addWidget(self.filter_status_label)
 
@@ -781,6 +824,7 @@ class PlotOptionsDialog(QDialog):
 
         # Sort status display
         self.sort_status_label = QLabel(self._get_sort_status_text())
+        """Label showing the current sort status"""
         self.sort_status_label.setWordWrap(True)
         filters_sort_layout.addWidget(self.sort_status_label)
 

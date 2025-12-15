@@ -19,6 +19,7 @@ class DropTreeView(QTreeView):
         """
         super().__init__(parent)
         self.viewer = viewer
+        """HDF5Viewer instance to forward drag-and-drop operations to"""
         self.setAcceptDrops(True)
 
     def dragEnterEvent(self, event):

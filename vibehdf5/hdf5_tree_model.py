@@ -30,9 +30,13 @@ class HDF5TreeModel(QStandardItemModel):
     COL_INFO = 1
     """Second column shows some info about the dataset/group/attribute"""
     ROLE_PATH = Qt.UserRole + 1
+    """HDF5 path to the item (for groups, datasets, and attributes)"""
     ROLE_KIND = Qt.UserRole + 2  # 'file', 'group', 'dataset', 'attr', 'attrs-folder'
+    """Kind of HDF5 item (for groups, datasets, and attributes)"""
     ROLE_ATTR_KEY = Qt.UserRole + 3
+    """Attribute key (for attributes)"""
     ROLE_CSV_EXPANDED = Qt.UserRole + 4  # True if CSV group's internal structure is shown
+    """CSV group's internal structure is shown if True (for CSV groups)"""
 
     def __init__(self, parent=None):
         """Initialize tree model."""
@@ -392,8 +396,12 @@ class HDF5TreeModel(QStandardItemModel):
         """Specify that we provide file URLs for drag-and-drop."""
         return ["text/uri-list"]
 
-    def mimeData(self, indexes):
-        """Create mime data containing a temporary file/folder with the dataset/group content."""
+    def mimeData(self, indexes: list[QStandardItemModel.index]) -> QMimeData:
+        """Create mime data containing a temporary file/folder with the dataset/group content.
+
+        Args:
+            indexes (list of QModelIndex): The selected model indexes.
+        """
         if not indexes:
             return None
 
@@ -488,10 +496,14 @@ class HDF5TreeModel(QStandardItemModel):
         except Exception:  # noqa: BLE001
             return None
 
-    def _save_dataset_to_file(self, ds, file_path):
+    def _save_dataset_to_file(self, ds: h5py.Dataset, file_path: str):
         """Save a single dataset to a file.
 
         Automatically decompresses gzip-compressed text datasets.
+
+        Args:
+            ds: HDF5 dataset to save
+            file_path: Path to the output file
         """
 
         # Read dataset content
@@ -550,8 +562,13 @@ class HDF5TreeModel(QStandardItemModel):
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(str(data))
 
-    def _extract_group_to_folder(self, group, folder_path):
-        """Recursively extract a group and its contents to a folder."""
+    def _extract_group_to_folder(self, group: h5py.Group, folder_path: str):
+        """Recursively extract a group and its contents to a folder.
+
+        Args:
+            group: HDF5 group to extract
+            folder_path: Path to the output folder
+        """
 
         # Iterate through all items in the group
         for name, obj in group.items():
@@ -567,6 +584,14 @@ class HDF5TreeModel(QStandardItemModel):
 
     @staticmethod
     def sanitize_hdf5_name(name: str) -> str:
+        """Sanitize a HDF5 name by replacing slashes with underscores.
+
+        Args:
+            name: HDF5 name to sanitize
+
+        Returns:
+            Sanitized name with slashes replaced by underscores
+        """
         try:
             s = (name or "").strip()
             s = s.replace("/", "_")
@@ -808,7 +833,12 @@ class HDF5TreeModel(QStandardItemModel):
 
     # Internal helpers
     def _add_group(self, group: h5py.Group, parent_item: QStandardItem) -> None:
-        """Recursively add a group and its children to the model."""
+        """Recursively add a group and its children to the model.
+
+        Args:
+            group (h5py.Group): The HDF5 group to add.
+            parent_item (QStandardItem): The parent item in the model to which the group will be added.
+        """
         # Check if this is a CSV-derived group
         is_csv_group = False
         try:
@@ -912,7 +942,11 @@ class HDF5TreeModel(QStandardItemModel):
                     parent_item.appendRow([unk_item, unk_info])
 
     def toggle_csv_group_expansion(self, item: QStandardItem) -> None:
-        """Toggle the expansion of a CSV group's internal structure and reload."""
+        """Toggle the expansion of a CSV group's internal structure and reload.
+
+        Args:
+            item (QStandardItem): The CSV group item to toggle.
+        """
         if item is None:
             return
 
@@ -945,7 +979,15 @@ class HDF5TreeModel(QStandardItemModel):
 
 
 def _value_preview(val, max_len: int = 80) -> str:
-    """Create a compact one-line preview for attribute values."""
+    """Create a compact one-line preview for attribute values.
+
+    Args:
+        val: The attribute value to preview.
+        max_len (int): Maximum length of the preview text. Defaults to 80 characters.
+
+    Returns:
+        A string preview of the attribute value.
+    """
     try:
         text = repr(val)
     except Exception:

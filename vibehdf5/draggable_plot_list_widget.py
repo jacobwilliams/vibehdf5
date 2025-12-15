@@ -24,6 +24,7 @@ class DraggablePlotListWidget(QListWidget):
         self.setDragEnabled(True)
         self.setDragDropMode(QAbstractItemView.DragOnly)
         self.parent_viewer = parent
+        """Reference to the parent HDF5Viewer instance"""
 
     def mimeData(self, items):
         """Create mime data for drag operation.
