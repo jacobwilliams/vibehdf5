@@ -1205,6 +1205,82 @@ LANGUAGE_PATTERNS = {
     },
     # Note: batch files use custom BatchHighlighter class for better variable highlighting
     "batch": {},
+    "makefile": {
+        "keywords": [
+            "include",
+            "ifeq",
+            "ifneq",
+            "ifdef",
+            "ifndef",
+            "else",
+            "endif",
+            "define",
+            "endef",
+            "export",
+            "unexport",
+            "override",
+            "private",
+            r"\.PHONY",
+            r"\.SUFFIXES",
+            r"\.DEFAULT",
+            r"\.PRECIOUS",
+            r"\.INTERMEDIATE",
+            r"\.SECONDARY",
+            r"\.DELETE_ON_ERROR",
+            r"\.IGNORE",
+            r"\.LOW_RESOLUTION_TIME",
+            r"\.SILENT",
+            r"\.EXPORT_ALL_VARIABLES",
+            r"\.NOTPARALLEL",
+            r"\.ONESHELL",
+            r"\.POSIX",
+        ],
+        "builtins": [
+            "subst",
+            "patsubst",
+            "strip",
+            "findstring",
+            "filter",
+            "filter-out",
+            "sort",
+            "word",
+            "wordlist",
+            "words",
+            "firstword",
+            "lastword",
+            "dir",
+            "notdir",
+            "suffix",
+            "basename",
+            "addsuffix",
+            "addprefix",
+            "join",
+            "wildcard",
+            "realpath",
+            "abspath",
+            "if",
+            "or",
+            "and",
+            "foreach",
+            "call",
+            "value",
+            "eval",
+            "origin",
+            "flavor",
+            "shell",
+            "error",
+            "warning",
+            "info",
+        ],
+        "function_pattern": r"\$\([A-Za-z_][A-Za-z0-9_-]*",  # Functions like $(wildcard ...) and variables $(VAR)
+        "number_pattern": r"\b[0-9]+\b",
+        "string_patterns": [
+            r'"[^"\\]*(\\.[^"\\]*)*"',  # Double quotes
+            r"'[^']*'",  # Single quotes
+        ],
+        "comment_patterns": [r"#[^\n]*"],
+        "operators": ["=", ":=", "::=", "?=", "+=", "!="],
+    },
     "naif_pck": {
         "keywords": [
             r"\\begintext",
@@ -1281,6 +1357,10 @@ EXTENSION_TO_LANGUAGE = {
     ".ksh": "bash",
     ".bat": "batch",
     ".cmd": "batch",
+    ".mk": "makefile",
+    "Makefile": "makefile",
+    "makefile": "makefile",
+    "GNUmakefile": "makefile",
     ".tf": "naif_pck",
     ".tls": "naif_pck",
     ".pc": "naif_pck",
@@ -1299,6 +1379,11 @@ def get_language_from_path(path: str) -> str:
     """
     if not path:
         return "plain"
+
+    # Check basename first for special files like "Makefile"
+    basename = os.path.basename(path)
+    if basename in EXTENSION_TO_LANGUAGE:
+        return EXTENSION_TO_LANGUAGE[basename]
 
     ext = os.path.splitext(path)[-1].lower()
 
