@@ -1,5 +1,5 @@
 """
-A simple tree model to display HDF5 file structure.
+A simple tree model to display storage file structure (HDF5, SQLite, etc.).
 """
 
 from __future__ import annotations
@@ -16,9 +16,13 @@ from qtpy.QtCore import QFileInfo, QMimeData, Qt, QUrl
 from qtpy.QtGui import QColor, QIcon, QPainter, QPixmap, QStandardItem, QStandardItemModel
 from qtpy.QtWidgets import QApplication, QFileIconProvider, QStyle
 
+from .backend_factory import create_backend
+from .backend_factory import create_backend
+from .backend_interface import StorageBackend
+
 
 class HDF5TreeModel(QStandardItemModel):
-    """A simple tree model to display HDF5 file structure.
+    """A tree model to display storage file structure (HDF5, SQLite, etc.).
 
     Columns:
     - Name: group/dataset/attribute name
@@ -30,13 +34,15 @@ class HDF5TreeModel(QStandardItemModel):
     COL_INFO = 1
     """Second column shows some info about the dataset/group/attribute"""
     ROLE_PATH = Qt.UserRole + 1
-    """HDF5 path to the item (for groups, datasets, and attributes)"""
+    """Path to the item (for groups, datasets, and attributes)"""
     ROLE_KIND = Qt.UserRole + 2  # 'file', 'group', 'dataset', 'attr', 'attrs-folder'
-    """Kind of HDF5 item (for groups, datasets, and attributes)"""
+    """Kind of item (for groups, datasets, and attributes)"""
     ROLE_ATTR_KEY = Qt.UserRole + 3
     """Attribute key (for attributes)"""
     ROLE_CSV_EXPANDED = Qt.UserRole + 4  # True if CSV group's internal structure is shown
     """CSV group's internal structure is shown if True (for CSV groups)"""
+    ROLE_SHOW_ATTRS = Qt.UserRole + 5  # True if attributes should be shown for this item
+    """Show attributes folder if True (for all items)"""
 
     def __init__(self, parent=None):
         """Initialize tree model."""
@@ -45,6 +51,7 @@ class HDF5TreeModel(QStandardItemModel):
         self._style = QApplication.instance().style() if QApplication.instance() else None
         self._icon_provider = QFileIconProvider()  # For system file icons
         self._filepath: str | None = None
+        self._backend: StorageBackend | None = None
         self._csv_filtered_indices = {}  # Dict mapping CSV group path to filtered row indices
         self._csv_visible_columns = {}  # Dict mapping CSV group path to list of visible column names
         self._csv_sort_specs = {}  # Dict mapping CSV group path to list of (column_name, ascending) tuples
@@ -120,18 +127,13 @@ class HDF5TreeModel(QStandardItemModel):
             parent_path = "/"
         new_path = f"{parent_path}/{new_name}" if parent_path != "/" else f"/{new_name}"
 
-        # Perform the rename in the HDF5 file
-        if not self._filepath:
+        # Perform the rename in the storage file
+        if not self._filepath or not self._backend:
             return False
 
         try:
-            with h5py.File(self._filepath, "r+") as h5:
-                # Check if new path already exists
-                if new_path in h5:
-                    return False
-
-                # Perform the move (rename)
-                h5.move(old_path, new_path)
+            # Use backend to rename
+            self._backend.rename_node(old_path, new_path)
 
             # Update the item
             item.setText(new_name)
@@ -291,14 +293,28 @@ class HDF5TreeModel(QStandardItemModel):
             return None
 
     def load_file(self, filepath: str) -> None:
-        """Load the HDF5 file and populate the model."""
+        """Load the storage file and populate the model."""
         self.clear()
         self.setHorizontalHeaderLabels(["Name", "Info"])  # reset headers after clear()
         self._filepath = filepath
 
+        # Close existing backend if any
+        if self._backend:
+            self._backend.close()
+
+        # Create and open new backend
+        self._backend = create_backend(filepath)
+        self._backend.open(filepath, "r+")
+
         root_name = filepath.split("/")[-1]
         root_item = QStandardItem(root_name)
-        info_item = QStandardItem("HDF5 file")
+
+        # Determine file type from extension
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext in (".db", ".sqlite", ".sqlite3"):
+            info_item = QStandardItem("SQLite database")
+        else:
+            info_item = QStandardItem("HDF5 file")
 
         if self._style:
             root_item.setIcon(self._style.standardIcon(QStyle.SP_DriveHDIcon))
@@ -307,13 +323,108 @@ class HDF5TreeModel(QStandardItemModel):
         root_item.setData("/", self.ROLE_PATH)
         root_item.setData("file", self.ROLE_KIND)
 
-        with h5py.File(filepath, "r") as h5:
-            self._add_group(h5, root_item)
+        # Load root children using backend
+        self._add_group_backend(root_item, "/")
+
+    def _add_group_backend(self, parent_item: QStandardItem, path: str) -> None:
+        """Recursively add a group and its children to the model using the backend.
+
+        Args:
+            parent_item: The parent item in the model
+            path: Path to the group
+        """
+        if not self._backend:
+            return
+
+        # Check if this is a CSV-derived group
+        is_csv_group = self._backend.is_csv_group(path)
+        csv_expanded = parent_item.data(self.ROLE_CSV_EXPANDED) or False
+
+        # Set icon for CSV groups based on expansion state
+        if is_csv_group and self._style:
+            attrs = self._backend.get_attributes(path)
+            has_attrs = len(attrs) > 0
+            if csv_expanded:
+                # Show folder icon when expanded
+                base_icon = self._style.standardIcon(QStyle.SP_DirIcon)
+                parent_item.setIcon(self._create_icon_with_indicator(base_icon, has_attrs))
+            else:
+                # Show table/dialog icon for collapsed CSV
+                base_icon = self._style.standardIcon(QStyle.SP_FileDialogDetailedView)
+                parent_item.setIcon(self._create_icon_with_indicator(base_icon, has_attrs))
+
+        # Child groups and datasets - only show if not CSV or if CSV is expanded
+        if not is_csv_group or csv_expanded:
+            children = self._backend.list_children(path)
+            for child_node in children:
+                if child_node.node_type in ("group", "csv-group"):
+                    g_item = QStandardItem(child_node.name)
+                    g_info = QStandardItem("group")
+                    if self._style:
+                        attrs = self._backend.get_attributes(child_node.path)
+                        has_attrs = len(attrs) > 0
+                        base_icon = self._style.standardIcon(QStyle.SP_DirIcon)
+                        g_item.setIcon(self._create_icon_with_indicator(base_icon, has_attrs))
+                    parent_item.appendRow([g_item, g_info])
+                    g_item.setData(child_node.path, self.ROLE_PATH)
+                    g_item.setData("group", self.ROLE_KIND)
+                    self._add_group_backend(g_item, child_node.path)
+
+                elif child_node.node_type == "dataset":
+                    d_item = QStandardItem(child_node.name)
+                    shape = child_node.shape if child_node.shape else "(scalar)"
+                    dtype = child_node.dtype if child_node.dtype else "unknown"
+                    d_info = QStandardItem(f"dataset | shape={shape} | dtype={dtype}")
+                    if self._style:
+                        attrs = self._backend.get_attributes(child_node.path)
+                        has_attrs = len(attrs) > 0
+                        icon_set = False
+
+                        # Try system icon for the file extension
+                        sys_icon = self._get_system_icon_for_extension(child_node.name, has_attrs)
+                        if sys_icon:
+                            d_item.setIcon(sys_icon)
+                            icon_set = True
+
+                        # Fallback to standard file icon
+                        if not icon_set:
+                            base_icon = self._style.standardIcon(QStyle.SP_FileIcon)
+                            d_item.setIcon(self._create_icon_with_indicator(base_icon, has_attrs))
+                    parent_item.appendRow([d_item, d_info])
+                    d_item.setData(child_node.path, self.ROLE_PATH)
+                    d_item.setData("dataset", self.ROLE_KIND)
+
+                    # Add attributes for this dataset if any
+                    attrs = self._backend.get_attributes(child_node.path)
+                    if len(attrs) > 0:
+                        attrs_item = QStandardItem("Attributes")
+                        attrs_info = QStandardItem(f"{len(attrs)} item(s)")
+                        if self._style:
+                            attrs_item.setIcon(self._style.standardIcon(QStyle.SP_DirIcon))
+                        d_item.appendRow([attrs_item, attrs_info])
+                        attrs_item.setData(child_node.path, self.ROLE_PATH)
+                        attrs_item.setData("attrs-folder", self.ROLE_KIND)
+
+                        for key, val in attrs.items():
+                            name_item = QStandardItem(str(key))
+                            value_preview = _value_preview(val)
+                            info_item = QStandardItem(f"attr = {value_preview}")
+                            if self._style:
+                                name_item.setIcon(self._style.standardIcon(QStyle.SP_MessageBoxInformation))
+                            attrs_item.appendRow([name_item, info_item])
+                            name_item.setData(child_node.path, self.ROLE_PATH)
+                            name_item.setData("attr", self.ROLE_KIND)
+                            name_item.setData(str(key), self.ROLE_ATTR_KEY)
 
     @property
     def filepath(self) -> str | None:
-        """Get the currently loaded HDF5 file path."""
+        """Get the currently loaded file path."""
         return self._filepath
+
+    @property
+    def backend(self) -> StorageBackend | None:
+        """Get the currently active backend."""
+        return self._backend
 
     def set_csv_filtered_indices(self, csv_group_path: str, indices: np.ndarray | None) -> None:
         """Set the filtered row indices for a CSV group.

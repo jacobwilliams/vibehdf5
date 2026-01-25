@@ -1293,6 +1293,11 @@ class HDF5Viewer(QMainWindow):
         self.act_new.setToolTip("Create a new empty HDF5 file (Ctrl+N)")
         self.act_new.triggered.connect(self.new_file_dialog)
 
+        self.act_new_sqlite = QAction("New SQLite Database…", self)
+        self.act_new_sqlite.setIcon(style.standardIcon(QStyle.SP_FileIcon))
+        self.act_new_sqlite.setToolTip("Create a new empty SQLite database file")
+        self.act_new_sqlite.triggered.connect(self.new_sqlite_file_dialog)
+
         self.act_open = QAction("Open HDF5…", self)
         self.act_open.setIcon(style.standardIcon(QStyle.SP_DirOpenIcon))
         self.act_open.setShortcut("Ctrl+O")
@@ -1449,6 +1454,7 @@ class HDF5Viewer(QMainWindow):
         # File menu
         file_menu = menubar.addMenu("&File")
         file_menu.addAction(self.act_new)
+        file_menu.addAction(self.act_new_sqlite)
         file_menu.addAction(self.act_open)
         file_menu.addSeparator()
 
@@ -1796,103 +1802,92 @@ class HDF5Viewer(QMainWindow):
     def _add_items_batch(
         self, files: list[str], folders: list[str], target_group: str
     ) -> tuple[int, list[str]]:
-        """Add multiple files and folders to the HDF5 archive in batch.
+        """Add multiple files and folders to the storage backend in batch.
 
         Args:
             files: List of file paths to add
             folders: List of folder paths to add recursively
-            target_group: HDF5 group path where items should be added
+            target_group: Storage group path where items should be added
 
         Returns:
             Tuple of (added_count, error_list) where added_count is number of successfully added items
             and error_list contains error messages for failed items
         """
-        fpath = self.model.filepath
-        if not fpath:
-            return 0, ["No HDF5 file loaded"]
+        backend = self.model.backend
+        if not backend:
+            return 0, ["No file loaded"]
+
         errors: list[str] = []
         added = 0
-        try:
-            with h5py.File(fpath, "r+") as h5:
-                # Final safety: never allow writing into a CSV-derived group
-                try:
-                    if (
-                        target_group
-                        and target_group != "/"
-                        and isinstance(h5[target_group], h5py.Group)
-                    ):
-                        grp = h5[target_group]
-                        if "source_type" in grp.attrs and grp.attrs["source_type"] == "csv":
-                            target_group = posixpath.dirname(target_group) or "/"
-                except Exception:  # noqa: BLE001
-                    pass
 
-                if target_group == "/":
-                    base_grp = h5
-                else:
-                    base_grp = h5.require_group(target_group)
-                for path_on_disk in files:
-                    name = os.path.basename(path_on_disk)
-                    if name in excluded_files:
-                        continue
-                    h5_path = (
-                        posixpath.join(target_group, name) if target_group != "/" else "/" + name
+        try:
+            # Final safety: never allow writing into a CSV-derived group
+            if target_group and target_group != "/" and backend.exists(target_group):
+                if backend.is_csv_group(target_group):
+                    target_group = posixpath.dirname(target_group) or "/"
+
+            # Import files
+            for path_on_disk in files:
+                name = os.path.basename(path_on_disk)
+                if name in excluded_files:
+                    continue
+                storage_path = (
+                    posixpath.join(target_group, name) if target_group != "/" else "/" + name
+                )
+                try:
+                    backend.import_file(path_on_disk, storage_path)
+                    added += 1
+                except FileExistsError:
+                    resp = QMessageBox.question(
+                        self,
+                        "Overwrite?",
+                        f"'{storage_path}' exists. Overwrite?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No,
                     )
-                    try:
-                        self._create_dataset_from_file(base_grp, h5_path, path_on_disk, np)
+                    if resp == QMessageBox.Yes:
+                        backend.delete_node(storage_path)
+                        backend.import_file(path_on_disk, storage_path)
                         added += 1
-                    except FileExistsError:
-                        resp = QMessageBox.question(
-                            self,
-                            "Overwrite?",
-                            f"'{h5_path}' exists. Overwrite?",
-                            QMessageBox.Yes | QMessageBox.No,
-                            QMessageBox.No,
-                        )
-                        if resp == QMessageBox.Yes:
-                            del h5[h5_path]
-                            self._create_dataset_from_file(base_grp, h5_path, path_on_disk, np)
-                            added += 1
-                    except Exception as exc:  # noqa: BLE001
-                        errors.append(f"{name}: {exc}")
-                for directory in folders:
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(f"{name}: {exc}")
+
+            # Import folders
+            for directory in folders:
+                try:
+                    folder_added, folder_errors = backend.import_folder(
+                        directory, target_group, excluded_dirs=excluded_dirs, excluded_files=excluded_files
+                    )
+                    added += folder_added
+                    errors.extend(folder_errors)
+                except FileExistsError as exc:
+                    # Folder already exists
                     base_name = os.path.basename(os.path.normpath(directory))
                     if target_group == "/":
-                        root_h5_group = "/" + base_name
+                        folder_path = "/" + base_name
                     else:
-                        root_h5_group = posixpath.join(target_group, base_name)
-                    for dirpath, dirnames, filenames in os.walk(directory):
-                        dirnames[:] = [d for d in dirnames if d not in excluded_dirs]
-                        rel = os.path.relpath(dirpath, directory)
-                        rel = "." if rel == "." else rel.replace("\\", "/")
-                        current_group_path = (
-                            root_h5_group if rel == "." else posixpath.join(root_h5_group, rel)
+                        folder_path = posixpath.join(target_group, base_name)
+
+                    resp = QMessageBox.question(
+                        self,
+                        "Overwrite?",
+                        f"Folder '{folder_path}' exists. Overwrite?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No,
+                    )
+                    if resp == QMessageBox.Yes:
+                        backend.delete_node(folder_path)
+                        folder_added, folder_errors = backend.import_folder(
+                            directory, target_group, excluded_dirs=excluded_dirs, excluded_files=excluded_files
                         )
-                        grp = h5.require_group(current_group_path)
-                        for filename in filenames:
-                            if filename in excluded_files:
-                                continue
-                            file_on_disk = os.path.join(dirpath, filename)
-                            h5_path = posixpath.join(current_group_path, filename)
-                            try:
-                                self._create_dataset_from_file(grp, h5_path, file_on_disk, np)
-                                added += 1
-                            except FileExistsError:
-                                resp = QMessageBox.question(
-                                    self,
-                                    "Overwrite?",
-                                    f"'{h5_path}' exists. Overwrite?",
-                                    QMessageBox.Yes | QMessageBox.No,
-                                    QMessageBox.No,
-                                )
-                                if resp == QMessageBox.Yes:
-                                    del h5[h5_path]
-                                    self._create_dataset_from_file(grp, h5_path, file_on_disk, np)
-                                    added += 1
-                            except Exception as exc:  # noqa: BLE001
-                                errors.append(f"{h5_path}: {exc}")
+                        added += folder_added
+                        errors.extend(folder_errors)
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(f"{directory}: {exc}")
+
         except Exception as exc:  # noqa: BLE001
             return 0, [str(exc)]
+
         return added, errors
 
     def _create_dataset_from_file(self, grp, h5_path: str, disk_path: str, np) -> None:
@@ -2087,20 +2082,25 @@ class HDF5Viewer(QMainWindow):
         progress.close()
 
     def new_file_dialog(self) -> None:
-        """Create a new HDF5 file."""
+        """Create a new storage file (HDF5 or SQLite)."""
         last_dir = os.getcwd()
-        filepath, _ = QFileDialog.getSaveFileName(
+        filepath, selected_filter = QFileDialog.getSaveFileName(
             self,
-            "Create New HDF5 File",
+            "Create New File",
             last_dir,
-            "HDF5 Files (*.h5 *.hdf5);;All Files (*)",
+            "HDF5 Files (*.h5 *.hdf5);;SQLite Database (*.db *.sqlite *.sqlite3);;All Files (*)",
         )
         if not filepath:
             return
 
-        # Add .h5 extension if no extension provided
-        if not filepath.endswith((".h5", ".hdf5")):
-            filepath += ".h5"
+        # Add appropriate extension if none provided
+        ext = os.path.splitext(filepath)[1].lower()
+        if not ext:
+            # Determine extension from selected filter
+            if "SQLite" in selected_filter:
+                filepath += ".db"
+            else:
+                filepath += ".h5"
 
         # Check if file already exists
         if os.path.exists(filepath):
@@ -2115,39 +2115,89 @@ class HDF5Viewer(QMainWindow):
                 return
 
         try:
-            # Create a new empty HDF5 file
-            with h5py.File(filepath, "w"):
-                # Create an empty file with a root group
-                pass
+            # Create a new empty file using the backend
+            from .backend_factory import create_backend
+            backend = create_backend(filepath)
+            backend.create(filepath)
+            backend.close()
 
             # Load the newly created file
             self.load_hdf5(filepath)
-            self.statusBar().showMessage(f"Created new HDF5 file: {filepath}", 5000)
+            self.statusBar().showMessage(f"Created new file: {filepath}", 5000)
             self._update_file_size_display()
         except Exception as exc:
             QMessageBox.critical(
                 self,
                 "Failed to create file",
-                f"Could not create HDF5 file:\n{filepath}\n\n{exc}",
+                f"Could not create file:\n{filepath}\n\n{exc}",
+            )
+
+    def new_sqlite_file_dialog(self) -> None:
+        """Create a new SQLite database file."""
+        last_dir = os.getcwd()
+        filepath, _ = QFileDialog.getSaveFileName(
+            self,
+            "Create New SQLite Database",
+            last_dir,
+            "SQLite Database (*.db *.sqlite *.sqlite3);;All Files (*)",
+        )
+        if not filepath:
+            return
+
+        # Add .db extension if no extension provided
+        ext = os.path.splitext(filepath)[1].lower()
+        if not ext:
+            filepath += ".db"
+
+        # Check if file already exists
+        if os.path.exists(filepath):
+            resp = QMessageBox.question(
+                self,
+                "File exists",
+                f"File '{filepath}' already exists. Overwrite?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if resp != QMessageBox.Yes:
+                return
+
+        try:
+            # Create a new empty SQLite database using the backend
+            from .backend_factory import create_backend
+            backend = create_backend(filepath, "sqlite")
+            backend.create(filepath)
+            backend.close()
+
+            # Load the newly created file
+            self.load_hdf5(filepath)
+            self.statusBar().showMessage(f"Created new SQLite database: {filepath}", 5000)
+            self._update_file_size_display()
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()  # Print full traceback for debugging
+            QMessageBox.critical(
+                self,
+                "Failed to create database",
+                f"Could not create SQLite database:\n{filepath}\n\n{exc}",
             )
 
     def open_file_dialog(self) -> None:
-        """Open a file selection dialog to open an existing HDF5 file."""
+        """Open a file selection dialog to open an existing storage file."""
         last_dir = os.getcwd()
         filepath, _ = QFileDialog.getOpenFileName(
             self,
-            "Open HDF5 File",
+            "Open File",
             last_dir,
-            "HDF5 Files (*.h5 *.hdf5);;All Files (*)",
+            "All Supported (*.h5 *.hdf5 *.db *.sqlite *.sqlite3);;HDF5 Files (*.h5 *.hdf5);;SQLite Database (*.db *.sqlite *.sqlite3);;All Files (*)",
         )
         if filepath:
             self.load_hdf5(filepath)
 
     def load_hdf5(self, path: str | Path) -> None:
-        """Load an HDF5 file for viewing and editing.
+        """Load a storage file (HDF5 or SQLite) for viewing and editing.
 
         Args:
-            path: Path to the HDF5 file to load
+            path: Path to the storage file to load
         """
         path = str(path)
         try:
@@ -2155,7 +2205,7 @@ class HDF5Viewer(QMainWindow):
         except Exception as exc:  # show friendly error dialog
             QMessageBox.critical(
                 self,
-                "Failed to open HDF5",
+                "Failed to open file",
                 f"Could not open file:\n{path}\n\n{exc}",
             )
             return
@@ -3775,10 +3825,10 @@ class HDF5Viewer(QMainWindow):
             )
 
     def preview_dataset(self, dspath: str) -> None:
-        """Preview an HDF5 dataset in the preview pane.
+        """Preview a dataset in the preview pane.
 
         Args:
-            dspath: HDF5 path to the dataset
+            dspath: Path to the dataset
         """
         # Clear plot display and saved plots when viewing a dataset
         self._current_csv_group_path = None
@@ -3787,13 +3837,30 @@ class HDF5Viewer(QMainWindow):
         self._clear_plot_display()
 
         self.preview_label.setText(f"Dataset: {os.path.basename(dspath)}")
-        fpath = self.model.filepath
-        if not fpath:
+        backend = self.model.backend
+        if not backend:
             self._set_preview_text("No file loaded")
             self.preview_edit.setVisible(True)
             self.preview_image.setVisible(False)
             self._hide_attributes()
             return
+
+        # Check if path exists and is a dataset
+        if not backend.exists(dspath):
+            self._set_preview_text("Dataset not found")
+            self.preview_edit.setVisible(True)
+            self.preview_image.setVisible(False)
+            self._hide_attributes()
+            return
+
+        node = backend.get_node(dspath)
+        if node.node_type != "dataset":
+            self._set_preview_text("Selected path is not a dataset.")
+            self.preview_edit.setVisible(True)
+            self.preview_image.setVisible(False)
+            self._hide_attributes()
+            return
+
         # If the dataset name is an image format, try to display as image
         image_extensions = (
             ".png",
@@ -3808,40 +3875,23 @@ class HDF5Viewer(QMainWindow):
         )
         if dspath.lower().endswith(image_extensions):
             try:
-                with h5py.File(fpath, "r") as h5:
-                    obj = h5[dspath]
-                    if not isinstance(obj, h5py.Dataset):
-                        self._set_preview_text("Selected path is not a dataset.")
-                        self.preview_edit.setVisible(True)
-                        self.preview_image.setVisible(False)
-                        self._hide_attributes()
-                        return
-                    # Read raw bytes from dataset
-                    data = obj[()]
+                # Read dataset data
+                data = backend.read_dataset(dspath)
+                attrs = backend.get_attributes(dspath)
 
-                    # Check if this is compressed binary data
-                    if "compressed" in obj.attrs and obj.attrs["compressed"] == "gzip":
-                        encoding = obj.attrs.get("original_encoding", "utf-8")
-                        if isinstance(encoding, bytes):
-                            encoding = encoding.decode("utf-8")
-                        if (
-                            encoding == "binary"
-                            and isinstance(data, np.ndarray)
-                            and data.dtype == np.uint8
-                        ):
-                            # Decompress the binary data
-                            compressed_bytes = data.tobytes()
-                            img_bytes = gzip.decompress(compressed_bytes)
-                        elif isinstance(data, bytes):
-                            img_bytes = data
-                        elif hasattr(data, "tobytes"):
-                            img_bytes = data.tobytes()
-                        else:
-                            self._set_preview_text("Dataset is not a valid image byte array.")
-                            self.preview_edit.setVisible(True)
-                            self.preview_image.setVisible(False)
-                            self._hide_attributes()
-                            return
+                # Check if this is compressed binary data
+                if "compressed" in attrs and attrs["compressed"] == "gzip":
+                    encoding = attrs.get("original_encoding", "utf-8")
+                    if isinstance(encoding, bytes):
+                        encoding = encoding.decode("utf-8")
+                    if (
+                        encoding == "binary"
+                        and isinstance(data, np.ndarray)
+                        and data.dtype == np.uint8
+                    ):
+                        # Decompress the binary data
+                        compressed_bytes = data.tobytes()
+                        img_bytes = gzip.decompress(compressed_bytes)
                     elif isinstance(data, bytes):
                         img_bytes = data
                     elif hasattr(data, "tobytes"):
@@ -3852,51 +3902,58 @@ class HDF5Viewer(QMainWindow):
                         self.preview_image.setVisible(False)
                         self._hide_attributes()
                         return
-                    pixmap = QPixmap()
-                    # QPixmap.loadFromData will auto-detect the format
-                    if pixmap.loadFromData(img_bytes):
-                        # Scale pixmap to fit preview area, maintaining aspect ratio
-                        self._show_scaled_image(pixmap)
-                        self.preview_image.setVisible(True)
-                        self.preview_edit.setVisible(False)
-                        self.preview_table.setVisible(False)
-                        self.filter_panel.setVisible(False)
-                        # Show attributes for the dataset
-                        self._show_attributes(obj)
-                    else:
-                        self._set_preview_text("Failed to load image from dataset.")
-                        self.preview_edit.setVisible(True)
-                        self.preview_image.setVisible(False)
-                        self._hide_attributes()
+                elif isinstance(data, bytes):
+                    img_bytes = data
+                elif hasattr(data, "tobytes"):
+                    img_bytes = data.tobytes()
+                else:
+                    self._set_preview_text("Dataset is not a valid image byte array.")
+                    self.preview_edit.setVisible(True)
+                    self.preview_image.setVisible(False)
+                    self._hide_attributes()
+                    return
+
+                pixmap = QPixmap()
+                # QPixmap.loadFromData will auto-detect the format
+                if pixmap.loadFromData(img_bytes):
+                    # Scale pixmap to fit preview area, maintaining aspect ratio
+                    self._show_scaled_image(pixmap)
+                    self.preview_image.setVisible(True)
+                    self.preview_edit.setVisible(False)
+                    self.preview_table.setVisible(False)
+                    self.filter_panel.setVisible(False)
+                    # Show attributes for the dataset
+                    self._show_attributes_dict(dspath, attrs)
+                else:
+                    self._set_preview_text("Failed to load image from dataset.")
+                    self.preview_edit.setVisible(True)
+                    self.preview_image.setVisible(False)
+                    self._hide_attributes()
             except Exception as exc:
                 self._set_preview_text(f"Error reading image dataset:\n{exc}")
                 self.preview_edit.setVisible(True)
                 self.preview_image.setVisible(False)
                 self._hide_attributes()
             return
+
         # Otherwise, show text preview for non-image datasets
         try:
-            with h5py.File(fpath, "r") as h5:
-                obj = h5[dspath]
-                if not isinstance(obj, h5py.Dataset):
-                    self._set_preview_text("Selected path is not a dataset.")
-                    self.preview_edit.setVisible(True)
-                    self.preview_image.setVisible(False)
-                    self._hide_attributes()
-                    return
-                ds = obj
-                text, note = dataset_to_text(ds, limit_bytes=1_000_000)
-                if note:
-                    note = note.strip("()")  # Remove parentheses from note
-                    # add the note after the file name:
-                    self.preview_label.setText(f"Dataset: {os.path.basename(dspath)} ({note})")
-                # Apply syntax highlighting based on file extension
-                language = get_language_from_path(dspath)
-                self._set_preview_text(text=text, language=language)
-                self.preview_edit.setVisible(True)
-                self.preview_image.setVisible(False)
-                # Show attributes for the dataset
-                self._show_attributes(ds)
+            data = backend.read_dataset(dspath)
+            attrs = backend.get_attributes(dspath)
+            text, note = self._dataset_data_to_text(data, attrs, limit_bytes=1_000_000)
+
+            if note:
+                note = note.strip("()")  # Remove parentheses from note
+                # add the note after the file name:
+                self.preview_label.setText(f"Dataset: {os.path.basename(dspath)} ({note})")
+
+            # Apply syntax highlighting based on file extension
+            language = get_language_from_path(dspath)
+            self._set_preview_text(text=text, language=language)
+            self.preview_edit.setVisible(True)
+            self.preview_image.setVisible(False)
+            # Show attributes for the dataset
+            self._show_attributes_dict(dspath, attrs)
         except Exception as exc:
             self._set_preview_text(f"Error reading dataset:\n{exc}")
             self.preview_edit.setVisible(True)
@@ -3992,6 +4049,162 @@ class HDF5Viewer(QMainWindow):
     def _hide_attributes(self) -> None:
         """Hide the attributes table."""
         self.attrs_table.setRowCount(0)
+
+    def _show_attributes_dict(self, path: str, attrs: dict[str, Any]) -> None:
+        """Display attributes from a dictionary in the attributes table.
+
+        Args:
+            path: Path to the node (for context)
+            attrs: Dictionary of attributes
+        """
+        try:
+            if attrs:
+                self.attrs_table.setRowCount(len(attrs))
+                for row, (key, value) in enumerate(attrs.items()):
+                    # Attribute name
+                    name_item = QTableWidgetItem(str(key))
+                    self.attrs_table.setItem(row, 0, name_item)
+                    # Attribute value (convert to string)
+                    try:
+                        if isinstance(value, (np.ndarray, list, tuple)):
+                            # For arrays/lists, show truncated representation
+                            value_str = repr(value)
+                            if len(value_str) > 200:
+                                value_str = value_str[:200] + "..."
+                        else:
+                            value_str = str(value)
+                    except Exception:  # noqa: BLE001
+                        value_str = repr(value)
+                    value_item = QTableWidgetItem(value_str)
+                    self.attrs_table.setItem(row, 1, value_item)
+                # Resize columns to content
+                self.attrs_table.resizeColumnsToContents()
+            else:
+                # No attributes, clear the table
+                self.attrs_table.setRowCount(0)
+        except Exception:  # noqa: BLE001
+            # If there's an error, just clear the attributes table
+            self.attrs_table.setRowCount(0)
+
+    def _dataset_data_to_text(
+        self, data: Any, attrs: dict[str, Any], limit_bytes: int = 1_000_000
+    ) -> tuple[str, str | None]:
+        """Convert dataset data to text representation.
+
+        This is similar to utilities.dataset_to_text but works with raw data
+        instead of h5py Dataset objects.
+
+        Args:
+            data: Dataset data (numpy array, bytes, etc.)
+            attrs: Dataset attributes dictionary
+            limit_bytes: Maximum bytes to preview
+
+        Returns:
+            Tuple of (text, note) where note is optional
+        """
+        note = None
+
+        # Check if this is a gzip-compressed dataset
+        try:
+            if "compressed" in attrs and attrs["compressed"] == "gzip":
+                if isinstance(data, np.ndarray) and data.dtype == np.uint8:
+                    compressed_bytes = data.tobytes()
+                    decompressed = gzip.decompress(compressed_bytes)
+                    encoding = attrs.get("original_encoding", "utf-8")
+                    if isinstance(encoding, bytes):
+                        encoding = encoding.decode("utf-8")
+                    # Check if this is binary data
+                    if encoding == "binary":
+                        # Return decompressed binary data for further processing
+                        return self._bytes_to_text(decompressed, limit_bytes, decompressed=True)
+                    # Otherwise it's text
+                    text = decompressed.decode(encoding)
+                    if len(text) > limit_bytes:
+                        text = text[:limit_bytes] + "\n… (truncated)"
+                        note = f"Preview limited to {limit_bytes} characters (decompressed)"
+                    else:
+                        note = "(decompressed from gzip)"
+                    return text, note
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Convert to bytes if it's an array of fixed-length ASCII (S) blocks
+        if isinstance(data, np.ndarray) and data.dtype.kind == "S":
+            try:
+                # Flatten and join bytes chunks
+                b = b"".join(x.tobytes() if hasattr(x, "tobytes") else bytes(x) for x in data.ravel())
+            except Exception:
+                b = data.tobytes()
+            return self._bytes_to_text(b, limit_bytes)
+
+        # Raw bytes
+        if isinstance(data, (bytes, bytearray, np.void)):
+            return self._bytes_to_text(bytes(data), limit_bytes)
+
+        # Numeric or other arrays: show a compact preview
+        if isinstance(data, np.ndarray):
+            flat = data.ravel()
+            preview_count = min(2000, flat.size)
+            text = np.array2string(flat[:preview_count], threshold=preview_count)
+            note = None
+            if flat.size > preview_count:
+                note = f"Showing first {preview_count} elements out of {flat.size}"
+            return text, note
+
+        # Fallback to repr
+        t = repr(data)
+        if len(t) > 200_000:
+            t = t[:200_000] + "… (truncated)"
+            note = "Preview truncated"
+        return t, note
+
+    def _bytes_to_text(
+        self, b: bytes, limit_bytes: int = 1_000_000, decompressed: bool = False
+    ) -> tuple[str, str | None]:
+        """Convert bytes to text representation.
+
+        Args:
+            b: Bytes to convert
+            limit_bytes: Maximum bytes to preview
+            decompressed: Whether bytes were decompressed
+
+        Returns:
+            Tuple of (text, note) where note is optional
+        """
+        note = None
+        if decompressed:
+            note = "(decompressed from gzip)"
+
+        # Truncate if necessary
+        if len(b) > limit_bytes:
+            b = b[:limit_bytes]
+            if note:
+                note = f"Preview limited to {limit_bytes} bytes (decompressed)"
+            else:
+                note = f"Preview limited to {limit_bytes} bytes"
+
+        # Try to decode as UTF-8
+        try:
+            text = b.decode("utf-8")
+            return text, note
+        except UnicodeDecodeError:
+            pass
+
+        # Fallback to hex preview
+        hex_str = b.hex(" ", 16)  # space every 16 bytes
+        lines = [hex_str[i:i+48] for i in range(0, len(hex_str), 48)]  # 48 chars per line
+        text = "\n".join(lines[:100])  # Show first 100 lines
+        if len(lines) > 100:
+            if note:
+                note = f"{note}, showing first 100 lines of hex"
+            else:
+                note = "Binary data (showing first 100 lines of hex)"
+        else:
+            if note:
+                note = f"{note}, binary data in hex"
+            else:
+                note = "Binary data in hex"
+        return text, note
 
     def _show_scaled_image(self, pixmap=None):
         """Display a scaled image in the preview pane.
